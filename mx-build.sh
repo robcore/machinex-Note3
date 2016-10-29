@@ -1,7 +1,32 @@
 #!/bin/bash
 export PATH=/opt/toolchains/arm-cortex_a15-linux-gnueabihf_5.3/bin:$PATH
+# kernel build script for Samsung Galaxy Note 3.
+#
+# Originally written by jcadduono @ xda
+#
+# Updated by frequentc @ xda
+# - Modified to support command line arguments
+# - Made script more generic and customizable
+# - Other minor changes
+#
+# Updated by robcore
+# -really just specific stuff for my needs
 
+################### BEFORE STARTING ################
+#
+# download a working toolchain and extract it somewhere and configure this file
+# to point to the toolchain's root directory.
+# I highly recommend Christopher83's Linaro GCC 4.9.x Cortex-A15 toolchain.
+# Download it here: http://forum.xda-developers.com/showthread.php?t=2098133
+#
+# once you've set up the config section how you like it, you can simply run
+# ./dl-build.sh
+#
+###################### CONFIG ######################
+
+# root directory of kernel's git repo (default is this script's location)
 RDIR=$(pwd)
+
 [ -z $VARIANT ] && \
 # device variant/carrier, possible options:
 #	can = N900W8	(Canadian, same as T-Mobile)
@@ -108,7 +133,7 @@ BUILD_RAMDISK()
 	cd $RDIR
 	rm -rf build/ramdisk 2>/dev/null
 	mkdir -p build/ramdisk
-	cp -ar ${RAMDISK_FOLDER}/* build/ramdisk
+	cp -ar ${RAMDISK_FOLDER}/variant/$VARIANT/* build/ramdisk
 	echo "Building ramdisk.img..."
 	cd $RDIR/build/ramdisk
 	mkdir -pm 755 dev proc sys system
