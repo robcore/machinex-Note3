@@ -70,8 +70,8 @@ KERNEL_AUTHOR=robcore
 
 RAMDISK_FOLDER=${FILE_PREFIX}.ramdisk
 ZIP_FOLDER=${FILE_PREFIX}.zip
-DEFCONFIG=${FILE_PREFIX}config
-VARIANT_DEFCONFIG=${FILE_PREFIX}config
+DEFCONFIG=mxconfig
+VARIANT_DEFCONFIG=mxconfig
 
 export ARCH=arm
 export CROSS_COMPILE=/opt/toolchains/arm-cortex_a15-linux-gnueabihf_5.3/bin/arm-cortex_a15-linux-gnueabihf-
@@ -83,8 +83,8 @@ if [ ! -f $RDIR"/arch/arm/configs/${VARIANT_DEFCONFIG}" ] ; then
 	exit -1
 fi
 
-if ! [ ! -d $RDIR/${RAMDISK_FOLDER}/variant/$VARIANT/ ] ; then
-	echo "Device variant/carrier $VARIANT not found in ${RAMDISK_FOLDER}/variant!"
+if [ ! -d $RDIR/${RAMDISK_FOLDER} ] ; then
+	echo "${RAMDISK_FOLDER} not found!"
 	exit -1
 fi
 
@@ -133,7 +133,7 @@ BUILD_RAMDISK()
 	cd $RDIR
 	rm -rf build/ramdisk 2>/dev/null
 	mkdir -p build/ramdisk
-	cp -ar ${RAMDISK_FOLDER}/variant/$VARIANT/* build/ramdisk
+	cp -ar ${RAMDISK_FOLDER}/* build/ramdisk
 	echo "Building ramdisk.img..."
 	cd $RDIR/build/ramdisk
 	mkdir -pm 755 dev proc sys system
@@ -174,7 +174,7 @@ CREATE_ZIP()
 CREATE_TAR()
 {
 	if [ $MAKE_TAR != 1 ]; then return; fi
-	
+
 	echo "Compressing to Odin flashable tar.md5 file..."
 	cd $RDIR/${ZIP_FOLDER}
 	tar -H ustar -c boot.img > $OUT_DIR/$OUT_NAME.tar
@@ -198,7 +198,7 @@ Common options:
   -c|--clean		Remove everything this build script has done
   -k|--kernel		Try the build again starting at compiling the kernel
   -r|--ramdisk		Try the build again starting at the ramdisk
- 
+
 Other options that only complete 1 part of the build:
  -ko|--kernel-only	Recompile only the kernel
 
@@ -241,12 +241,12 @@ while [[ $# > 0 ]]
 		fi
 		break
 	    	;;
-	    
+
 	     -c|--clean)
 	    	CLEAN_BUILD
 	    	break
 	    	;;
-	    
+
 	     -k|--kernel)
 	    	if ! BUILD_KERNEL_CONTINUE; then
 			echo "Failed!"
@@ -256,7 +256,7 @@ while [[ $# > 0 ]]
 		fi
 	    	break
 	    	;;
-	    
+
 	    -ko|--kernel-only)
 	    	if ! BUILD_KERNEL; then
 			echo "Failed!"
@@ -266,7 +266,7 @@ while [[ $# > 0 ]]
 		fi
 	    	break
 	    	;;
-	    
+
 	     -r|--ramdisk)
 	     	if ! BUILD_RAMDISK_CONTINUE; then
 			echo "Failed!"
@@ -276,7 +276,7 @@ while [[ $# > 0 ]]
 		fi
 	    	break
 	    	;;
-	    
+
 	    *)
 	    	SHOW_HELP
 	    	break;
