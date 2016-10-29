@@ -90,6 +90,13 @@ fi
 
 KDIR=$RDIR/build/arch/arm/boot
 
+CLEAN_MAKE()
+{
+	make clean;
+	make distclean;
+	make mrproper;
+}
+
 CLEAN_BUILD()
 {
 	echo "Cleaning build..."
@@ -110,9 +117,6 @@ CLEAN_BUILD()
 	echo "Removing old scripts/mkqcdtbootimg/mkqcdtbootimg..."
 	make -C $RDIR/scripts/mkqcdtbootimg clean
 	rm -rf $RDIR/scripts/mkqcdtbootimg/mkqcdtbootimg 2>/dev/null
-	make clean;
-	make distclean;
-	make mrproper;
 }
 
 BUILD_KERNEL_CONFIG()
@@ -199,6 +203,7 @@ usage: ./$SCRIPT_NAME [OPTION]
 Common options:
   -a|--all		Do a complete build (starting at the beginning)
   -c|--clean		Remove everything this build script has done
+  -m|--clean_make	Perform make proper|clean|distclean in one sweep
   -k|--kernel		Try the build again starting at compiling the kernel
   -r|--ramdisk		Try the build again starting at the ramdisk
 
@@ -247,6 +252,11 @@ while [[ $# > 0 ]]
 
 	     -c|--clean)
 	    	CLEAN_BUILD
+	    	break
+	    	;;
+
+	     -m|--clean_make)
+	    	CLEAN_MAKE
 	    	break
 	    	;;
 
