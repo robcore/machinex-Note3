@@ -13,7 +13,7 @@
 #include <linux/uaccess.h>
 #include <linux/debugfs.h>
 #define CREATE_TRACE_POINTS
-#include #include <mach/perf_trace_counters.h>
+#include <mach/perf_trace_counters.h>
 
 static unsigned int tp_pid_state;
 

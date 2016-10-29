@@ -301,6 +301,10 @@ int msm_isp_axi_check_stream_state(
 	enum msm_vfe_axi_state valid_state =
 		(stream_cfg_cmd->cmd == START_STREAM) ? INACTIVE : ACTIVE;
 
+	if (stream_cfg_cmd->num_streams > MAX_NUM_STREAM) {
+		return -EINVAL;
+	}
+
 	for (i = 0; i < stream_cfg_cmd->num_streams; i++) {
 		stream_info = &axi_data->stream_info[
 			HANDLE_TO_IDX(stream_cfg_cmd->stream_handle[i])];
@@ -826,6 +830,11 @@ void msm_isp_update_camif_output_count(
 	int i;
 	struct msm_vfe_axi_stream *stream_info;
 	struct msm_vfe_axi_shared_data *axi_data = &vfe_dev->axi_data;
+
+	if (stream_cfg_cmd->num_streams > MAX_NUM_STREAM) {
+		return;
+	}
+
 	for (i = 0; i < stream_cfg_cmd->num_streams; i++) {
 		stream_info =
 			&axi_data->stream_info[
@@ -1006,6 +1015,11 @@ static int msm_isp_start_axi_stream(struct vfe_device *vfe_dev,
 	uint32_t wm_reload_mask = 0x0;
 	struct msm_vfe_axi_stream *stream_info;
 	struct msm_vfe_axi_shared_data *axi_data = &vfe_dev->axi_data;
+
+	if (stream_cfg_cmd->num_streams > MAX_NUM_STREAM) {
+		return -EINVAL;
+	}
+
 	for (i = 0; i < stream_cfg_cmd->num_streams; i++) {
 		stream_info = &axi_data->stream_info[
 			HANDLE_TO_IDX(stream_cfg_cmd->stream_handle[i])];
@@ -1058,6 +1072,11 @@ static int msm_isp_stop_axi_stream(struct vfe_device *vfe_dev,
 	int i, rc = 0;
 	struct msm_vfe_axi_stream *stream_info;
 	struct msm_vfe_axi_shared_data *axi_data = &vfe_dev->axi_data;
+
+	if (stream_cfg_cmd->num_streams > MAX_NUM_STREAM) {
+		return -EINVAL;
+	}
+
 	for (i = 0; i < stream_cfg_cmd->num_streams; i++) {
 		stream_info = &axi_data->stream_info[
 			HANDLE_TO_IDX(stream_cfg_cmd->stream_handle[i])];
@@ -1135,6 +1154,11 @@ int msm_isp_update_axi_stream(struct vfe_device *vfe_dev, void *arg)
 		atomic_read(&axi_data->axi_cfg_update)) {
 		pr_err("%s: AXI stream config updating\n", __func__);
 		return -EBUSY;
+	}
+
+	/*num_stream is uint32 and update_info[] bound by MAX_NUM_STREAM*/
+	if (update_cmd->num_streams > MAX_NUM_STREAM) {
+		return -EINVAL;
 	}
 
 	for (i = 0; i < update_cmd->num_streams; i++) {

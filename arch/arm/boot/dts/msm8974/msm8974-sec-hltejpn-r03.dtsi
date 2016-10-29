@@ -19,7 +19,6 @@
 	aliases {
 		serial0 = &blsp1_uart1;
 		spi11 = &spi_11;
-		spi2 = &spi_2;
 	};
 };
 
@@ -453,11 +452,6 @@
 			fuelgauge,type_str = "SDI";
 			qcom,sec-fuelgauge-vadc = <&pm8941_vadc>;
 		};
-	};
-
-	/* BLSP#3 */
-	i2c@f9925000 {
-		status = "disabled";
 	};
 
 	aliases {

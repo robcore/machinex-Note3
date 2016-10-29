@@ -19,7 +19,6 @@
 	aliases {
 		serial0 = &blsp1_uart1;
 		spi11 = &spi_11;
-		spi2 = &spi_2;
 	};
 };
 
@@ -293,11 +292,6 @@
 	/* BLSP#1 */
 	spi@f9923000 {
 		status = "okay";
-	};
-
-	/* BLSP#3 */
-	i2c@f9925000 {
-		status = "disabled";
 	};
 
 	aliases {
