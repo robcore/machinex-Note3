@@ -79,7 +79,7 @@ export LOCALVERSION=$KERNEL_VERSION
 env KCONFIG_NOTIMESTAMP=true
 
 if [ ! -f $RDIR"/arch/arm/configs/${VARIANT_DEFCONFIG}" ] ; then
-	echo "Device variant/carrier $VARIANT not found in arm configs!"
+	echo "Device ${VARIANT_DEFCONFIG} not found in arm configs!"
 	exit -1
 fi
 
@@ -117,14 +117,14 @@ BUILD_KERNEL_CONFIG()
 	echo "Creating kernel config..."
 	cd $RDIR
 	mkdir -p build
-	make -C $RDIR O=build ${DEFCONFIG} \
-		VARIANT_DEFCONFIG=${VARIANT_DEFCONFIG}
+	cp $(pwd)/arch/arm/configs/mxconfig $(pwd)/build/.config
+	make ARCH=arm -C $RDIR O=build -j6 oldconfig
 }
 
 BUILD_KERNEL()
 {
 	echo "Starting build..."
-	make -C $RDIR O=build -j"$THREADS"
+	make ARCH=arm -S -s -C $RDIR O=build -j6
 }
 
 BUILD_RAMDISK()
