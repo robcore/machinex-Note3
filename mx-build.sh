@@ -110,6 +110,9 @@ CLEAN_BUILD()
 	echo "Removing old scripts/mkqcdtbootimg/mkqcdtbootimg..."
 	make -C $RDIR/scripts/mkqcdtbootimg clean
 	rm -rf $RDIR/scripts/mkqcdtbootimg/mkqcdtbootimg 2>/dev/null
+	make clean;
+	make distclean;
+	make mrproper;
 }
 
 BUILD_KERNEL_CONFIG()

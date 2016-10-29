@@ -33,7 +33,7 @@ config TOUCHSCREEN_MMS252
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called melfas-ts.
-	  
+
 config TOUCHSCREEN_MMS300
 	tristate "MELFAS MMS300 touchscreen driver"
 	depends on I2C
@@ -593,6 +593,7 @@ config TOUCHSCREEN_CYPRESS_CYTTSP4
 	  Say Y here if you want support for cypress TMA445 touchscreen controllers.
 	  To compile this driver as a module, choose M here: the
 	  module will be called mxt1188s
+
 config TOUCHSCREEN_TOUCHRIGHT
 	tristate "Touchright serial touchscreen"
 	select SERIO
