@@ -2825,7 +2825,7 @@ SYSCALL_DEFINE4(rt_sigtimedwait, const sigset_t __user *, uthese,
  */
 SYSCALL_DEFINE2(kill, pid_t, pid, int, sig)
 {
-	struct siginfo info = {};
+	struct siginfo info;
 
 	info.si_signo = sig;
 	info.si_errno = 0;
