@@ -6,7 +6,7 @@
  *  GK 2/5/95  -  Changed to support mounting root fs via NFS
  *  Added initrd & change_root: Werner Almesberger & Hans Lermen, Feb '96
  *  Moan early if gcc is old, avoiding bogus kernels - Paul Gortmaker, May '96
- *  Simplified starting of init:  Michael A. Griffith <grif@acm.org> 
+ *  Simplified starting of init:  Michael A. Griffith <grif@acm.org>
  */
 
 #include <linux/types.h>
@@ -68,6 +68,7 @@
 #include <linux/shmem_fs.h>
 #include <linux/slab.h>
 #include <linux/perf_event.h>
+#include <linux/random.h>
 #ifdef CONFIG_TIMA_RKP_COHERENT_TT
 #include <linux/memblock.h>
 #endif
@@ -406,9 +407,9 @@ static noinline void rkp_init(void)
 /* Code for initializing Credential Protection */
 	tima_send_cmd5((unsigned long)__rkp_ro_start, (unsigned long)__rkp_ro_end,
 					sizeof(struct cred), offsetof(struct task_struct, cred),
-					offsetof(struct task_struct, active_mm), 0x40);		
-	tima_send_cmd5(offsetof(struct cred, uid), offsetof(struct cred, euid), 
-					offsetof(struct cred, bp_pgd), offsetof(struct cred, bp_task), 
+					offsetof(struct task_struct, active_mm), 0x40);
+	tima_send_cmd5(offsetof(struct cred, uid), offsetof(struct cred, euid),
+					offsetof(struct cred, bp_pgd), offsetof(struct cred, bp_task),
 					offsetof(struct cred, exec_depth), 0x41);
 	tima_send_cmd4(offsetof(struct cred,security),offsetof(struct task_struct,pid),
 					offsetof(struct task_struct,real_parent),offsetof(struct task_struct,comm),0x42);
@@ -570,8 +571,8 @@ static void __init mm_init(void)
 }
 
 #ifdef CONFIG_CRYPTO_FIPS_OLD_INTEGRITY_CHECK
-/* change@ksingh.sra-dallas - in kernel 3.4 and + 
- * the mmu clears the unused/unreserved memory with default RAM initial sticky 
+/* change@ksingh.sra-dallas - in kernel 3.4 and +
+ * the mmu clears the unused/unreserved memory with default RAM initial sticky
  * bit data.
  * Hence to preseve the copy of zImage in the unmarked area, the Copied zImage
  * memory range has to be marked reserved.
@@ -586,7 +587,7 @@ static void __init integrity_mem_reserve(void) {
 	int result = 0;
 	long len = 0;
 	u8* zBuffer = 0;
-	
+
 	zBuffer = (u8*)phys_to_virt((unsigned long)CONFIG_CRYPTO_FIPS_INTEG_COPY_ADDRESS);
 	if (*((u32 *) &zBuffer[36]) != 0x016F2818) {
 		printk(KERN_ERR "FIPS main.c: invalid zImage magic number.");
@@ -597,15 +598,15 @@ static void __init integrity_mem_reserve(void) {
 		printk(KERN_ERR "FIPS main.c: invalid zImage calculated len");
 		return;
 	}
-	
+
 	len = *(u32 *) &zBuffer[44] - *(u32 *) &zBuffer[40];
 	printk(KERN_NOTICE "FIPS Actual zImage len = %ld\n", len);
-	
+
 	integrity_mem_reservoir = len + SHA256_DIGEST_SIZE;
 	result = reserve_bootmem((unsigned long)CONFIG_CRYPTO_FIPS_INTEG_COPY_ADDRESS, integrity_mem_reservoir, 1);
 	if(result != 0) {
 		integrity_mem_reservoir = 0;
-	} 
+	}
 	printk(KERN_NOTICE "FIPS integrity_mem_reservoir = %ld\n", integrity_mem_reservoir);
 }
 // change@ksingh.sra-dallas - end
@@ -933,6 +934,7 @@ static void __init do_basic_setup(void)
 	do_ctors();
 	usermodehelper_enable();
 	do_initcalls();
+	random_int_secret_init();
 }
 
 static void __init do_pre_smp_initcalls(void)
