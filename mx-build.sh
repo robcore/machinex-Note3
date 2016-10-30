@@ -51,7 +51,7 @@ KERNEL_VERSION=${KERNEL_NAME}-$VER-$VARIANT
 OUT_DIR=$RDIR
 
 # output filename of flashable kernel
-OUT_NAME=${KERNEL_NAME}-$KERNEL_VERSION-hlte
+OUT_NAME=$KERNEL_VERSION-hltetmo
 
 # should we make a TWRP flashable zip? (1 = yes, 0 = no)
 MAKE_ZIP=1
@@ -176,6 +176,7 @@ CREATE_ZIP()
 	cd $RDIR/${ZIP_FOLDER}
 	zip -r -9 - * > $OUT_DIR/$OUT_NAME.zip
 	cd $RDIR
+	exit 0
 }
 
 CREATE_TAR()

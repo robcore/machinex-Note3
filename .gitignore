@@ -32,6 +32,7 @@ modules.builtin
 *.lzo
 *.patch
 *.gcno
+*.zip
 
 #
 # Top-level generic files
@@ -63,6 +64,9 @@ include/config
 include/linux/version.h
 include/generated
 arch/*/include/generated
+build/
+mx.ramdisk/
+mx.zip/
 
 # stgit generated dirs
 patches-*
@@ -101,4 +105,6 @@ out_ge/
 out_spr/
 out_usc/
 out_vzw/
+out_tmo/
+
 
