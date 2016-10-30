@@ -210,16 +210,17 @@ static void _usb_writeN_sync(struct rtl_priv *rtlpriv, u32 addr, void *data,
 	u16 index = REALTEK_USB_VENQT_CMD_IDX;
 	int pipe = usb_sndctrlpipe(udev, 0); /* write_out */
 	u8 *buffer;
+	dma_addr_t dma_addr;
 
-	wvalue = (u16)(addr & 0x0000ffff);
-	buffer = kmalloc(len, GFP_ATOMIC);
+	wvalue = (u16)(addr&0x0000ffff);
+	buffer = usb_alloc_coherent(udev, (size_t)len, GFP_ATOMIC, &dma_addr);
 	if (!buffer)
 		return;
 	memcpy(buffer, data, len);
 	usb_control_msg(udev, pipe, request, reqtype, wvalue,
 			index, buffer, len, 50);
 
-	kfree(buffer);
+	usb_free_coherent(udev, (size_t)len, buffer, dma_addr);
 }
 
 static void _rtl_usb_io_handler_init(struct device *dev,

@@ -5493,7 +5493,11 @@ static void rtl_slow_event_work(struct rtl8169_private *tp)
 	if (status & LinkChg)
 		__rtl8169_check_link_status(dev, tp, tp->mmio_addr, true);
 
-	rtl_irq_enable_all(tp);
+	napi_disable(&tp->napi);
+	rtl_irq_disable(tp);
+
+	napi_enable(&tp->napi);
+	napi_schedule(&tp->napi);
 }
 
 static void rtl_task(struct work_struct *work)

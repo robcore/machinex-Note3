@@ -693,7 +693,8 @@ int __kvm_set_memory_region(struct kvm *kvm,
 	int r;
 	gfn_t base_gfn;
 	unsigned long npages;
-	struct kvm_memory_slot *memslot, *slot;
+	unsigned long i;
+	struct kvm_memory_slot *memslot;
 	struct kvm_memory_slot old, new;
 	struct kvm_memslots *slots, *old_memslots;
 
@@ -740,11 +741,13 @@ int __kvm_set_memory_region(struct kvm *kvm,
 
 	/* Check for overlaps */
 	r = -EEXIST;
-	kvm_for_each_memslot(slot, kvm->memslots) {
-		if (slot->id >= KVM_MEMORY_SLOTS || slot == memslot)
+	for (i = 0; i < KVM_MEMORY_SLOTS; ++i) {
+		struct kvm_memory_slot *s = &kvm->memslots->memslots[i];
+
+		if (s == memslot || !s->npages)
 			continue;
-		if (!((base_gfn + npages <= slot->base_gfn) ||
-		      (base_gfn >= slot->base_gfn + slot->npages)))
+		if (!((base_gfn + npages <= s->base_gfn) ||
+		      (base_gfn >= s->base_gfn + s->npages)))
 			goto out_free;
 	}
 

@@ -1133,18 +1133,10 @@ static void xprt_request_init(struct rpc_task *task, struct rpc_xprt *xprt)
 void xprt_release(struct rpc_task *task)
 {
 	struct rpc_xprt	*xprt;
-	struct rpc_rqst	*req = task->tk_rqstp;
+	struct rpc_rqst	*req;
 
-	if (req == NULL) {
-		if (task->tk_client) {
-			rcu_read_lock();
-			xprt = rcu_dereference(task->tk_client->cl_xprt);
-			if (xprt->snd_task == task)
-				xprt_release_write(xprt, task);
-			rcu_read_unlock();
-		}
+	if (!(req = task->tk_rqstp))
 		return;
-	}
 
 	xprt = req->rq_xprt;
 	if (task->tk_ops->rpc_count_stats != NULL)
