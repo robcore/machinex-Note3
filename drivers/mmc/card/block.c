@@ -228,6 +228,8 @@ static ssize_t power_ro_lock_show(struct device *dev,
 
 	ret = snprintf(buf, PAGE_SIZE, "%d\n", locked);
 
+	mmc_blk_put(md);
+
 	return ret;
 }
 
@@ -1047,7 +1049,7 @@ static int mmc_blk_ioctl(struct block_device *bdev, fmode_t mode,
 		struct cprm_request *req = (struct cprm_request *)arg;
 		static int i;
 		static unsigned long temp_arg[16] = {0};
-		
+
 		printk(KERN_DEBUG "%s:cmd [%x]\n",
 			__func__, cmd);
 
@@ -1098,7 +1100,7 @@ static int mmc_blk_ioctl(struct block_device *bdev, fmode_t mode,
 		ret = mmc_blk_ioctl_cmd(bdev, (struct mmc_ioc_cmd __user *)arg);
 	else if (cmd == MMC_IOC_RPMB_CMD)
 		ret = mmc_blk_ioctl_rpmb_cmd(bdev,
-				(struct mmc_ioc_rpmb __user *)arg);	
+				(struct mmc_ioc_rpmb __user *)arg);
 	else if(cmd == MMC_IOC_CLOCK)
 	{
 		unsigned int clock = (unsigned int)arg;
@@ -2738,21 +2740,11 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *rqc)
 			break;
 		case MMC_BLK_CMD_ERR:
 			ret = mmc_blk_cmd_err(md, card, brq, req, ret);
-			if (!mmc_blk_reset(md, card->host, type)) {
-				if (!ret) {
-					/*
-					 * We have successfully completed block
-					 * request and notified to upper layers.
-					 * As the reset is successful, assume
-					 * h/w is in clean state and proceed
-					 * with new request.
-					 */
-					BUG_ON(card->host->areq);
-					goto start_new_req;
-				}
-				break;
-			}
-			goto cmd_abort;
+			if (mmc_blk_reset(md, card->host, type))
+				goto cmd_abort;
+			if (!ret)
+				goto start_new_req;
+			break;
 		case MMC_BLK_RETRY:
 			if (retry++ < MMC_BLK_MAX_RETRIES)
 				break;
@@ -2781,7 +2773,7 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *rqc)
 				disable_multi = 1;
 				break;
 			}
-			
+
 			/*
 			 * case : SDcard Sector 0 read data error even single read
 			 * skip reading other blocks.
@@ -3435,8 +3427,8 @@ static inline void mmc_blk_bkops_sysfs_init(struct mmc_card *card)
 
 		dev = disk_to_dev(md->disk);
 		rc = sysfs_chown_file(&dev->kobj, &card->bkops_attr.attr,
-				      CONFIG_MMC_BKOPS_NODE_UID, 
-				      CONFIG_MMC_BKOPS_NODE_GID); 
+				      CONFIG_MMC_BKOPS_NODE_UID,
+				      CONFIG_MMC_BKOPS_NODE_GID);
 		if (rc)
 			pr_err("%s: Failed to change mode of sysfs entry\n",
 					mmc_hostname(card->host));
@@ -3488,7 +3480,7 @@ static int mmc_blk_probe(struct mmc_card *card)
 		if (mmc_add_disk(part_md))
 			goto out;
 	}
-	
+
 	/* init sysfs for bkops mode */
 	if (card && mmc_card_mmc(card)) {
 		mmc_blk_bkops_sysfs_init(card);
