@@ -38,7 +38,7 @@ RDIR=$(pwd)
 #	att = N900A	(AT&T)
 #	usc = N900R4	(US Cellular)
 #	vzw = N900V	(Verizon)
-VARIANT=can
+VARIANT=tmo
 [ -z $VER ] && \
 # version number
 VER=MarkOne
