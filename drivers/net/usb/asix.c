@@ -1470,11 +1470,6 @@ static int ax88772a_phy_powerup(struct usbnet *dev)
 		return ret;
 	}
 
-	dev->driver_priv = kzalloc(sizeof(struct asix_common_private),
-				   GFP_KERNEL);
-	if (!dev->driver_priv)
-		return -ENOMEM;
-
 	return 0;
 }
 
@@ -3578,7 +3573,7 @@ static void ax88772b_link_reset(struct work_struct *work)
 	}
 
 	ax772b_data->Event = AX_NOP;
-
+	
 	return;
 }
 
