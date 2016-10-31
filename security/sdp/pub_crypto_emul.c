@@ -284,8 +284,7 @@ int dh_encryptDEK(dek_t *dek, dek_t *edek, kek_t *kek){
 }
 
 static int __init pub_crypto_mod_init(void) {
-
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(3,4,0))
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(3,4,113))
 	struct netlink_kernel_cfg cfg = {
 		.input  = crypto_recver,
 	};
