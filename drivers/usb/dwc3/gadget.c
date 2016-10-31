@@ -448,14 +448,14 @@ int dwc3_send_gadget_ep_cmd(struct dwc3 *dwc, unsigned ep,
 			dev_vdbg(dwc->dev, "Command Complete --> %d\n",
 					DWC3_DEPCMD_STATUS(reg));
 			if (DWC3_DEPCMD_STATUS(reg))
-				return -EINVAL;
+				ret = -EINVAL;
 			/* SW issues START TRANSFER command to isochronous ep
 			 * with future frame interval. If future interval time
 			 * has already passed when core recieves command, core
 			 * will respond with an error(bit13 in Command complete
 			 * event. Hence return error in this case.
 			 */
-			if (reg & 0x2000)
+			else if (reg & 0x2000)
 				ret = -EAGAIN;
 			else
 				ret = 0;
@@ -1092,6 +1092,9 @@ static void dwc3_prepare_trbs(struct dwc3_ep *dep, bool starting)
 					break;
 			}
 			dbg_queue(dep->number, &req->request, 0);
+
+			if (last_one)
+				break;
 		} else {
 			struct dwc3_request	*req1;
 			int maxpkt_size = usb_endpoint_maxp(dep->endpoint.desc);
@@ -1911,8 +1914,6 @@ void dwc3_gadget_restart(struct dwc3 *dwc)
 #endif
 	dwc3_writel(dwc->regs, DWC3_DCFG, reg);
 
-	dwc->start_config_issued = false;
-
 #if defined(CONFIG_SEC_H_PROJECT) || defined(CONFIG_SEC_F_PROJECT) || defined(CONFIG_SEC_K_PROJECT)
 	switch (dwc->speed_limit) {
 	case USB_SPEED_FULL:
@@ -2218,9 +2219,6 @@ static int dwc3_cleanup_done_reqs(struct dwc3 *dwc, struct dwc3_ep *dep,
 			} else {
 				dep->flags &= ~DWC3_EP_MISSED_ISOC;
 			}
-
-			if (last_one)
-				break;
 		} else {
 			if (count && (event->status & DEPEVT_STATUS_SHORT))
 				s_pkt = 1;
