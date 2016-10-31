@@ -402,7 +402,7 @@ static void max77803_haptic_power_onoff(int onoff)
 			printk(KERN_ERR"enable l23 failed, rc=%d\n", ret);
 			return;
 		}
-		printk(KERN_DEBUG"haptic power_on is finished.\n");
+		pr_debug("haptic power_on is finished.\n");
 	} else {
 		if (regulator_is_enabled(reg_l23)) {
 			ret = regulator_disable(reg_l23);
@@ -412,7 +412,7 @@ static void max77803_haptic_power_onoff(int onoff)
 				return;
 			}
 		}
-		printk(KERN_DEBUG"haptic power_off is finished.\n");
+		pr_debug("haptic power_off is finished.\n");
 	}
 }
 #endif
@@ -451,7 +451,7 @@ static void max77803_haptic_power_onoff(int onoff)
 			printk(KERN_ERR"enable l23 failed, rc=%d\n", ret);
 			return;
 		}
-		printk(KERN_DEBUG"haptic power_on is finished.\n");
+		pr_debug("haptic power_on is finished.\n");
 	} else {
 		if (regulator_is_enabled(reg_l23)) {
 			ret = regulator_disable(reg_l23);
@@ -461,7 +461,7 @@ static void max77803_haptic_power_onoff(int onoff)
 				return;
 			}
 		}
-		printk(KERN_DEBUG"haptic power_off is finished.\n");
+		pr_debug("haptic power_off is finished.\n");
 	}
 #else
 	static struct regulator *reg_l17;
@@ -483,7 +483,7 @@ static void max77803_haptic_power_onoff(int onoff)
 			printk(KERN_ERR"enable l17 failed, rc=%d\n", ret);
 			return;
 		}
-		printk(KERN_DEBUG"haptic power_on is finished.\n");
+		pr_debug("haptic power_on is finished.\n");
 	} else {
 		if (regulator_is_enabled(reg_l17)) {
 			ret = regulator_disable(reg_l17);
@@ -493,7 +493,7 @@ static void max77803_haptic_power_onoff(int onoff)
 				return;
 			}
 		}
-		printk(KERN_DEBUG"haptic power_off is finished.\n");
+		pr_debug("haptic power_off is finished.\n");
 	}
 #endif
 }
