@@ -177,6 +177,7 @@ CREATE_ZIP()
 	zip -r -9 - * > $OUT_DIR/$OUT_NAME.zip
 	cd $RDIR
 	exit 0
+	echo "Success!"
 }
 
 CREATE_TAR()
