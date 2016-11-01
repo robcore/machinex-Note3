@@ -358,7 +358,7 @@ static int avc_latest_notif_update(int seqno, int is_insert)
 	spin_lock_irqsave(&notif_lock, flag);
 	if (is_insert) {
 		if (seqno < avc_cache.latest_notif) {
-			printk(KERN_WARNING "SELinux: avc:  seqno %d < latest_notif %d\n",
+			pr_debug(KERN_WARNING "SELinux: avc:  seqno %d < latest_notif %d\n",
 			       seqno, avc_cache.latest_notif);
 			ret = -EAGAIN;
 		}
@@ -553,7 +553,7 @@ inline int avc_audit(u32 ssid, u32 tsid,
 		return 0;
 
 	return slow_avc_audit(ssid, tsid, tclass,
-		requested, audited, denied,
+		requested, audited, 0,
 		a, flags);
 }
 
@@ -767,15 +767,6 @@ static noinline int avc_denied(u32 ssid, u32 tsid,
 			 unsigned flags,
 			 struct av_decision *avd)
 {
-	if (flags & AVC_STRICT)
-		return -EACCES;
-#ifdef CONFIG_ALWAYS_ENFORCE
-	if (!(avd->flags & AVD_FLAGS_PERMISSIVE))
-#else
-	if (selinux_enforcing && !(avd->flags & AVD_FLAGS_PERMISSIVE))
-#endif
-		return -EACCES;
-
 	avc_update_node(AVC_CALLBACK_GRANT, requested, ssid,
 				tsid, tclass, avd->seqno);
 	return 0;
@@ -816,12 +807,10 @@ inline int avc_has_perm_noaudit(u32 ssid, u32 tsid,
 	rcu_read_lock();
 
 	node = avc_lookup(ssid, tsid, tclass);
-	if (unlikely(!node)) {
+	if (unlikely(!node))
 		node = avc_compute_av(ssid, tsid, tclass, avd);
-	} else {
+	else
 		memcpy(avd, &node->ae.avd, sizeof(*avd));
-		avd = &node->ae.avd;
-	}
 
 	denied = requested & ~(avd->allowed);
 	if (unlikely(denied))
