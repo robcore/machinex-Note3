@@ -84,6 +84,13 @@ config THERMAL_MONITOR
 	  entity starts running in the userspace. Monitors TSENS temperature
 	  and limits the max frequency of the cores.
 
+config INTELLI_THERMAL_V2
+	bool "Better thermal monitor for MSM"
+	depends on THERMAL_TSENS8974
+ 	help
+ 	  This enables thermal monitoring capability in the kernel replacing userspace
+	  thermal altogether.
+
 config SPEAR_THERMAL
 	bool "SPEAr thermal sensor driver"
 	depends on THERMAL
