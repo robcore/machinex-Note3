@@ -21,6 +21,7 @@
 #include <linux/sched.h>
 #include <linux/module.h>
 #include <linux/rq_stats.h>
+#include <linux/irq_work.h>
 
 #include <asm/irq_regs.h>
 
@@ -34,7 +35,7 @@ spinlock_t rq_lock;
 /*
  * Per cpu nohz control structure
  */
-static DEFINE_PER_CPU(struct tick_sched, tick_cpu_sched);
+DEFINE_PER_CPU(struct tick_sched, tick_cpu_sched);
 
 /*
  * The time, when the last jiffy update happened. Protected by xtime_lock.
@@ -278,49 +279,15 @@ u64 get_cpu_iowait_time_us(int cpu, u64 *last_update_time)
 }
 EXPORT_SYMBOL_GPL(get_cpu_iowait_time_us);
 
-static void tick_nohz_stop_sched_tick(struct tick_sched *ts, ktime_t now)
+static ktime_t tick_nohz_stop_sched_tick(struct tick_sched *ts,
+					 ktime_t now, int cpu)
 {
 	unsigned long seq, last_jiffies, next_jiffies, delta_jiffies;
 	unsigned long rcu_delta_jiffies;
-	ktime_t last_update, expires;
+	ktime_t last_update, expires, ret = { .tv64 = 0 };
 	struct clock_event_device *dev = __get_cpu_var(tick_cpu_device).evtdev;
 	u64 time_delta;
-	int cpu;
 
-	cpu = smp_processor_id();
-	ts = &per_cpu(tick_cpu_sched, cpu);
-
-	/*
-	 * If this cpu is offline and it is the one which updates
-	 * jiffies, then give up the assignment and let it be taken by
-	 * the cpu which runs the tick timer next. If we don't drop
-	 * this here the jiffies might be stale and do_timer() never
-	 * invoked.
-	 */
-	if (unlikely(!cpu_online(cpu))) {
-		if (cpu == tick_do_timer_cpu)
-			tick_do_timer_cpu = TICK_DO_TIMER_NONE;
-	}
-
-	if (unlikely(ts->nohz_mode == NOHZ_MODE_INACTIVE)) {
-		return;
-	}
-
-	if (need_resched())
-		return;
-
-	if (unlikely(local_softirq_pending() && cpu_online(cpu))) {
-		static int ratelimit;
-
-		if (ratelimit < 10) {
-			printk(KERN_ERR "NOHZ: local_softirq_pending %02x\n",
-			       (unsigned int) local_softirq_pending());
-			ratelimit++;
-		}
-		return;
-	}
-
-	ts->idle_calls++;
 	/* Read jiffies and the time when jiffies were updated last */
 	do {
 		seq = read_seqbegin(&xtime_lock);
@@ -329,8 +296,8 @@ static void tick_nohz_stop_sched_tick(struct tick_sched *ts, ktime_t now)
 		time_delta = timekeeping_max_deferment();
 	} while (read_seqretry(&xtime_lock, seq));
 
-	if (rcu_needs_cpu(cpu, &rcu_delta_jiffies) || printk_needs_cpu(cpu) ||
-	    arch_needs_cpu(cpu)) {
+	if (rcu_needs_cpu(cpu, &rcu_delta_jiffies) || arch_needs_cpu(cpu) ||
+	    irq_work_needs_cpu()) {
 		next_jiffies = last_jiffies + 1;
 		delta_jiffies = 1;
 	} else {
@@ -403,6 +370,8 @@ static void tick_nohz_stop_sched_tick(struct tick_sched *ts, ktime_t now)
 		if (ts->tick_stopped && ktime_equal(expires, dev->next_event))
 			goto out;
 
+		ret = expires;
+
 		/*
 		 * nohz_stop_sched_tick can be called several times before
 		 * the nohz_restart_sched_tick is called. This happens when
@@ -417,11 +386,6 @@ static void tick_nohz_stop_sched_tick(struct tick_sched *ts, ktime_t now)
 			ts->last_tick = hrtimer_get_expires(&ts->sched_timer);
 			ts->tick_stopped = 1;
 		}
-
-		ts->idle_sleeps++;
-
-		/* Mark expires */
-		ts->idle_expires = expires;
 
 		/*
 		 * If the expiration time == KTIME_MAX, then
@@ -452,18 +416,65 @@ static void tick_nohz_stop_sched_tick(struct tick_sched *ts, ktime_t now)
 out:
 	ts->next_jiffies = next_jiffies;
 	ts->last_jiffies = last_jiffies;
+
+	return ret;
+}
+
+static bool can_stop_idle_tick(int cpu, struct tick_sched *ts)
+{
+	/*
+	 * If this cpu is offline and it is the one which updates
+	 * jiffies, then give up the assignment and let it be taken by
+	 * the cpu which runs the tick timer next. If we don't drop
+	 * this here the jiffies might be stale and do_timer() never
+	 * invoked.
+	 */
+	if (unlikely(!cpu_online(cpu))) {
+		if (cpu == tick_do_timer_cpu)
+			tick_do_timer_cpu = TICK_DO_TIMER_NONE;
+	}
+
+	if (unlikely(ts->nohz_mode == NOHZ_MODE_INACTIVE))
+		return false;
+
+	if (need_resched())
+		return false;
+
+	if (unlikely(local_softirq_pending() && cpu_online(cpu))) {
+		static int ratelimit;
+
+		if (ratelimit < 10) {
+			printk(KERN_ERR "NOHZ: local_softirq_pending %02x\n",
+			       (unsigned int) local_softirq_pending());
+			ratelimit++;
+		}
+		return false;
+	}
+
+	return true;
 }
 
 static void __tick_nohz_idle_enter(struct tick_sched *ts)
 {
-	ktime_t now;
-	int was_stopped = ts->tick_stopped;
+	ktime_t now, expires;
+	int cpu = smp_processor_id();
 
-	now = tick_nohz_start_idle(smp_processor_id(), ts);
-	tick_nohz_stop_sched_tick(ts, now);
+	now = tick_nohz_start_idle(cpu, ts);
 
-	if (!was_stopped && ts->tick_stopped)
-		ts->idle_jiffies = ts->last_jiffies;
+	if (can_stop_idle_tick(cpu, ts)) {
+		int was_stopped = ts->tick_stopped;
+
+		ts->idle_calls++;
+
+		expires = tick_nohz_stop_sched_tick(ts, now, cpu);
+		if (expires.tv64 > 0LL) {
+			ts->idle_sleeps++;
+			ts->idle_expires = expires;
+		}
+
+		if (!was_stopped && ts->tick_stopped)
+			ts->idle_jiffies = ts->last_jiffies;
+	}
 }
 
 /**
@@ -880,7 +891,7 @@ static enum hrtimer_restart tick_sched_timer(struct hrtimer *timer)
 		 */
 		if (ts->tick_stopped) {
 			touch_softlockup_watchdog();
-			if (idle_cpu(cpu))
+			if (is_idle_task(current))
 				ts->idle_jiffies++;
 		}
 		update_process_times(user_mode(regs));

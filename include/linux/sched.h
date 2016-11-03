@@ -427,9 +427,6 @@ extern signed long schedule_timeout_killable(signed long timeout);
 extern signed long schedule_timeout_uninterruptible(signed long timeout);
 asmlinkage void schedule(void);
 extern void schedule_preempt_disabled(void);
-#ifdef CONFIG_MUTEX_SPIN_ON_OWNER
-extern int mutex_can_spin_on_owner(struct mutex *lock);
-#endif
 
 struct nsproxy;
 struct user_namespace;
@@ -1177,11 +1174,6 @@ struct ravg {
 
 struct sched_entity {
 	struct load_weight	load;		/* for load-balancing */
-	/*
-	 * Todo : Move ravg to 'struct task_struct', as this is common for both
-	 * real-time and non-realtime tasks
-	 */
-	struct ravg		ravg;
 	struct rb_node		run_node;
 	struct list_head	group_node;
 	unsigned int		on_rq;
@@ -1304,6 +1296,7 @@ struct task_struct {
 	struct task_group *sched_task_group;
 #endif
 	struct sched_dl_entity dl;
+	struct ravg ravg;
 
 #ifdef CONFIG_PREEMPT_NOTIFIERS
 	/* list of struct preempt_notifier: */
@@ -2120,7 +2113,6 @@ extern void wake_up_idle_cpu(int cpu);
 static inline void wake_up_idle_cpu(int cpu) { }
 #endif
 
-extern unsigned int sysctl_sched_ravg_window;
 extern unsigned int sysctl_sched_wakeup_load_threshold;
 
 #ifdef CONFIG_SCHED_AUTOGROUP
