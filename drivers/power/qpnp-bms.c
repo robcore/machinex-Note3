@@ -383,7 +383,7 @@ static int pmic_register_dump(struct qpnp_bms_chip *chip, u16 address)
 		return rc;
 	}
    pr_debug("%s:  pmic address = 0x%x,value = 0x%x ",__func__,address,temp);
-   return 0; 
+   return 0;
 }
 
 static int qpnp_write_wrapper(struct qpnp_bms_chip *chip, u8 *val,
@@ -927,7 +927,7 @@ static bool is_battery_present(struct qpnp_bms_chip *chip)
 static int get_battery_insertion_ocv_uv(struct qpnp_bms_chip *chip)
 {
 	union power_supply_propval ret = {0,};
-	int rc, vbat;
+	int rc, vbat = 0;
 
 	if (chip->batt_psy == NULL)
 		chip->batt_psy = power_supply_get_by_name("battery");
@@ -1605,7 +1605,7 @@ static int get_prop_bms_batt_resistance(struct qpnp_bms_chip *chip)
 /* Returns instantaneous current in uA */
 static int get_prop_bms_current_now(struct qpnp_bms_chip *chip)
 {
-	int rc, result_ua;
+	int rc, result_ua = 0;
 
 	rc = get_battery_current(chip, &result_ua);
 	if (rc) {
@@ -1618,7 +1618,7 @@ static int get_prop_bms_current_now(struct qpnp_bms_chip *chip)
 /* Returns coulomb counter in uAh */
 static int get_prop_bms_charge_counter(struct qpnp_bms_chip *chip)
 {
-	int64_t cc_raw;
+	int64_t cc_raw = 0;
 
 	mutex_lock(&chip->bms_output_lock);
 	lock_output_data(chip);
@@ -1632,7 +1632,7 @@ static int get_prop_bms_charge_counter(struct qpnp_bms_chip *chip)
 /* Returns shadow coulomb counter in uAh */
 static int get_prop_bms_charge_counter_shadow(struct qpnp_bms_chip *chip)
 {
-	int64_t cc_raw;
+	int64_t cc_raw = 0;
 
 	mutex_lock(&chip->bms_output_lock);
 	lock_output_data(chip);
@@ -2391,21 +2391,21 @@ out:
 
 static int clamp_soc_based_on_voltage(struct qpnp_bms_chip *chip, int soc)
 {
-	int rc, vbat_uv;
+	int rc, vbat_uv = 0;
 
 	rc = get_battery_voltage(chip, &vbat_uv);
 	if (rc < 0) {
 		pr_err("adc vbat failed err = %d\n", rc);
 		return soc;
 	}
-	
+
 
 	/* only clamp when discharging */
 	if (is_battery_charging(chip))
 		return soc;
 
 	if (soc <= 0 && vbat_uv > chip->v_cutoff_uv) {
-	
+
 		#if defined(CONFIG_BATTERY_SAMSUNG) || defined(CONFIG_QPNP_SEC_CHARGER)
 		if (get_battery_status(chip) == POWER_SUPPLY_STATUS_CHARGING) {
 			pr_debug("not clamping, using soc = %d, vbat = %d and cutoff = %d\n",
@@ -2573,7 +2573,7 @@ static int calculate_raw_soc(struct qpnp_bms_chip *chip,
 static int calculate_soc_from_voltage(struct qpnp_bms_chip *chip)
 {
 	int voltage_range_uv, voltage_remaining_uv, voltage_based_soc;
-	int rc, vbat_uv;
+	int rc, vbat_uv = 0;
 #ifdef CONFIG_MACH_KANAS3G_CTC
     static bool compensate_flag = false;
 #endif
@@ -3026,7 +3026,7 @@ static void configure_vbat_monitor_high(struct qpnp_bms_chip *chip)
 static void btm_notify_vbat(enum qpnp_tm_state state, void *ctx)
 {
 	struct qpnp_bms_chip *chip = ctx;
-	int vbat_uv;
+	int vbat_uv = 0;
 	struct qpnp_vadc_result result;
 	int rc;
 
@@ -3485,7 +3485,7 @@ static void batfet_open_work(struct work_struct *work)
 {
 	int i;
 	int rc;
-	int result_ua;
+	int result_ua = 0;
 	u8 orig_delay, sample_delay;
 	struct qpnp_bms_chip *chip = container_of(work,
 				struct qpnp_bms_chip,
@@ -4140,7 +4140,7 @@ static int set_battery_data(struct qpnp_bms_chip *chip)
 	batt_data = &samsung_2100mAH_4400mV_data;
 #elif defined(CONFIG_SEC_BERLUTI_PROJECT)
 	batt_data = &samsung_1720mAH_data;
-#elif defined(CONFIG_MACH_VICTORLTE) || defined(CONFIG_SEC_VICTOR3GDSDTV_PROJECT)	
+#elif defined(CONFIG_MACH_VICTORLTE) || defined(CONFIG_SEC_VICTOR3GDSDTV_PROJECT)
 	batt_data = &samsung_2000mAH_victor_data;
 #else
 	batt_data = &oem_batt_data;

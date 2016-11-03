@@ -1200,7 +1200,7 @@ static void __init __rcu_init_preempt(void)
 
 #ifdef CONFIG_RCU_BOOST
 
-#include "rtmutex_common.h"
+#include "locking/rtmutex_common.h"
 
 #ifdef CONFIG_RCU_TRACE
 
@@ -1832,12 +1832,17 @@ static void rcu_idle_gp_timer_func(unsigned long cpu_in)
  */
 static void rcu_prepare_for_idle_init(int cpu)
 {
+<<<<<<< HEAD
 	struct rcu_dynticks *rdtp = &per_cpu(rcu_dynticks, cpu);
 
 	rdtp->dyntick_holdoff = jiffies - 1;
 	setup_timer(&rdtp->idle_gp_timer, rcu_idle_gp_timer_func, cpu);
 	rdtp->idle_gp_timer_expires = jiffies - 1;
 	rdtp->idle_first_pass = 1;
+=======
+	setup_timer(&per_cpu(rcu_idle_gp_timer, cpu),
+		    rcu_idle_gp_timer_func, cpu);
+>>>>>>> rcu: Make RCU_FAST_NO_HZ handle timer migration
 }
 
 /*
