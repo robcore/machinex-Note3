@@ -2123,6 +2123,7 @@ static int umh_pipe_setup(struct subprocess_info *info, struct cred *new)
 	return 0;
 }
 
+#ifdef CONFIG_COREDUMP
 void do_coredump(long signr, int exit_code, struct pt_regs *regs)
 {
 	struct core_state core_state;
@@ -2337,3 +2338,4 @@ int dump_seek(struct file *file, loff_t off)
 	return ret;
 }
 EXPORT_SYMBOL(dump_seek);
+#endif
