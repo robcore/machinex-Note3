@@ -16,10 +16,10 @@ config LINK_DEVICE_SPI
 	depends on SEC_MODEM
 	default n
 
-config WORKQUEUE_FRONT
-	bool "IPC: SPI workqueue front"
-	depends on SEC_MODEM
-	default n
+#config WORKQUEUE_FRONT
+#	bool "IPC: SPI workqueue front"
+#	depends on SEC_MODEM
+#	default n
 
 config SEC_DUAL_MODEM_MODE
 	bool "sec dual modem mode"
