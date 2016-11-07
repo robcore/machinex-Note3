@@ -86,7 +86,6 @@ static void __exit_signal(struct task_struct *tsk)
 	bool group_dead = thread_group_leader(tsk);
 	struct sighand_struct *sighand;
 	struct tty_struct *uninitialized_var(tty);
-	cputime_t utime, stime;
 
 	sighand = rcu_dereference_check(tsk->sighand,
 					lockdep_tasklist_lock_is_held());
@@ -125,10 +124,9 @@ static void __exit_signal(struct task_struct *tsk)
 		 * We won't ever get here for the group leader, since it
 		 * will have been the last reference on the signal_struct.
 		 */
-		task_cputime(tsk, &utime, &stime);
-		sig->utime += utime;
-		sig->stime += stime;
-		sig->gtime += task_gtime(tsk);
+		sig->utime += tsk->utime;
+		sig->stime += tsk->stime;
+		sig->gtime += tsk->gtime;
 		sig->min_flt += tsk->min_flt;
 		sig->maj_flt += tsk->maj_flt;
 		sig->nvcsw += tsk->nvcsw;
@@ -448,9 +446,7 @@ void daemonize(const char *name, ...)
 	/* Become as one with the init task */
 
 	daemonize_fs_struct();
-	exit_files(current);
-	current->files = init_task.files;
-	atomic_inc(&current->files->count);
+	daemonize_descriptors();
 
 	reparent_to_kthreadd();
 }
@@ -874,8 +870,6 @@ void do_exit(long code)
 	smp_mb();
 	raw_spin_unlock_wait(&tsk->pi_lock);
 
-	exit_irq_thread();
-
 	if (unlikely(in_atomic()))
 		printk(KERN_INFO "note: %s[%d] exited with preempt_count %d\n",
 				current->comm, task_pid_nr(current),
@@ -910,6 +904,7 @@ void do_exit(long code)
 	exit_shm(tsk);
 	exit_files(tsk);
 	exit_fs(tsk);
+	exit_task_work(tsk);
 	check_stack_usage();
 	exit_thread();
 
@@ -1205,7 +1200,7 @@ static int wait_task_zombie(struct wait_opts *wo, struct task_struct *p)
 		sig = p->signal;
 		psig->cutime += tgutime + sig->cutime;
 		psig->cstime += tgstime + sig->cstime;
-		psig->cgtime += task_gtime(p) + sig->gtime + sig->cgtime;
+		psig->cgtime += p->gtime + sig->gtime + sig->cgtime;
 		psig->cmin_flt +=
 			p->min_flt + sig->min_flt + sig->cmin_flt;
 		psig->cmaj_flt +=

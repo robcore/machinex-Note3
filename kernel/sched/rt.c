@@ -706,6 +706,9 @@ static void __enable_runtime(struct rq *rq)
 		rt_rq->rt_throttled = 0;
 		raw_spin_unlock(&rt_rq->rt_runtime_lock);
 		raw_spin_unlock(&rt_b->rt_runtime_lock);
+
+		/* Make rt_rq available for pick_next_task() */
+		sched_rt_rq_enqueue(rt_rq);
 	}
 }
 
@@ -844,13 +847,13 @@ static void dump_throttled_rt_tasks(struct rt_rq *rt_rq)
 out:
 #ifdef CONFIG_PANIC_ON_RT_THROTTLING
 	/*
-	 * Use pr_err() in the BUG() case since printk_sched() will
+	 * Use pr_err() in the BUG() case since printk_deferred_once() will
 	 * not get flushed and deadlock is not a concern.
 	 */
 	pr_err("%s", buf);
 	BUG();
 #else
-	printk_sched("%s", buf);
+	printk_deferred_once("%s", buf);
 #endif
 }
 
@@ -877,14 +880,8 @@ static int sched_rt_runtime_exceeded(struct rt_rq *rt_rq)
 		 * but accrue some time due to boosting.
 		 */
 		if (likely(rt_b->rt_runtime)) {
-			static bool once = false;
-
 			rt_rq->rt_throttled = 1;
-
-			if (!once) {
-				once = true;
-				dump_throttled_rt_tasks(rt_rq);
-			}
+			dump_throttled_rt_tasks(rt_rq);
 		} else {
 			/*
 			 * In case we did anyway, make it go away,
@@ -1238,20 +1235,12 @@ static void yield_task_rt(struct rq *rq)
 #ifdef CONFIG_SMP
 static int find_lowest_rq(struct task_struct *task);
 
-/* TODO: Move this to a power aware config feature. There's
- * no strict dependency between SCHED_HMP and this. Its just
- * a different algorithm optimizing for power
- */
-#ifdef CONFIG_SCHED_HMP
 static int
-select_task_rq_rt(struct task_struct *p, int sd_flag, int flags)
+select_task_rq_rt_hmp(struct task_struct *p, int sd_flag, int flags)
 {
 	int cpu, target;
 
 	cpu = task_cpu(p);
-
-	if (p->nr_cpus_allowed == 1)
-		goto out;
 
 	rcu_read_lock();
 	target = find_lowest_rq(p);
@@ -1259,11 +1248,9 @@ select_task_rq_rt(struct task_struct *p, int sd_flag, int flags)
 		cpu = target;
 	rcu_read_unlock();
 
-out:
 	return cpu;
 }
 
-#else /* CONFIG_SCHED_HMP */
 static int
 select_task_rq_rt(struct task_struct *p, int sd_flag, int flags)
 {
@@ -1275,6 +1262,9 @@ select_task_rq_rt(struct task_struct *p, int sd_flag, int flags)
 
 	if (p->nr_cpus_allowed == 1)
 		goto out;
+
+	if (sched_enable_hmp)
+		return select_task_rq_rt_hmp(p, sd_flag, flags);
 
 	/* For anything but wake ups, just return the task_cpu */
 	if (sd_flag != SD_BALANCE_WAKE && sd_flag != SD_BALANCE_FORK)
@@ -1325,7 +1315,6 @@ select_task_rq_rt(struct task_struct *p, int sd_flag, int flags)
 out:
 	return cpu;
 }
-#endif /* CONFIG_SCHED_HMP */
 
 static void check_preempt_equal_prio(struct rq *rq, struct task_struct *p)
 {
@@ -1415,6 +1404,15 @@ static struct task_struct *_pick_next_task_rt(struct rq *rq)
 		rt_rq = group_rt_rq(rt_se);
 	} while (rt_rq);
 
+	/*
+	 * Force update of rq->clock_task in case we failed to do so in
+	 * put_prev_task. A stale value can cause us to over-charge execution
+	 * time to real-time task, that could trigger throttling unnecessarily
+	 */
+	if (rq->skip_clock_update > 0) {
+		rq->skip_clock_update = 0;
+		update_rq_clock(rq);
+	}
 	p = rt_task_of(rt_se);
 	p->se.exec_start = rq_clock_task(rq);
 
@@ -1487,12 +1485,8 @@ static struct task_struct *pick_highest_pushable_task(struct rq *rq, int cpu)
 
 static DEFINE_PER_CPU(cpumask_var_t, local_cpu_mask);
 
-/* TODO: Move this to a power aware config feature. There's
- * no strict dependency between SCHED_HMP and this. Its just
- * a different algorithm optimizing for power
- */
 #ifdef CONFIG_SCHED_HMP
-static int find_lowest_rq(struct task_struct *task)
+static int find_lowest_rq_hmp(struct task_struct *task)
 {
 	struct cpumask *lowest_mask = __get_cpu_var(local_cpu_mask);
 	int cpu_cost, min_cost = INT_MAX;
@@ -1532,13 +1526,22 @@ static int find_lowest_rq(struct task_struct *task)
 	}
 	return best_cpu;
 }
-#else /* CONFIG_SCHED_HMP */
+#else
+static int find_lowest_rq_hmp(struct task_struct *task)
+{
+	return -1;
+}
+#endif
+
 static int find_lowest_rq(struct task_struct *task)
 {
 	struct sched_domain *sd;
 	struct cpumask *lowest_mask = __get_cpu_var(local_cpu_mask);
 	int this_cpu = smp_processor_id();
 	int cpu      = task_cpu(task);
+
+	if (sched_enable_hmp)
+		return find_lowest_rq_hmp(task);
 
 	/* Make sure the mask is initialized first */
 	if (unlikely(!lowest_mask))
@@ -1606,7 +1609,6 @@ static int find_lowest_rq(struct task_struct *task)
 		return cpu;
 	return -1;
 }
-#endif /* CONFIG_SCHED_HMP */
 
 /* Will lock the rq it finds */
 static struct rq *find_lock_lowest_rq(struct task_struct *task, struct rq *rq)

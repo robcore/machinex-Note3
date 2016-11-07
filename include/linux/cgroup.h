@@ -182,6 +182,9 @@ struct cgroup {
 	 */
 	struct list_head css_sets;
 
+	struct list_head allcg_node;	/* cgroupfs_root->allcg_list */
+	struct list_head cft_q_node;	/* used during cftype add/rm */
+
 	/*
 	 * Linked list running through all cgroups that can
 	 * potentially be reaped by the release agent. Protected by
@@ -267,11 +270,17 @@ struct cgroup_map_cb {
  *	- the 'cftype' of the file is file->f_dentry->d_fsdata
  */
 
-#define MAX_CFTYPE_NAME 64
+/* cftype->flags */
+#define CFTYPE_ONLY_ON_ROOT	(1U << 0)	/* only create on root cg */
+#define CFTYPE_NOT_ON_ROOT	(1U << 1)	/* don't create onp root cg */
+
+#define MAX_CFTYPE_NAME		64
+
 struct cftype {
 	/*
 	 * By convention, the name should begin with the name of the
-	 * subsystem, followed by a period
+	 * subsystem, followed by a period.  Zero length string indicates
+	 * end of cftype array.
 	 */
 	char name[MAX_CFTYPE_NAME];
 	int private;
@@ -286,6 +295,9 @@ struct cftype {
 	 * be passed to write_string; defaults to 64
 	 */
 	size_t max_write_len;
+
+	/* CFTYPE_* flags */
+	unsigned int flags;
 
 	int (*open)(struct inode *inode, struct file *file);
 	ssize_t (*read)(struct cgroup *cgrp, struct cftype *cft,
@@ -365,6 +377,16 @@ struct cftype {
 			struct eventfd_ctx *eventfd);
 };
 
+/*
+ * cftype_sets describe cftypes belonging to a subsystem and are chained at
+ * cgroup_subsys->cftsets.  Each cftset points to an array of cftypes
+ * terminated by zero length name.
+ */
+struct cftype_set {
+	struct list_head		node;	/* chained at subsys->cftsets */
+	const struct cftype		*cfts;
+};
+
 struct cgroup_scanner {
 	struct cgroup *cg;
 	int (*test_task)(struct task_struct *p, struct cgroup_scanner *scan);
@@ -389,6 +411,8 @@ int cgroup_add_files(struct cgroup *cgrp,
 			struct cgroup_subsys *subsys,
 			const struct cftype cft[],
 			int count);
+
+int cgroup_add_cftypes(struct cgroup_subsys *ss, const struct cftype *cfts);
 
 int cgroup_is_removed(const struct cgroup *cgrp);
 
@@ -492,6 +516,13 @@ struct cgroup_subsys {
 	/* used when use_id == true */
 	struct idr idr;
 	spinlock_t id_lock;
+
+	/* list of cftype_sets */
+	struct list_head cftsets;
+
+	/* base cftypes, automatically [de]registered with subsys itself */
+	struct cftype *base_cftypes;
+	struct cftype_set base_cftset;
 
 	/* should be defined only by modular subsystems */
 	struct module *module;
@@ -635,6 +666,17 @@ unsigned short css_id(struct cgroup_subsys_state *css);
 unsigned short css_depth(struct cgroup_subsys_state *css);
 struct cgroup_subsys_state *cgroup_css_from_dir(struct file *f, int id);
 
+/*
+ * Default Android check for whether the current process is allowed to move a
+ * task across cgroups, either because CAP_SYS_NICE is set or because the uid
+ * of the calling process is the same as the moved task or because we are
+ * running as root.
+ * Returns 0 if this is allowed, or -EACCES otherwise.
+ */
+int subsys_cgroup_allow_attach(struct cgroup *cgrp,
+			       struct cgroup_taskset *tset);
+
+
 #else /* !CONFIG_CGROUPS */
 
 static inline int cgroup_init_early(void) { return 0; }
@@ -659,6 +701,11 @@ static inline int cgroup_attach_task_all(struct task_struct *from,
 	return 0;
 }
 
+static inline int subsys_cgroup_allow_attach(struct cgroup *cgrp,
+					     struct cgroup_taskset *tset)
+{
+	return 0;
+}
 #endif /* !CONFIG_CGROUPS */
 
 #endif /* _LINUX_CGROUP_H */

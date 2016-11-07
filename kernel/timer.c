@@ -100,14 +100,14 @@ static inline unsigned int tbase_get_deferrable(struct tvec_base *base)
 	return ((unsigned int)(unsigned long)base & TIMER_DEFERRABLE);
 }
 
+static inline unsigned int tbase_get_irqsafe(struct tvec_base *base)
+{
+	return ((unsigned int)(unsigned long)base & TIMER_IRQSAFE);
+}
+
 static inline struct tvec_base *tbase_get_base(struct tvec_base *base)
 {
 	return ((struct tvec_base *)((unsigned long)base & ~TIMER_FLAG_MASK));
-}
-
-static inline void timer_set_deferrable(struct timer_list *timer)
-{
-	timer->base = TBASE_MAKE_DEFERRED(timer->base);
 }
 
 static inline void
@@ -572,16 +572,14 @@ static inline void debug_timer_assert_init(struct timer_list *timer)
 	debug_object_assert_init(timer, &timer_debug_descr);
 }
 
-static void __init_timer(struct timer_list *timer,
-			 const char *name,
-			 struct lock_class_key *key);
+static void do_init_timer(struct timer_list *timer, unsigned int flags,
+			  const char *name, struct lock_class_key *key);
 
-void init_timer_on_stack_key(struct timer_list *timer,
-			     const char *name,
-			     struct lock_class_key *key)
+void init_timer_on_stack_key(struct timer_list *timer, unsigned int flags,
+			     const char *name, struct lock_class_key *key)
 {
 	debug_object_init_on_stack(timer, &timer_debug_descr);
-	__init_timer(timer, name, key);
+	do_init_timer(timer, flags, name, key);
 }
 EXPORT_SYMBOL_GPL(init_timer_on_stack_key);
 
@@ -623,12 +621,13 @@ static inline void debug_assert_init(struct timer_list *timer)
 	debug_timer_assert_init(timer);
 }
 
-static void __init_timer(struct timer_list *timer,
-			 const char *name,
-			 struct lock_class_key *key)
+static void do_init_timer(struct timer_list *timer, unsigned int flags,
+			  const char *name, struct lock_class_key *key)
 {
+	struct tvec_base *base = __raw_get_cpu_var(tvec_bases);
+
 	timer->entry.next = NULL;
-	timer->base = __raw_get_cpu_var(tvec_bases);
+	timer->base = (void *)((unsigned long)base | flags);
 	timer->slack = -1;
 #ifdef CONFIG_TIMER_STATS
 	timer->start_site = NULL;
@@ -638,22 +637,10 @@ static void __init_timer(struct timer_list *timer,
 	lockdep_init_map(&timer->lockdep_map, name, key, 0);
 }
 
-void setup_deferrable_timer_on_stack_key(struct timer_list *timer,
-					 const char *name,
-					 struct lock_class_key *key,
-					 void (*function)(unsigned long),
-					 unsigned long data)
-{
-	timer->function = function;
-	timer->data = data;
-	init_timer_on_stack_key(timer, name, key);
-	timer_set_deferrable(timer);
-}
-EXPORT_SYMBOL_GPL(setup_deferrable_timer_on_stack_key);
-
 /**
  * init_timer_key - initialize a timer
  * @timer: the timer to be initialized
+ * @flags: timer flags
  * @name: name of the timer
  * @key: lockdep class key of the fake lock used for tracking timer
  *       sync lock dependencies
@@ -661,23 +648,13 @@ EXPORT_SYMBOL_GPL(setup_deferrable_timer_on_stack_key);
  * init_timer_key() must be done to a timer prior calling *any* of the
  * other timer functions.
  */
-void init_timer_key(struct timer_list *timer,
-		    const char *name,
-		    struct lock_class_key *key)
+void init_timer_key(struct timer_list *timer, unsigned int flags,
+		    const char *name, struct lock_class_key *key)
 {
 	debug_init(timer);
-	__init_timer(timer, name, key);
+	do_init_timer(timer, flags, name, key);
 }
 EXPORT_SYMBOL(init_timer_key);
-
-void init_timer_deferrable_key(struct timer_list *timer,
-			       const char *name,
-			       struct lock_class_key *key)
-{
-	init_timer_key(timer, name, key);
-	timer_set_deferrable(timer);
-}
-EXPORT_SYMBOL(init_timer_deferrable_key);
 
 static inline void detach_timer(struct timer_list *timer, bool clear_pending)
 {
@@ -767,7 +744,7 @@ __mod_timer(struct timer_list *timer, unsigned long expires,
 
 	cpu = smp_processor_id();
 
-#if defined(CONFIG_NO_HZ) && defined(CONFIG_SMP)
+#if defined(CONFIG_NO_HZ_COMMON) && defined(CONFIG_SMP)
 	if (!pinned && get_sysctl_timer_migration() && idle_cpu(cpu))
 		cpu = get_nohz_timer_target();
 #endif
@@ -959,14 +936,14 @@ void add_timer_on(struct timer_list *timer, int cpu)
 	debug_activate(timer, timer->expires);
 	internal_add_timer(base, timer);
 	/*
-	 * Check whether the other CPU is idle and needs to be
-	 * triggered to reevaluate the timer wheel when nohz is
-	 * active. We are protected against the other CPU fiddling
+	 * Check whether the other CPU is in dynticks mode and needs
+	 * to be triggered to reevaluate the timer wheel.
+	 * We are protected against the other CPU fiddling
 	 * with the timer by holding the timer base lock. This also
-	 * makes sure that a CPU on the way to idle can not evaluate
-	 * the timer wheel.
+	 * makes sure that a CPU on the way to stop its tick can not
+	 * evaluate the timer wheel.
 	 */
-	wake_up_idle_cpu(cpu);
+	wake_up_nohz_cpu(cpu);
 	spin_unlock_irqrestore(&base->lock, flags);
 }
 EXPORT_SYMBOL_GPL(add_timer_on);
@@ -1039,14 +1016,14 @@ EXPORT_SYMBOL(try_to_del_timer_sync);
  *
  * Synchronization rules: Callers must prevent restarting of the timer,
  * otherwise this function is meaningless. It must not be called from
- * interrupt contexts. The caller must not hold locks which would prevent
- * completion of the timer's handler. The timer's handler must not call
- * add_timer_on(). Upon exit the timer is not queued and the handler is
- * not running on any CPU.
+ * interrupt contexts unless the timer is an irqsafe one. The caller must
+ * not hold locks which would prevent completion of the timer's
+ * handler. The timer's handler must not call add_timer_on(). Upon exit the
+ * timer is not queued and the handler is not running on any CPU.
  *
- * Note: You must not hold locks that are held in interrupt context
- *   while calling this function. Even if the lock has nothing to do
- *   with the timer in question.  Here's why:
+ * Note: For !irqsafe timers, you must not hold locks that are held in
+ *   interrupt context while calling this function. Even if the lock has
+ *   nothing to do with the timer in question.  Here's why:
  *
  *    CPU0                             CPU1
  *    ----                             ----
@@ -1083,7 +1060,7 @@ int del_timer_sync(struct timer_list *timer)
 	 * don't use it in hardirq context, because it
 	 * could lead to deadlock.
 	 */
-	WARN_ON(in_irq());
+	WARN_ON(in_irq() && !tbase_get_irqsafe(timer->base));
 	for (;;) {
 		int ret = try_to_del_timer_sync(timer);
 		if (ret >= 0)
@@ -1196,26 +1173,34 @@ static inline void __run_timers(struct tvec_base *base)
 		while (!list_empty(head)) {
 			void (*fn)(unsigned long);
 			unsigned long data;
+			bool irqsafe;
 
 			timer = list_first_entry(head, struct timer_list,entry);
 			fn = timer->function;
 			data = timer->data;
+			irqsafe = tbase_get_irqsafe(timer->base);
 
 			timer_stats_account_timer(timer);
 
 			base->running_timer = timer;
 			detach_expired_timer(timer, base);
 
-			spin_unlock_irq(&base->lock);
-			call_timer_fn(timer, fn, data);
-			spin_lock_irq(&base->lock);
+			if (irqsafe) {
+				spin_unlock(&base->lock);
+				call_timer_fn(timer, fn, data);
+				spin_lock(&base->lock);
+			} else {
+				spin_unlock_irq(&base->lock);
+				call_timer_fn(timer, fn, data);
+				spin_lock_irq(&base->lock);
+			}
 		}
 	}
 	base->running_timer = NULL;
 	spin_unlock_irq(&base->lock);
 }
 
-#ifdef CONFIG_NO_HZ
+#ifdef CONFIG_NO_HZ_COMMON
 /*
  * Find out when the next timer event is due to happen. This
  * is used on S/390 to stop all activity when a CPU is idle.

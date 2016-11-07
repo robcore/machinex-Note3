@@ -127,6 +127,9 @@ struct cgroupfs_root {
 	/* A list running through the active hierarchies */
 	struct list_head root_list;
 
+	/* All cgroups on this root, cgroup_mutex protected */
+	struct list_head allcg_list;
+
 	/* Hierarchy-specific flags */
 	unsigned long flags;
 
@@ -1335,11 +1338,14 @@ static void init_cgroup_housekeeping(struct cgroup *cgrp)
 static void init_cgroup_root(struct cgroupfs_root *root)
 {
 	struct cgroup *cgrp = &root->top_cgroup;
+
 	INIT_LIST_HEAD(&root->subsys_list);
 	INIT_LIST_HEAD(&root->root_list);
+	INIT_LIST_HEAD(&root->allcg_list);
 	root->number_of_cgroups = 1;
 	cgrp->root = root;
 	cgrp->top_cgroup = cgrp;
+	list_add_tail(&cgrp->allcg_node, &root->allcg_list);
 	init_cgroup_housekeeping(cgrp);
 }
 
@@ -1509,7 +1515,7 @@ static struct dentry *cgroup_mount(struct file_system_type *fs_type,
 	opts.new_root = new_root;
 
 	/* Locate an existing or new sb for this hierarchy */
-	sb = sget(fs_type, cgroup_test_super, cgroup_set_super, &opts);
+	sb = sget(fs_type, cgroup_test_super, cgroup_set_super, 0, &opts);
 	if (IS_ERR(sb)) {
 		ret = PTR_ERR(sb);
 		cgroup_drop_root(opts.new_root);
@@ -2147,6 +2153,25 @@ static int cgroup_allow_attach(struct cgroup *cgrp, struct cgroup_taskset *tset)
 	return 0;
 }
 
+int subsys_cgroup_allow_attach(struct cgroup *cgrp, struct cgroup_taskset *tset)
+{
+	const struct cred *cred = current_cred(), *tcred;
+	struct task_struct *task;
+
+	if (capable(CAP_SYS_NICE))
+		return 0;
+
+	cgroup_taskset_for_each(task, cgrp, tset) {
+		tcred = __task_cred(task);
+
+		if (current != task && cred->euid != tcred->uid &&
+		    cred->euid != tcred->suid)
+			return -EACCES;
+	}
+
+	return 0;
+}
+
 /*
  * Find the task_struct of the task to attach by vpid and pass it along to the
  * function to attach either it or all tasks in its threadgroup. Will lock
@@ -2633,8 +2658,14 @@ int cgroup_add_file(struct cgroup *cgrp,
 	struct dentry *dentry;
 	int error;
 	umode_t mode;
-
 	char name[MAX_CGROUP_TYPE_NAMELEN + MAX_CFTYPE_NAME + 2] = { 0 };
+
+	/* does @cft->flags tell us to skip creation on @cgrp? */
+	if ((cft->flags & CFTYPE_NOT_ON_ROOT) && !cgrp->parent)
+		return 0;
+	if ((cft->flags & CFTYPE_ONLY_ON_ROOT) && cgrp->parent)
+		return 0;
+
 	if (subsys && !test_bit(ROOT_NOPREFIX, &cgrp->root->flags)) {
 		strcpy(name, subsys->name);
 		strcat(name, ".");
@@ -2669,6 +2700,95 @@ int cgroup_add_files(struct cgroup *cgrp,
 	return 0;
 }
 EXPORT_SYMBOL_GPL(cgroup_add_files);
+
+static DEFINE_MUTEX(cgroup_cft_mutex);
+
+static void cgroup_cfts_prepare(void)
+	__acquires(&cgroup_cft_mutex) __acquires(&cgroup_mutex)
+{
+	/*
+	 * Thanks to the entanglement with vfs inode locking, we can't walk
+	 * the existing cgroups under cgroup_mutex and create files.
+	 * Instead, we increment reference on all cgroups and build list of
+	 * them using @cgrp->cft_q_node.  Grab cgroup_cft_mutex to ensure
+	 * exclusive access to the field.
+	 */
+	mutex_lock(&cgroup_cft_mutex);
+	mutex_lock(&cgroup_mutex);
+}
+
+static void cgroup_cfts_commit(struct cgroup_subsys *ss,
+			       const struct cftype *cfts)
+	__releases(&cgroup_mutex) __releases(&cgroup_cft_mutex)
+{
+	LIST_HEAD(pending);
+	struct cgroup *cgrp, *n;
+	int count = 0;
+
+	while (cfts[count].name[0] != '\0')
+		count++;
+
+	/* %NULL @cfts indicates abort and don't bother if @ss isn't attached */
+	if (cfts && ss->root != &rootnode) {
+		list_for_each_entry(cgrp, &ss->root->allcg_list, allcg_node) {
+			dget(cgrp->dentry);
+			list_add_tail(&cgrp->cft_q_node, &pending);
+		}
+	}
+
+	mutex_unlock(&cgroup_mutex);
+
+	/*
+	 * All new cgroups will see @cfts update on @ss->cftsets.  Add/rm
+	 * files for all cgroups which were created before.
+	 */
+	list_for_each_entry_safe(cgrp, n, &pending, cft_q_node) {
+		struct inode *inode = cgrp->dentry->d_inode;
+
+		mutex_lock(&inode->i_mutex);
+		mutex_lock(&cgroup_mutex);
+		if (!cgroup_is_removed(cgrp))
+			cgroup_add_files(cgrp, ss, cfts, count);
+		mutex_unlock(&cgroup_mutex);
+		mutex_unlock(&inode->i_mutex);
+
+		list_del_init(&cgrp->cft_q_node);
+		dput(cgrp->dentry);
+	}
+
+	mutex_unlock(&cgroup_cft_mutex);
+}
+
+/**
+ * cgroup_add_cftypes - add an array of cftypes to a subsystem
+ * @ss: target cgroup subsystem
+ * @cfts: zero-length name terminated array of cftypes
+ *
+ * Register @cfts to @ss.  Files described by @cfts are created for all
+ * existing cgroups to which @ss is attached and all future cgroups will
+ * have them too.  This function can be called anytime whether @ss is
+ * attached or not.
+ *
+ * Returns 0 on successful registration, -errno on failure.  Note that this
+ * function currently returns 0 as long as @cfts registration is successful
+ * even if some file creation attempts on existing cgroups fail.
+ */
+int cgroup_add_cftypes(struct cgroup_subsys *ss, const struct cftype *cfts)
+{
+	struct cftype_set *set;
+
+	set = kzalloc(sizeof(*set), GFP_KERNEL);
+	if (!set)
+		return -ENOMEM;
+
+	cgroup_cfts_prepare();
+	set->cfts = cfts;
+	list_add_tail(&set->node, &ss->cftsets);
+	cgroup_cfts_commit(ss, cfts);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(cgroup_add_cftypes);
 
 /**
  * cgroup_task_count - count the number of tasks in a cgroup.
@@ -3686,10 +3806,25 @@ static int cgroup_populate_dir(struct cgroup *cgrp)
 			return err;
 	}
 
+	/* process cftsets of each subsystem */
 	for_each_subsys(cgrp->root, ss) {
+		struct cftype_set *set;
+
 		if (ss->populate && (err = ss->populate(ss, cgrp)) < 0)
 			return err;
+
+		list_for_each_entry(set, &ss->cftsets, node) {
+			const struct cftype *cft;
+
+			for (cft = set->cfts; cft->name[0] != '\0'; cft++) {
+				err = cgroup_add_file(cgrp, ss, cft);
+				if (err)
+					pr_warning("cgroup_populate_dir: failed to create %s, err=%d\n",
+						   cft->name, err);
+			}
+		}
 	}
+
 	/* This cgroup is ready now */
 	for_each_subsys(cgrp->root, ss) {
 		struct cgroup_subsys_state *css = cgrp->subsys[ss->subsys_id];
@@ -3823,6 +3958,8 @@ static long cgroup_create(struct cgroup *parent, struct dentry *dentry,
 
 	/* The cgroup directory was pre-locked for us */
 	BUG_ON(!mutex_is_locked(&cgrp->dentry->d_inode->i_mutex));
+
+	list_add_tail(&cgrp->allcg_node, &root->allcg_list);
 
 	err = cgroup_populate_dir(cgrp);
 	/* If err < 0, we have a half-filled directory - oh well ;) */
@@ -4060,6 +4197,8 @@ again:
 	list_del_init(&cgrp->sibling);
 	cgroup_unlock_hierarchy(cgrp->root);
 
+	list_del_init(&cgrp->allcg_node);
+
 	d = dget(cgrp->dentry);
 
 	cgroup_d_remove_dir(d);
@@ -4085,11 +4224,28 @@ again:
 	return 0;
 }
 
+static void __init_or_module cgroup_init_cftsets(struct cgroup_subsys *ss)
+{
+	INIT_LIST_HEAD(&ss->cftsets);
+
+	/*
+	 * base_cftset is embedded in subsys itself, no need to worry about
+	 * deregistration.
+	 */
+	if (ss->base_cftypes) {
+		ss->base_cftset.cfts = ss->base_cftypes;
+		list_add_tail(&ss->base_cftset.node, &ss->cftsets);
+	}
+}
+
 static void __init cgroup_init_subsys(struct cgroup_subsys *ss)
 {
 	struct cgroup_subsys_state *css;
 
 	printk(KERN_INFO "Initializing cgroup subsys %s\n", ss->name);
+
+	/* init base cftset */
+	cgroup_init_cftsets(ss);
 
 	/* Create the top cgroup state for this subsystem */
 	list_add(&ss->sibling, &rootnode.subsys_list);
@@ -4159,6 +4315,9 @@ int __init_or_module cgroup_load_subsys(struct cgroup_subsys *ss)
 		BUG_ON(subsys[ss->subsys_id] != ss);
 		return 0;
 	}
+
+	/* init base cftset */
+	cgroup_init_cftsets(ss);
 
 	/*
 	 * need to register a subsys id before anything else - for example,
@@ -5252,19 +5411,15 @@ static struct cftype debug_files[] =  {
 		.name = "releasable",
 		.read_u64 = releasable_read,
 	},
-};
 
-static int debug_populate(struct cgroup_subsys *ss, struct cgroup *cont)
-{
-	return cgroup_add_files(cont, ss, debug_files,
-				ARRAY_SIZE(debug_files));
-}
+	{ }	/* terminate */
+};
 
 struct cgroup_subsys debug_subsys = {
 	.name = "debug",
 	.create = debug_create,
 	.destroy = debug_destroy,
-	.populate = debug_populate,
 	.subsys_id = debug_subsys_id,
+	.base_cftypes = debug_files,
 };
 #endif /* CONFIG_CGROUP_DEBUG */
