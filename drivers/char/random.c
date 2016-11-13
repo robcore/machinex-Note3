@@ -264,6 +264,8 @@
 #include <asm/irq_regs.h>
 #include <asm/io.h>
 
+#include <linux/kthread.h>
+
 #define CREATE_TRACE_POINTS
 #include <trace/events/random.h>
 
@@ -302,7 +304,7 @@ static int random_read_wakeup_bits = 256;
  * access to /dev/random.
  */
 
-static int random_write_wakeup_thresh = 40 * OUTPUT_POOL_WORDS;
+static int random_write_wakeup_bits = 40 * OUTPUT_POOL_WORDS;
 
 /*
  * The minimum number of seconds between urandom pool reseeding.  We
@@ -1356,7 +1358,6 @@ random_read(struct file *file, char __user *buf, size_t nbytes, loff_t *ppos)
 		trace_random_read(n*8, (nbytes-n)*8,
 				  ENTROPY_BITS(&blocking_pool),
 				  ENTROPY_BITS(&input_pool));
-
 		if (n > 0)
 			return n;
 
@@ -1727,3 +1728,23 @@ randomize_range(unsigned long start, unsigned long end, unsigned long len)
 		return 0;
 	return PAGE_ALIGN(get_random_int() % range + start);
 }
+
+/* Interface for in-kernel drivers of true hardware RNGs.
+ * Those devices may produce endless random bits and will be throttled
+ * when our pool is full.
+ */
+void add_hwgenerator_randomness(const char *buffer, size_t count,
+        size_t entropy)
+{
+    struct entropy_store *poolp = &input_pool;
+
+    /* Suspend writing if we're above the trickle threshold.
+     * We'll be woken up again once below random_write_wakeup_thresh,
+     * or when the calling thread is about to terminate.
+     */
+    wait_event_interruptible(random_write_wait, kthread_should_stop() ||
+            ENTROPY_BITS(poolp) <= random_write_wakeup_bits);
+    mix_pool_bytes(poolp, buffer, count, NULL);
+    credit_entropy_bits(poolp, entropy);
+}
+EXPORT_SYMBOL_GPL(add_hwgenerator_randomness);
