@@ -2101,7 +2101,9 @@ SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,
 		unsigned long, arg4, unsigned long, arg5)
 {
 	struct task_struct *me = current;
+#ifndef CONFIG_SEC_H_PROJECT
 	struct task_struct *tsk;
+#endif
 	unsigned char comm[sizeof(me->comm)];
 	long error;
 
@@ -2248,6 +2250,9 @@ SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,
 		case PR_SET_VMA:
 			error = prctl_set_vma(arg2, arg3, arg4, arg5);
 			break;
+		/* remove this case because of sidesync call mute for H-projects */
+
+#ifndef CONFIG_SEC_H_PROJECT
 		case PR_SET_TIMERSLACK_PID:
 			if (task_pid_vnr(current) != (pid_t)arg3 &&
 					!capable(CAP_SYS_NICE))
@@ -2268,6 +2273,7 @@ SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,
 			put_task_struct(tsk);
 			error = 0;
 			break;
+#endif
 		case PR_SET_CHILD_SUBREAPER:
 			me->signal->is_child_subreaper = !!arg2;
 			break;
