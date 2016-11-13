@@ -304,7 +304,7 @@ static int grab_super(struct super_block *s) __releases(sb_lock)
 
 /*
  *	grab_super_passive - acquire a passive reference
- *	@s: reference we are trying to grab
+ *	@sb: reference we are trying to grab
  *
  *	Tries to acquire a passive reference. This is used in places where we
  *	cannot take an active reference but we need to ensure that the
@@ -722,7 +722,6 @@ int do_remount_sb(struct super_block *sb, int flags, void *data, int force)
 	if (flags & MS_RDONLY)
 		acct_auto_close(sb);
 	shrink_dcache_sb(sb);
-	sync_filesystem(sb);
 
 	remount_ro = (flags & MS_RDONLY) && !(sb->s_flags & MS_RDONLY);
 
@@ -738,6 +737,8 @@ int do_remount_sb(struct super_block *sb, int flags, void *data, int force)
 				return retval;
 		}
 	}
+
+	sync_filesystem(sb);
 
 	if (sb->s_op->remount_fs) {
 		retval = sb->s_op->remount_fs(sb, &flags, data);

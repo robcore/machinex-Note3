@@ -38,6 +38,7 @@
 #include <linux/timer.h>
 #include <linux/sched/rt.h>
 #include <trace/events/writeback.h>
+#include <linux/powersuspend.h>
 
 #include "internal.h"
 
@@ -98,14 +99,24 @@ unsigned long vm_dirty_bytes;
 /*
  * The interval between `kupdate'-style writebacks
  */
-unsigned int dirty_writeback_interval = 5 * 100; /* centiseconds */
+#define DEFAULT_DIRTY_WRITEBACK_INTERVAL 600 /* centiseconds */
+#define DEFAULT_SUSPEND_DIRTY_WRITEBACK_INTERVAL 6000 /* centiseconds */
+unsigned int dirty_writeback_interval,
+	resume_dirty_writeback_interval;
+unsigned int sleep_dirty_writeback_interval,
+	suspend_dirty_writeback_interval;
 
 EXPORT_SYMBOL_GPL(dirty_writeback_interval);
 
 /*
  * The longest time for which data is allowed to remain dirty
  */
-unsigned int dirty_expire_interval = 30 * 100; /* centiseconds */
+#define DEFAULT_DIRTY_EXPIRE_INTERVAL 3000 /* centiseconds */
+#define DEFAULT_SUSPEND_DIRTY_EXPIRE_INTERVAL 12000 /* centiseconds */
+unsigned int dirty_expire_interval,
+	resume_dirty_expire_interval;
+unsigned int sleep_dirty_expire_interval,
+	suspend_dirty_expire_interval;
 
 /*
  * Flag that makes the machine dump writes/reads and block dirtyings.
@@ -966,7 +977,7 @@ static void bdi_update_dirty_ratelimit(struct backing_dev_info *bdi,
 	 *	bdi->dirty_ratelimit = balanced_dirty_ratelimit;
 	 *
 	 * However to get a more stable dirty_ratelimit, the below elaborated
-	 * code makes use of task_ratelimit to filter out sigular points and
+	 * code makes use of task_ratelimit to filter out singular points and
 	 * limit the step size.
 	 *
 	 * The below code essentially only uses the relative value of
@@ -989,7 +1000,7 @@ static void bdi_update_dirty_ratelimit(struct backing_dev_info *bdi,
 	 * feel and care are stable dirty rate and small position error.
 	 *
 	 * |task_ratelimit - dirty_ratelimit| is used to limit the step size
-	 * and filter out the sigular points of balanced_dirty_ratelimit. Which
+	 * and filter out the singular points of balanced_dirty_ratelimit. Which
 	 * keeps jumping around randomly and can even leap far away at times
 	 * due to the small 200ms estimation period of dirty_rate (we want to
 	 * keep that period small to reduce time lags).
@@ -1622,6 +1633,23 @@ static struct notifier_block __cpuinitdata ratelimit_nb = {
 	.next		= NULL,
 };
 
+static void dirty_early_suspend(struct power_suspend *handler)
+{
+	dirty_writeback_interval = suspend_dirty_writeback_interval;
+	dirty_expire_interval = suspend_dirty_expire_interval;
+}
+
+static void dirty_late_resume(struct power_suspend *handler)
+{
+	dirty_writeback_interval = resume_dirty_writeback_interval;
+	dirty_expire_interval = resume_dirty_expire_interval;
+}
+
+static struct power_suspend dirty_suspend = {
+	.suspend = dirty_early_suspend,
+	.resume = dirty_late_resume,
+};
+
 /*
  * Called early on to tune the page writeback dirty limits.
  *
@@ -1643,6 +1671,17 @@ static struct notifier_block __cpuinitdata ratelimit_nb = {
 void __init page_writeback_init(void)
 {
 	int shift;
+
+	dirty_writeback_interval = resume_dirty_writeback_interval =
+		DEFAULT_DIRTY_WRITEBACK_INTERVAL;
+	dirty_expire_interval = resume_dirty_expire_interval =
+		DEFAULT_DIRTY_EXPIRE_INTERVAL;
+	sleep_dirty_writeback_interval = suspend_dirty_writeback_interval =
+		DEFAULT_SUSPEND_DIRTY_WRITEBACK_INTERVAL;
+	sleep_dirty_expire_interval = suspend_dirty_expire_interval =
+		DEFAULT_SUSPEND_DIRTY_EXPIRE_INTERVAL;
+
+	register_power_suspend(&dirty_suspend);
 
 	writeback_set_ratelimit();
 	register_cpu_notifier(&ratelimit_nb);
