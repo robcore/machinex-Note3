@@ -176,6 +176,7 @@ static inline bool freezer_should_skip(struct task_struct *p)
  * while in this function.
  */
 
+/* Like schedule(), but should not block the freezer. */
 static inline void freezable_schedule(void)
 {
 	freezer_do_not_count();
@@ -191,6 +192,33 @@ static inline void freezable_schedule_unsafe(void)
 	freezer_count_unsafe();
 }
 
+/*
+ * Like freezable_schedule_timeout(), but should not block the freezer.  Do not
+ * call this with locks held.
+ */
+static inline long freezable_schedule_timeout(long timeout)
+{
+	long __retval;
+	freezer_do_not_count();
+	__retval = schedule_timeout(timeout);
+	freezer_count();
+	return __retval;
+}
+
+/*
+ * Like schedule_timeout_interruptible(), but should not block the freezer.  Do not
+ * call this with locks held.
+ */
+static inline long freezable_schedule_timeout_interruptible(long timeout)
+{
+	long __retval;
+	freezer_do_not_count();
+	__retval = schedule_timeout_interruptible(timeout);
+	freezer_count();
+	return __retval;
+}
+
+/* Like schedule_timeout_killable(), but should not block the freezer. */
 static inline long freezable_schedule_timeout_killable(long timeout)
 {
 	long __retval;
@@ -200,6 +228,7 @@ static inline long freezable_schedule_timeout_killable(long timeout)
 	return __retval;
 }
 
+/* DO NOT ADD ANY NEW CALLERS OF THIS FUNCTION */
 static inline long freezable_schedule_timeout_killable_unsafe(long timeout)
 {
 	long __retval;
@@ -263,19 +292,9 @@ static inline int freezable_schedule_hrtimeout_range(ktime_t *expires,
 	freezer_do_not_count();						\
 	__retval = wait_event_interruptible_timeout(wq,	(condition),	\
 				__retval);				\
-	freezer_count();							\
-	__retval;							\
-})
-
-#define wait_event_freezable_exclusive(wq, condition)		\
-({									\
-	int __retval;							\
-	freezer_do_not_count();						\
-	__retval = wait_event_interruptible_exclusive(wq, condition);	\
 	freezer_count();						\
 	__retval;							\
 })
-
 
 #define wait_event_freezable_exclusive(wq, condition)			\
 ({									\
@@ -298,6 +317,7 @@ static inline int freeze_kernel_threads(void) { return -ENOSYS; }
 static inline void thaw_processes(void) {}
 static inline void thaw_kernel_threads(void) {}
 
+static inline bool try_to_freeze_nowarn(void) { return false; }
 static inline bool try_to_freeze(void) { return false; }
 
 static inline void freezer_do_not_count(void) {}
