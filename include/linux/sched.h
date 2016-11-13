@@ -212,6 +212,10 @@ DECLARE_PER_CPU(unsigned long, process_counts);
 extern int nr_processes(void);
 extern unsigned long nr_running(void);
 extern unsigned long nr_iowait(void);
+#if defined(CONFIG_INTELLI_HOTPLUG) || defined(CONFIG_MSM_RUN_QUEUE_STATS_BE_CONSERVATIVE)
+extern unsigned long avg_nr_running(void);
+extern unsigned long avg_cpu_nr_running(unsigned int cpu);
+#endif
 extern unsigned long nr_iowait_cpu(int cpu);
 extern unsigned long this_cpu_load(void);
 #ifdef CONFIG_RUNTIME_COMPCACHE
@@ -1069,8 +1073,6 @@ static inline bool cpus_share_cache(int this_cpu, int that_cpu)
 
 struct io_context;			/* See blkdev.h */
 
-	/* task may not gain privileges */
-	unsigned no_new_privs:1;
 
 #ifdef ARCH_HAS_PREFETCH_SWITCH_STACK
 extern void prefetch_stack(struct task_struct *t);
