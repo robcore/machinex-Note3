@@ -66,28 +66,76 @@ static uint32_t oom_count = 0;
 #endif
 
 static uint32_t lowmem_debug_level = 1;
+static uint32_t lowmem_auto_oom = 1;
 static int lowmem_adj[6] = {
 	0,
 	1,
 	6,
 	12,
+	13,
+	15,
 };
-static int lowmem_adj_size = 4;
+static int lowmem_adj_size = 6;
 static int lowmem_minfree[6] = {
 	3 * 512,	/* 6MB */
 	2 * 1024,	/* 8MB */
 	4 * 1024,	/* 16MB */
 	16 * 1024,	/* 64MB */
+	28 * 1024,	/* 112MB */
+	32 * 1024,	/* 131MB */
 };
-static int lowmem_minfree_size = 4;
+static int lowmem_minfree_screen_off[6] = {
+	3 * 512,	/* 6MB */
+	2 * 1024,	/* 8MB */
+	4 * 1024,	/* 16MB */
+	16 * 1024,	/* 64MB */
+	28 * 1024,	/* 112MB */
+	32 * 1024,	/* 131MB */
+};
+static int lowmem_minfree_screen_on[6] = {
+	3 * 512,	/* 6MB */
+	2 * 1024,	/* 8MB */
+	4 * 1024,	/* 16MB */
+	16 * 1024,	/* 64MB */
+	28 * 1024,	/* 112MB */
+	32 * 1024,	/* 131MB */
+};
++static int lowmem_minfree_size = 6;
 
 static unsigned long lowmem_deathpending_timeout;
 
 #define lowmem_print(level, x...)			\
 	do {						\
 		if (lowmem_debug_level >= (level))	\
-			printk(x);			\
+			pr_info(x);			\
 	} while (0)
+
+static bool avoid_to_kill(uid_t uid)
+{
+	/* uid info
+	 * uid == 0 > root
+	 * uid == 1001 > radio
+	 * uid == 1002 > bluetooth
+	 * uid == 1010 > wifi
+	 * uid == 1014 > dhcp
+	 */
+	if (uid == 0 || uid == 1001 || uid == 1002 || uid == 1010 ||
+			uid == 1014) {
+		return 1;
+	}
+	return 0;
+}
+
+static bool protected_apps(char *comm)
+{
+	if (strcmp(comm, "d.process.acore") == 0 ||
+			strcmp(comm, "ndroid.systemui") == 0 ||
+			strcmp(comm, "ndroid.contacts") == 0) {
+		return 1;
+	}
+	return 0;
+}
+
 #if defined(CONFIG_SEC_DEBUG_LMK_MEMINFO)
 static void dump_tasks_info(void)
 {
@@ -154,10 +202,13 @@ static int lowmem_shrink(struct shrinker *s, struct shrink_control *sc)
 {
 	struct task_struct *tsk;
 	struct task_struct *selected = NULL;
+	const struct cred *cred = current_cred(), *pcred;
+	unsigned int uid = 0;
 	int rem = 0;
 	int tasksize;
 	int i;
 	int min_score_adj = OOM_SCORE_ADJ_MAX + 1;
+	int minfree = 0;
 	int selected_tasksize = 0;
 	int selected_oom_score_adj;
 #ifdef CONFIG_SAMP_HOTNESS

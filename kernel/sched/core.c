@@ -9260,14 +9260,8 @@ static void cpu_cgroup_attach(struct cgroup *cgrp,
 {
 	struct task_struct *task;
 
-	cgroup_taskset_for_each(task, cgrp, tset) {
+	cgroup_taskset_for_each(task, cgrp, tset)
 		sched_move_task(task);
-#ifdef CONFIG_ANDROID_BG_SCAN_MEM
-		if (task_notify_on_migrate(task) && thread_group_leader(task))
-			raw_notifier_call_chain(&bgtsk_migration_notifier_head,
-						0, NULL);
-#endif
-	}
 }
 
 static void
