@@ -1,2 +1,2 @@
 #!/bin/bash
-mx-build.sh -a
+./mx-build.sh -a
