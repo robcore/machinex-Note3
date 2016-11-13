@@ -248,11 +248,13 @@ void clear_tasks_mm_cpumask(int cpu)
 static inline void check_for_tasks(int cpu)
 {
 	struct task_struct *p;
+	cputime_t utime, stime;
 
 	write_lock_irq(&tasklist_lock);
 	for_each_process(p) {
+		task_cputime(p, &utime, &stime);
 		if (task_cpu(p) == cpu && p->state == TASK_RUNNING &&
-		    (p->utime || p->stime))
+		    (utime || stime))
 			printk(KERN_WARNING "Task %s (pid = %d) is on cpu %d "
 				"(state = %ld, flags = %x)\n",
 				p->comm, task_pid_nr(p), cpu,
@@ -398,7 +400,8 @@ static int __cpuinit _cpu_up(unsigned int cpu, int tasks_frozen)
 	ret = __cpu_notify(CPU_UP_PREPARE | mod, hcpu, -1, &nr_calls);
 	if (ret) {
 		nr_calls--;
-		printk_ratelimited(KERN_WARNING
+		if (!core_control)
+			printk_ratelimited(KERN_WARNING
 				"%s: attempt to bring up CPU %u failed\n",
 				__func__, cpu);
 		goto out_notify;

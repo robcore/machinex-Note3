@@ -86,6 +86,7 @@ static void __exit_signal(struct task_struct *tsk)
 	bool group_dead = thread_group_leader(tsk);
 	struct sighand_struct *sighand;
 	struct tty_struct *uninitialized_var(tty);
+	cputime_t utime, stime;
 
 	sighand = rcu_dereference_check(tsk->sighand,
 					lockdep_tasklist_lock_is_held());
@@ -124,9 +125,10 @@ static void __exit_signal(struct task_struct *tsk)
 		 * We won't ever get here for the group leader, since it
 		 * will have been the last reference on the signal_struct.
 		 */
-		sig->utime += tsk->utime;
-		sig->stime += tsk->stime;
-		sig->gtime += tsk->gtime;
+		task_cputime(tsk, &utime, &stime);
+		sig->utime += utime;
+		sig->stime += stime;
+		sig->gtime += task_gtime(tsk);
 		sig->min_flt += tsk->min_flt;
 		sig->maj_flt += tsk->maj_flt;
 		sig->nvcsw += tsk->nvcsw;
@@ -671,7 +673,6 @@ static void reparent_leader(struct task_struct *father, struct task_struct *p,
 				struct list_head *dead)
 {
 	list_move_tail(&p->sibling, &p->real_parent->children);
-
 	/*
 	 * If this is a threaded reparent there is no need to
 	 * notify anyone anything has happened.
@@ -795,6 +796,7 @@ static void check_stack_usage(void)
 	static DEFINE_SPINLOCK(low_water_lock);
 	static int lowest_to_date = THREAD_SIZE;
 	unsigned long free;
+	int islower = false;
 
 	free = stack_not_used(current);
 
@@ -803,12 +805,16 @@ static void check_stack_usage(void)
 
 	spin_lock(&low_water_lock);
 	if (free < lowest_to_date) {
+		lowest_to_date = free;
+		islower = true;
+	}
+	spin_unlock(&low_water_lock);
+
+	if (islower) {
 		printk(KERN_WARNING "%s used greatest stack depth: %lu bytes "
 				"left\n",
 				current->comm, free);
-		lowest_to_date = free;
 	}
-	spin_unlock(&low_water_lock);
 }
 #else
 static inline void check_stack_usage(void) {}
@@ -1200,7 +1206,7 @@ static int wait_task_zombie(struct wait_opts *wo, struct task_struct *p)
 		sig = p->signal;
 		psig->cutime += tgutime + sig->cutime;
 		psig->cstime += tgstime + sig->cstime;
-		psig->cgtime += p->gtime + sig->gtime + sig->cgtime;
+		psig->cgtime += task_gtime(p) + sig->gtime + sig->cgtime;
 		psig->cmin_flt +=
 			p->min_flt + sig->min_flt + sig->cmin_flt;
 		psig->cmaj_flt +=

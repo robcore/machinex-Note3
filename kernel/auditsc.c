@@ -67,6 +67,7 @@
 #include <linux/syscalls.h>
 #include <linux/capability.h>
 #include <linux/fs_struct.h>
+#include <linux/compat.h>
 
 #include "audit.h"
 
@@ -87,7 +88,7 @@
 #define MAX_EXECVE_AUDIT_LEN 7500
 
 /* number of audit rules */
-int audit_n_rules = 1;
+int audit_n_rules;
 
 /* determines whether we collect data for signals sent */
 int audit_signals;

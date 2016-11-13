@@ -75,6 +75,7 @@
 #include <linux/init_task.h>
 #include <linux/binfmts.h>
 #include <linux/cpufreq.h>
+
 #include <asm/switch_to.h>
 #include <asm/tlb.h>
 #include <asm/irq_regs.h>
@@ -99,6 +100,9 @@ const char *task_event_names[] = {"PUT_PREV_TASK", "PICK_NEXT_TASK",
 
 ATOMIC_NOTIFIER_HEAD(migration_notifier_head);
 ATOMIC_NOTIFIER_HEAD(load_alert_notifier_head);
+#ifdef CONFIG_ANDROID_BG_SCAN_MEM
+RAW_NOTIFIER_HEAD(bgtsk_migration_notifier_head);
+#endif
 
 void start_bandwidth_timer(struct hrtimer *period_timer, ktime_t period)
 {
@@ -123,7 +127,7 @@ void start_bandwidth_timer(struct hrtimer *period_timer, ktime_t period)
 DEFINE_MUTEX(sched_domains_mutex);
 DEFINE_PER_CPU_SHARED_ALIGNED(struct rq, runqueues);
 
-#ifdef CONFIG_INTELLI_HOTPLUG
+#if defined(CONFIG_INTELLI_HOTPLUG) || defined(CONFIG_MSM_RUN_QUEUE_STATS_BE_CONSERVATIVE)
 DEFINE_PER_CPU_SHARED_ALIGNED(struct nr_stats_s, runqueue_stats);
 #endif
 
@@ -2418,11 +2422,12 @@ try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 	unsigned long flags;
 	int cpu, src_cpu, success = 0;
 	bool notify = false;
- #ifdef CONFIG_SMP
+#ifdef CONFIG_SMP
 	struct rq *rq;
 	int long_sleep = 0;
 	u64 wallclock;
 #endif
+
 	/*
 	 * If we are going to wake up a thread waiting for CONDITION we
 	 * need to ensure that CONDITION=1 done by the caller can not be
@@ -2505,6 +2510,9 @@ stat:
 	if (task_notify_on_migrate(p))
 		notify = true;
 out:
+
+	notify = task_notify_on_migrate(p);
+
 	raw_spin_unlock_irqrestore(&p->pi_lock, flags);
 
 	if (notify) {
@@ -2512,12 +2520,18 @@ out:
 
 		mnd.src_cpu = src_cpu;
 		mnd.dest_cpu = cpu;
-		if (sysctl_sched_ravg_window)
-			mnd.load = div64_u64((u64)p->se.ravg.demand * 100,
-				(u64)(sysctl_sched_ravg_window));
-		else
-			mnd.load = 0;
-		atomic_notifier_call_chain(&migration_notifier_head,
+		mnd.load = pct_task_load(p);
+
+		/*
+		 * Call the migration notifier with mnd for foreground task
+		 * migrations as well as for wakeups if their load is above
+		 * sysctl_sched_wakeup_load_threshold. This would prompt the
+		 * cpu-boost to boost the CPU frequency on wake up of a heavy
+		 * weight foreground task
+		 */
+		if ((src_cpu != cpu) || (mnd.load >
+					sysctl_sched_wakeup_load_threshold))
+			atomic_notifier_call_chain(&migration_notifier_head,
 					   0, (void *)&mnd);
 	}
 
@@ -2538,6 +2552,9 @@ static void try_to_wake_up_local(struct task_struct *p)
 	int long_sleep = 0;
 
 	if (rq != this_rq() || p == current) {
+		printk_deferred("%s: Failed to wakeup task %d (%s), rq = %p, this_rq = %p, p = %p, current = %p\n",
+			__func__, task_pid_nr(p), p->comm, rq,
+			this_rq(), p, current);
 		return;
 	}
 
@@ -2857,10 +2874,6 @@ void wake_up_new_task(struct task_struct *p)
 {
 	unsigned long flags;
 	struct rq *rq;
-#ifdef CONFIG_SMP
-	int long_sleep = 0;
-	u64 wallclock;
-#endif
 
 	raw_spin_lock_irqsave(&p->pi_lock, flags);
 #ifdef CONFIG_SMP
@@ -3007,11 +3020,11 @@ static void finish_task_switch(struct rq *rq, struct task_struct *prev)
 	 * If a task dies, then it sets TASK_DEAD in tsk->state and calls
 	 * schedule one last time. The schedule call will never return, and
 	 * the scheduled task must drop that reference.
-	 *
-	 * We must observe prev->state before clearing prev->on_cpu (in
-	 * finish_lock_switch), otherwise a concurrent wakeup can get prev
-	 * running on another CPU and we could rave with its RUNNING -> DEAD
-	 * transition, resulting in a double drop.
+	 * The test for TASK_DEAD must occur while the runqueue locks are
+	 * still held, otherwise prev could be scheduled on another cpu, die
+	 * there before we look at prev->state, and then the reference would
+	 * be dropped twice.
+	 *		Manfred Spraul <manfred@colorfullife.com>
 	 */
 	prev_state = prev->state;
 	finish_arch_switch(prev);
@@ -3205,13 +3218,60 @@ unsigned long this_cpu_load(void)
 	return this->cpu_load[0];
 }
 
-#ifdef CONFIG_RUNTIME_COMPCACHE
-unsigned long this_cpu_loadx(int i)
+#if defined(CONFIG_INTELLI_HOTPLUG) || defined(CONFIG_MSM_RUN_QUEUE_STATS_BE_CONSERVATIVE)
+unsigned long avg_nr_running(void)
 {
-	struct rq *this = this_rq();
-	return this->cpu_load[i];
+	unsigned long i, sum = 0;
+	unsigned int seqcnt, ave_nr_running;
+
+	for_each_online_cpu(i) {
+		struct nr_stats_s *stats = &per_cpu(runqueue_stats, i);
+		struct rq *q = cpu_rq(i);
+
+		/*
+		 * Update average to avoid reading stalled value if there were
+		 * no run-queue changes for a long time. On the other hand if
+		 * the changes are happening right now, just read current value
+		 * directly.
+		 */
+		seqcnt = read_seqcount_begin(&stats->ave_seqcnt);
+		ave_nr_running = do_avg_nr_running(q);
+		if (read_seqcount_retry(&stats->ave_seqcnt, seqcnt)) {
+			read_seqcount_begin(&stats->ave_seqcnt);
+			ave_nr_running = stats->ave_nr_running;
+		}
+
+		sum += ave_nr_running;
+	}
+
+	return sum;
 }
-#endif /* CONFIG_RUNTIME_COMPCACHE */
+EXPORT_SYMBOL(avg_nr_running);
+
+unsigned long avg_cpu_nr_running(unsigned int cpu)
+{
+	unsigned int seqcnt, ave_nr_running;
+
+	struct nr_stats_s *stats = &per_cpu(runqueue_stats, cpu);
+	struct rq *q = cpu_rq(cpu);
+
+	/*
+	 * Update average to avoid reading stalled value if there were
+	 * no run-queue changes for a long time. On the other hand if
+	 * the changes are happening right now, just read current value
+	 * directly.
+	 */
+	seqcnt = read_seqcount_begin(&stats->ave_seqcnt);
+	ave_nr_running = do_avg_nr_running(q);
+	if (read_seqcount_retry(&stats->ave_seqcnt, seqcnt)) {
+		read_seqcount_begin(&stats->ave_seqcnt);
+		ave_nr_running = stats->ave_nr_running;
+	}
+
+	return ave_nr_running;
+}
+EXPORT_SYMBOL(avg_cpu_nr_running);
+#endif
 
 /*
  * Global load-average calculations
@@ -4121,6 +4181,7 @@ need_resched:
 	} else {
 		prev->yield_count++;
 		raw_spin_unlock_irq(&rq->lock);
+	}
 
 	post_schedule(rq);
 
@@ -4452,60 +4513,6 @@ void __sched wait_for_completion_io(struct completion *x)
 }
 EXPORT_SYMBOL(wait_for_completion_io);
 
-#ifdef CONFIG_INTELLI_HOTPLUG
-unsigned long avg_nr_running(void)
-{
-	unsigned long i, sum = 0;
-	unsigned int seqcnt, ave_nr_running;
-
-	for_each_online_cpu(i) {
-		struct nr_stats_s *stats = &per_cpu(runqueue_stats, i);
-		struct rq *q = cpu_rq(i);
-
-		/*
-		 * Update average to avoid reading stalled value if there were
-		 * no run-queue changes for a long time. On the other hand if
-		 * the changes are happening right now, just read current value
-		 * directly.
-		 */
-		seqcnt = read_seqcount_begin(&stats->ave_seqcnt);
-		ave_nr_running = do_avg_nr_running(q);
-		if (read_seqcount_retry(&stats->ave_seqcnt, seqcnt)) {
-			read_seqcount_begin(&stats->ave_seqcnt);
-			ave_nr_running = stats->ave_nr_running;
-		}
-
-		sum += ave_nr_running;
-	}
-
-	return sum;
-}
-EXPORT_SYMBOL(avg_nr_running);
-
-unsigned long avg_cpu_nr_running(unsigned int cpu)
-{
-	unsigned int seqcnt, ave_nr_running;
-
-	struct nr_stats_s *stats = &per_cpu(runqueue_stats, cpu);
-	struct rq *q = cpu_rq(cpu);
-
-	/*
-	 * Update average to avoid reading stalled value if there were
-	 * no run-queue changes for a long time. On the other hand if
-	 * the changes are happening right now, just read current value
-	 * directly.
-	 */
-	seqcnt = read_seqcount_begin(&stats->ave_seqcnt);
-	ave_nr_running = do_avg_nr_running(q);
-	if (read_seqcount_retry(&stats->ave_seqcnt, seqcnt)) {
-		read_seqcount_begin(&stats->ave_seqcnt);
-		ave_nr_running = stats->ave_nr_running;
-	}
-
-	return ave_nr_running;
-}
-EXPORT_SYMBOL(avg_cpu_nr_running);
-#endif
 
 /**
  * wait_for_completion_timeout: - waits for completion of a task (w/timeout)
@@ -5333,13 +5340,8 @@ change:
 
 	if (running)
 		p->sched_class->set_curr_task(rq);
-	if (on_rq) {
-		/*
-		 * We enqueue to tail when the priority of a task is
-		 * increased (user space view).
-		 */
-		enqueue_task(rq, p, oldprio <= p->prio ? ENQUEUE_HEAD : 0);
-	}
+	if (on_rq)
+		enqueue_task(rq, p, 0);
 
 	check_class_changed(rq, p, prev_class, oldprio);
 	task_rq_unlock(rq, p, &flags);
@@ -6465,6 +6467,7 @@ static int __migrate_task(struct task_struct *p, int src_cpu, int dest_cpu)
 {
 	struct rq *rq_dest, *rq_src;
 	bool moved = false;
+	bool notify = false;
 	int ret = 0;
 
 	if (unlikely(!cpu_active(dest_cpu)))
@@ -6497,6 +6500,9 @@ done:
 	ret = 1;
 fail:
 	double_rq_unlock(rq_src, rq_dest);
+
+	notify = task_notify_on_migrate(p);
+
 	raw_spin_unlock(&p->pi_lock);
 	if (moved && task_notify_on_migrate(p)) {
 		struct migration_notify_data mnd;
@@ -6504,16 +6510,7 @@ fail:
 		mnd.src_cpu = src_cpu;
 		mnd.dest_cpu = dest_cpu;
 		mnd.load = pct_task_load(p);
-		/*
-		 * Call the migration notifier with mnd for foreground task
-		 * migrations as well as for wakeups if their load is above
-		 * sysctl_sched_wakeup_load_threshold. This would prompt the
-		 * cpu-boost to boost the CPU frequency on wake up of a heavy
-		 * weight foreground task
-		 */
-		if ((src_cpu != cpu) || (mnd.load >
-					sysctl_sched_wakeup_load_threshold))
-			atomic_notifier_call_chain(&migration_notifier_head,
+		atomic_notifier_call_chain(&migration_notifier_head,
 					   0, (void *)&mnd);
 	}
 	return ret;
@@ -6626,7 +6623,6 @@ static void migrate_tasks(unsigned int dead_cpu)
 		/* Find suitable destination for @next, with force if needed. */
 		dest_cpu = select_fallback_rq(dead_cpu, next);
 		raw_spin_unlock(&rq->lock);
-		cpu_relax();
 
 		__migrate_task(next, dead_cpu, dest_cpu);
 
@@ -7868,12 +7864,15 @@ static struct sched_domain_topology_level default_topology[] = {
 
 static struct sched_domain_topology_level *sched_domain_topology = default_topology;
 
+#define for_each_sd_topology(tl)			\
+	for (tl = sched_domain_topology; tl->init; tl++)
+
 static int __sdt_alloc(const struct cpumask *cpu_map)
 {
 	struct sched_domain_topology_level *tl;
 	int j;
 
-	for (tl = sched_domain_topology; tl->init; tl++) {
+	for_each_sd_topology(tl) {
 		struct sd_data *sdd = &tl->data;
 
 		sdd->sd = alloc_percpu(struct sched_domain *);
@@ -7926,7 +7925,7 @@ static void __sdt_free(const struct cpumask *cpu_map)
 	struct sched_domain_topology_level *tl;
 	int j;
 
-	for (tl = sched_domain_topology; tl->init; tl++) {
+	for_each_sd_topology(tl) {
 		struct sd_data *sdd = &tl->data;
 
 		for_each_cpu(j, cpu_map) {
@@ -7994,7 +7993,7 @@ static int build_sched_domains(const struct cpumask *cpu_map,
 		struct sched_domain_topology_level *tl;
 
 		sd = NULL;
-		for (tl = sched_domain_topology; tl->init; tl++) {
+		for_each_sd_topology(tl) {
 			sd = build_sched_domain(tl, cpu_map, attr, sd, i);
 			if (tl == sched_domain_topology)
 				*per_cpu_ptr(d.sd, i) = sd;
@@ -8459,7 +8458,7 @@ void __init sched_init(void)
 		 * (se->load.weight).
 		 *
 		 * In other words, if root_task_group has 10 tasks of weight
-		 * (1024) and two child groups A0 and A1 (of weight 1024 each),
+		 * 1024) and two child groups A0 and A1 (of weight 1024 each),
 		 * then A0's share of the cpu resource is:
 		 *
 		 *	A0's bandwidth = 1024 / (10*1024 + 1024 + 1024) = 8.33%
@@ -8499,7 +8498,7 @@ void __init sched_init(void)
 		rq->cstate = 0;
 		rq->wakeup_latency = 0;
 		rq->wakeup_energy = 0;
-#ifdef CONFIG_SCHED_FREQ_INPUT || defined(CONFIG_SCHED_HMP)
+#if defined(CONFIG_SCHED_FREQ_INPUT) || defined(CONFIG_SCHED_HMP)
 		rq->cur_freq = 1;
 		rq->max_freq = 1;
 		rq->min_freq = 1;
@@ -9261,8 +9260,14 @@ static void cpu_cgroup_attach(struct cgroup *cgrp,
 {
 	struct task_struct *task;
 
-	cgroup_taskset_for_each(task, cgrp, tset)
+	cgroup_taskset_for_each(task, cgrp, tset) {
 		sched_move_task(task);
+#ifdef CONFIG_ANDROID_BG_SCAN_MEM
+		if (task_notify_on_migrate(task) && thread_group_leader(task))
+			raw_notifier_call_chain(&bgtsk_migration_notifier_head,
+						0, NULL);
+#endif
+	}
 }
 
 static void
