@@ -5,6 +5,7 @@
  * Copyright (c) 2003 Open Source Development Lab
  * Copyright (c) 2004 Pavel Machek <pavel@ucw.cz>
  * Copyright (c) 2009 Rafael J. Wysocki, Novell Inc.
+ * Copyright (C) 2012 Bojan Smojver <bojan@rexursive.com>
  *
  * This file is released under the GPLv2.
  */
@@ -25,6 +26,8 @@
 #include <linux/freezer.h>
 #include <linux/gfp.h>
 #include <linux/syscore_ops.h>
+#include <linux/ctype.h>
+#include <linux/genhd.h>
 #include <scsi/scsi_scan.h>
 
 #include "power.h"
@@ -44,6 +47,9 @@ enum {
 	HIBERNATION_PLATFORM,
 	HIBERNATION_SHUTDOWN,
 	HIBERNATION_REBOOT,
+#ifdef CONFIG_SUSPEND
+	HIBERNATION_SUSPEND,
+#endif
 	/* keep last */
 	__HIBERNATION_AFTER_LAST
 };
@@ -578,6 +584,10 @@ int hibernation_platform_enter(void)
  */
 static void power_down(void)
 {
+#ifdef CONFIG_SUSPEND
+	int error;
+#endif
+
 	switch (hibernation_mode) {
 	case HIBERNATION_REBOOT:
 		kernel_restart(NULL);
@@ -587,6 +597,25 @@ static void power_down(void)
 	case HIBERNATION_SHUTDOWN:
 		kernel_power_off();
 		break;
+#ifdef CONFIG_SUSPEND
+	case HIBERNATION_SUSPEND:
+		error = suspend_devices_and_enter(PM_SUSPEND_MEM);
+		if (error) {
+			if (hibernation_ops)
+				hibernation_mode = HIBERNATION_PLATFORM;
+			else
+				hibernation_mode = HIBERNATION_SHUTDOWN;
+			power_down();
+		}
+		/*
+		 * Restore swap signature.
+		 */
+		error = swsusp_unmark();
+		if (error)
+			printk(KERN_ERR "PM: Swap will be unusable! "
+			                "Try swapon -a.\n");
+		return;
+#endif
 	}
 	kernel_halt();
 	/*
@@ -728,6 +757,17 @@ static int software_resume(void)
 
 	/* Check if the device is there */
 	swsusp_resume_device = name_to_dev_t(resume_file);
+
+	/*
+	 * name_to_dev_t is ineffective to verify parition if resume_file is in
+	 * integer format. (e.g. major:minor)
+	 */
+	if (isdigit(resume_file[0]) && resume_wait) {
+		int partno;
+		while (!get_gendisk(swsusp_resume_device, &partno))
+			msleep(10);
+	}
+
 	if (!swsusp_resume_device) {
 		/*
 		 * Some device discovery might still be in progress; we need
@@ -820,6 +860,9 @@ static const char * const hibernation_modes[] = {
 	[HIBERNATION_PLATFORM]	= "platform",
 	[HIBERNATION_SHUTDOWN]	= "shutdown",
 	[HIBERNATION_REBOOT]	= "reboot",
+#ifdef CONFIG_SUSPEND
+	[HIBERNATION_SUSPEND]	= "suspend",
+#endif
 };
 
 /*
@@ -860,6 +903,9 @@ static ssize_t disk_show(struct kobject *kobj, struct kobj_attribute *attr,
 		switch (i) {
 		case HIBERNATION_SHUTDOWN:
 		case HIBERNATION_REBOOT:
+#ifdef CONFIG_SUSPEND
+		case HIBERNATION_SUSPEND:
+#endif
 			break;
 		case HIBERNATION_PLATFORM:
 			if (hibernation_ops)
@@ -900,6 +946,9 @@ static ssize_t disk_store(struct kobject *kobj, struct kobj_attribute *attr,
 		switch (mode) {
 		case HIBERNATION_SHUTDOWN:
 		case HIBERNATION_REBOOT:
+#ifdef CONFIG_SUSPEND
+		case HIBERNATION_SUSPEND:
+#endif
 			hibernation_mode = mode;
 			break;
 		case HIBERNATION_PLATFORM:

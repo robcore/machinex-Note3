@@ -39,9 +39,6 @@ static int suspendsync;
 #endif
 
 struct pm_sleep_state pm_states[PM_SUSPEND_MAX] = {
-#ifdef CONFIG_EARLYSUSPEND
-	[PM_SUSPEND_ON]	= { .label = "on", .state = PM_SUSPEND_FREEZE },
-#endif
 	[PM_SUSPEND_FREEZE] = { .label = "freeze", .state = PM_SUSPEND_FREEZE },
 	[PM_SUSPEND_STANDBY] = { .label = "standby", },
 	[PM_SUSPEND_MEM] = { .label = "mem", },
@@ -371,23 +368,18 @@ static int enter_state(suspend_state_t state)
 	if (state == PM_SUSPEND_FREEZE)
 		freeze_begin();
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	if (suspendsync)
-		suspend_sys_sync_queue();
-#else
 	if (suspendsync) {
 		printk(KERN_INFO "PM: Syncing filesystems ... ");
 		sys_sync();
 		printk("done.\n");
 	}
-#endif
 
 	pm_qos_add_request(&suspend_pm_qos, PM_QOS_CPU_DMA_LATENCY,
                       PM_QOS_DEFAULT_VALUE);
 	pm_qos_update_request(&suspend_pm_qos, 0);
 
 	pr_debug("PM: Preparing system for %s sleep\n", pm_states[state].label);
-	error = suspend_prepare(state)
+	error = suspend_prepare(state);
 	if (error)
 		goto Unlock;
 

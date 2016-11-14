@@ -89,6 +89,10 @@ struct msm_pm_cpr_ops {
 	void (*cpr_resume)(void);
 };
 
+#ifdef CONFIG_QUICK_WAKEUP
+	bool (*suspend_again)(void);
+#endif
+
 void msm_pm_set_platform_data(struct msm_pm_platform_data *data, int count);
 enum msm_pm_sleep_mode msm_pm_idle_enter(struct cpuidle_device *dev,
 			struct cpuidle_driver *drv, int index);

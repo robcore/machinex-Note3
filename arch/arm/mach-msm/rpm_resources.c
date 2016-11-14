@@ -21,6 +21,9 @@
 #include <linux/spinlock.h>
 #include <linux/cpu.h>
 #include <linux/hrtimer.h>
+#ifdef CONFIG_QUICK_WAKEUP
+#include <linux/quickwakeup.h>
+#endif
 #include <linux/platform_device.h>
 #include <mach/rpm.h>
 #include <mach/msm_iomap.h>
@@ -28,6 +31,9 @@
 #include <linux/io.h>
 #include <mach/socinfo.h>
 #include <mach/mpm.h>
+#ifdef CONFIG_QUICK_WAKEUP
+#include "pm.h"
+#endif
 #include "rpm_resources.h"
 #include "spm.h"
 #include "idle.h"
@@ -1212,6 +1218,9 @@ static struct msm_pm_sleep_ops msm_rpmrs_ops = {
 	.lowest_limits = msm_rpmrs_lowest_limits,
 	.enter_sleep = msm_rpmrs_enter_sleep,
 	.exit_sleep = msm_rpmrs_exit_sleep,
+#ifdef CONFIG_QUICK_WAKEUP
+	.suspend_again = quickwakeup_suspend_again,
+#endif
 };
 
 static int __init msm_rpmrs_l2_init(void)
