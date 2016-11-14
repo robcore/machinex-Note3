@@ -1224,7 +1224,7 @@ struct sock *sk_alloc(struct net *net, int family, gfp_t priority,
 		atomic_set(&sk->sk_wmem_alloc, 1);
 
 		sock_update_classid(sk);
-		sock_update_netprioidx(sk);
+		sock_update_netprioidx(sk, current);
 
 // ------------- START of KNOX_VPN ------------------//
             sk->knox_uid = current->cred->uid;
