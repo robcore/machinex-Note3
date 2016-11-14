@@ -7,4 +7,4 @@ rm -rf $(pwd)/build
 mkdir $(pwd)/build
 cp $(pwd)/arch/arm/configs/mxconfig $(pwd)/build/.config;
 make ARCH=arm -j6 O=$(pwd)/build oldconfig;
-make ARCH=arm -S -s -j6 O=$(pwd)/build $(pwd)/drivers/char/;
+make ARCH=arm -S -s -j6 O=$(pwd)/build $(pwd)/kernel/locking/lglock.o;
