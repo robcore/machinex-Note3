@@ -182,6 +182,10 @@ extern void irq_radix_revmap_insert(struct irq_domain *host, unsigned int virq,
 				      irq_hw_number_t hwirq);
 #endif
 
+extern void irq_radix_revmap_insert(struct irq_domain *host, unsigned int virq,
+				    irq_hw_number_t hwirq);
+extern unsigned int irq_radix_revmap_lookup(struct irq_domain *host,
+					    irq_hw_number_t hwirq);
 extern unsigned int irq_linear_revmap(struct irq_domain *host,
 				      irq_hw_number_t hwirq);
 
