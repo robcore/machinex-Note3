@@ -12,8 +12,8 @@
 
 #ifdef CONFIG_POWERSUSPEND
 #include <linux/powersuspend.h>
-#include <linux/syscalls.h>
 #endif
+#include <linux/syscalls.h>
 
 #include "power.h"
 
