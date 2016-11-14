@@ -39,7 +39,7 @@
 #include "../mount.h"
 #include <linux/lzo.h>
 
-#define SCFS_VERSION "1.2.18"
+#define SCFS_VERSION "1.2.19"
 
 #if MAX_BUFFER_CACHE
 //extern struct read_buffer_cache buffer_cache[];
@@ -389,9 +389,8 @@ static struct dentry *scfs_mount(struct file_system_type *fs_type, int flags,
 	if (!sbi->options.comp_type)
 		sbi->options.comp_type = SCFS_COMP_LZO;
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
 	sb = sget(fs_type, NULL, set_anon_super, flags, NULL);
-#else
+#if 0
 	sb = sget(fs_type, NULL, set_anon_super, NULL);
 #endif
 	if (IS_ERR(sb)) {
@@ -669,8 +668,10 @@ static int scfs_remount_fs(struct super_block *sb, int *flags, char *options)
 		dentry = mnt->mnt_mountpoint;
 		while (dentry->d_parent != dentry) {
 			start -= dentry->d_name.len;
-			if (start < 0)
+			if (start < 0) {
+				kfree(dir_name);
 				return -EINVAL;
+			}
 
 			memcpy(dir_name + start, dentry->d_name.name, dentry->d_name.len);
 			dir_name[--start] = '/';
