@@ -25,6 +25,7 @@
 #include <linux/power_supply.h>
 #include <linux/battery/sec_charging_common.h>
 #endif
+#include <linux/alarmtimer.h>
 
 #ifdef CONFIG_RTC_AUTO_PWRON
 #include <linux/reboot.h>
@@ -1182,6 +1183,9 @@ static int __devinit qpnp_rtc_probe(struct spmi_device *spmi)
 		rc = PTR_ERR(rtc_dd->rtc);
 		goto fail_rtc_enable;
 	}
+
+	/* Init power_on_alarm after adding rtc device */
+	power_on_alarm_init();
 
 	/* Request the alarm IRQ */
 	rc = request_any_context_irq(rtc_dd->rtc_alarm_irq,
