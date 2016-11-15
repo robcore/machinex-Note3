@@ -71,7 +71,7 @@ int drbd_asender(struct drbd_thread *);
 
 int drbd_init(void);
 static int drbd_open(struct block_device *bdev, fmode_t mode);
-static int drbd_release(struct gendisk *gd, fmode_t mode);
+static void drbd_release(struct gendisk *gd, fmode_t mode);
 static int w_after_state_ch(struct drbd_conf *mdev, struct drbd_work *w, int unused);
 static void after_state_ch(struct drbd_conf *mdev, union drbd_state os,
 			   union drbd_state ns, enum chg_state_flags flags);
@@ -159,7 +159,13 @@ static const struct block_device_operations drbd_ops = {
 	.release = drbd_release,
 };
 
-#define ARRY_SIZE(A) (sizeof(A)/sizeof(A[0]))
+struct bio *bio_alloc_drbd(gfp_t gfp_mask)
+{
+	if (!drbd_md_io_bio_set)
+		return bio_alloc(gfp_mask, 1);
+
+	return bio_alloc_bioset(gfp_mask, 1, drbd_md_io_bio_set);
+}
 
 #ifdef __CHECKER__
 /* When checking with sparse, and this is an inline function, sparse will
@@ -2925,13 +2931,12 @@ static int drbd_open(struct block_device *bdev, fmode_t mode)
 	return rv;
 }
 
-static int drbd_release(struct gendisk *gd, fmode_t mode)
+static void drbd_release(struct gendisk *gd, fmode_t mode)
 {
 	struct drbd_conf *mdev = gd->private_data;
 	mutex_lock(&drbd_main_mutex);
 	mdev->open_cnt--;
 	mutex_unlock(&drbd_main_mutex);
-	return 0;
 }
 
 static void drbd_set_defaults(struct drbd_conf *mdev)

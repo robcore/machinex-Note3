@@ -503,12 +503,11 @@ static int gdrom_bdops_open(struct block_device *bdev, fmode_t mode)
 	return ret;
 }
 
-static int gdrom_bdops_release(struct gendisk *disk, fmode_t mode)
+static void gdrom_bdops_release(struct gendisk *disk, fmode_t mode)
 {
 	mutex_lock(&gdrom_mutex);
 	cdrom_release(gd.cd_info, mode);
 	mutex_unlock(&gdrom_mutex);
-	return 0;
 }
 
 static unsigned int gdrom_bdops_check_events(struct gendisk *disk,
@@ -840,7 +839,7 @@ probe_fail_no_mem:
 
 static int __devexit remove_gdrom(struct platform_device *devptr)
 {
-	flush_work_sync(&work);
+	flush_work(&work);
 	blk_cleanup_queue(gd.gdrom_rq);
 	free_irq(HW_EVENT_GDROM_CMD, &gd);
 	free_irq(HW_EVENT_GDROM_DMA, &gd);

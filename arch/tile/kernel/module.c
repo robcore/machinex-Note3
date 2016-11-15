@@ -52,8 +52,6 @@ void *module_alloc(unsigned long size)
 	int i = 0;
 	int npages;
 
-	if (size == 0)
-		return NULL;
 	npages = (size + PAGE_SIZE - 1) / PAGE_SIZE;
 	pages = kmalloc(npages * sizeof(struct page *), GFP_KERNEL);
 	if (pages == NULL)
@@ -70,7 +68,7 @@ void *module_alloc(unsigned long size)
 	area->nr_pages = npages;
 	area->pages = pages;
 
-	if (map_vm_area(area, prot_rwx, &pages)) {
+	if (map_vm_area(area, prot_rwx, pages)) {
 		vunmap(area->addr);
 		goto error;
 	}

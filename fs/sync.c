@@ -214,21 +214,19 @@ void emergency_sync(void)
  */
 SYSCALL_DEFINE1(syncfs, int, fd)
 {
-	struct file *file;
+	struct fd f = fdget(fd);
 	struct super_block *sb;
 	int ret;
-	int fput_needed;
 
-	file = fget_light(fd, &fput_needed);
-	if (!file)
+	if (!f.file)
 		return -EBADF;
-	sb = file->f_dentry->d_sb;
+	sb = f.file->f_dentry->d_sb;
 
 	down_read(&sb->s_umount);
 	ret = sync_filesystem(sb);
 	up_read(&sb->s_umount);
 
-	fput_light(file, fput_needed);
+	fdput(f);
 	return ret;
 }
 
@@ -322,23 +320,20 @@ static void do_afsync_work(struct work_struct *work)
 
 static int do_fsync(unsigned int fd, int datasync)
 {
-	struct file *file;
+	struct fd f = fdget(fd);
 	int ret = -EBADF;
-	int fput_needed;
 #ifdef CONFIG_ASYNC_FSYNC
 	struct fsync_work *fwork;
 #endif
 
-	file = fget_light(fd, &fput_needed);
-
-	if (file) {
+	if (f.file) {
+#ifdef CONFIG_ASYNC_FSYNC
 		ktime_t fsync_t, fsync_diff;
 		char pathname[256], *path;
-		path = d_path(&(file->f_path), pathname, sizeof(pathname));
+		path = d_path(&(f.file->f_path), pathname, sizeof(pathname));
 		if (IS_ERR(path))
 			path = "(unknown)";
-#ifdef CONFIG_ASYNC_FSYNC
-		else if (async_fsync(file, fd)) {
+		else if (async_fsync(f.file, fd)) {
 			if (!fsync_workqueue)
 				fsync_workqueue =
 					create_singlethread_workqueue("fsync");
@@ -354,15 +349,16 @@ static int do_fsync(unsigned int fd, int datasync)
 					sizeof(fwork->pathname) - 1);
 				INIT_WORK(&fwork->work, do_afsync_work);
 				queue_work(fsync_workqueue, &fwork->work);
-				fput(file);
+				fdput(f);
 				return 0;
 			}
 		}
 no_async:
-#endif
 		fsync_t = ktime_get();
-		ret = vfs_fsync(file, datasync);
-		fput_light(file, fput_needed);
+#endif
+		ret = vfs_fsync(f.file, datasync);
+		fdput(f);
+#ifdef CONFIG_ASYNC_FSYNC
 		fsync_diff = ktime_sub(ktime_get(), fsync_t);
 		if (ktime_to_ms(fsync_diff) >= 5000) {
                         pr_info("VFS: %s pid:%d(%s)(parent:%d/%s)\
@@ -371,6 +367,7 @@ no_async:
 				current->parent->pid, current->parent->comm,
 				ktime_to_ms(fsync_diff), path);
 		}
+#endif
 	}
 	return ret;
 }
@@ -449,14 +446,13 @@ EXPORT_SYMBOL(generic_write_sync);
  * already-instantiated disk blocks, there are no guarantees here that the data
  * will be available after a crash.
  */
-SYSCALL_DEFINE(sync_file_range)(int fd, loff_t offset, loff_t nbytes,
-				unsigned int flags)
+SYSCALL_DEFINE4(sync_file_range, int, fd, loff_t, offset, loff_t, nbytes,
+				unsigned int, flags)
 {
 	int ret;
-	struct file *file;
+	struct fd f;
 	struct address_space *mapping;
 	loff_t endbyte;			/* inclusive */
-	int fput_needed;
 	umode_t i_mode;
 
 	ret = -EINVAL;
@@ -495,17 +491,17 @@ SYSCALL_DEFINE(sync_file_range)(int fd, loff_t offset, loff_t nbytes,
 		endbyte--;		/* inclusive */
 
 	ret = -EBADF;
-	file = fget_light(fd, &fput_needed);
-	if (!file)
+	f = fdget(fd);
+	if (!f.file)
 		goto out;
 
-	i_mode = file->f_path.dentry->d_inode->i_mode;
+	i_mode = file_inode(f.file)->i_mode;
 	ret = -ESPIPE;
 	if (!S_ISREG(i_mode) && !S_ISBLK(i_mode) && !S_ISDIR(i_mode) &&
 			!S_ISLNK(i_mode))
 		goto out_put;
 
-	mapping = file->f_mapping;
+	mapping = f.file->f_mapping;
 	if (!mapping) {
 		ret = -EINVAL;
 		goto out_put;
@@ -528,33 +524,15 @@ SYSCALL_DEFINE(sync_file_range)(int fd, loff_t offset, loff_t nbytes,
 		ret = filemap_fdatawait_range(mapping, offset, endbyte);
 
 out_put:
-	fput_light(file, fput_needed);
+	fdput(f);
 out:
 	return ret;
 }
-#ifdef CONFIG_HAVE_SYSCALL_WRAPPERS
-asmlinkage long SyS_sync_file_range(long fd, loff_t offset, loff_t nbytes,
-				    long flags)
-{
-	return SYSC_sync_file_range((int) fd, offset, nbytes,
-				    (unsigned int) flags);
-}
-SYSCALL_ALIAS(sys_sync_file_range, SyS_sync_file_range);
-#endif
 
 /* It would be nice if people remember that not all the world's an i386
    when they introduce new system calls */
-SYSCALL_DEFINE(sync_file_range2)(int fd, unsigned int flags,
-				 loff_t offset, loff_t nbytes)
+SYSCALL_DEFINE4(sync_file_range2, int, fd, unsigned int, flags,
+				 loff_t, offset, loff_t, nbytes)
 {
 	return sys_sync_file_range(fd, offset, nbytes, flags);
 }
-#ifdef CONFIG_HAVE_SYSCALL_WRAPPERS
-asmlinkage long SyS_sync_file_range2(long fd, long flags,
-				     loff_t offset, loff_t nbytes)
-{
-	return SYSC_sync_file_range2((int) fd, (unsigned int) flags,
-				     offset, nbytes);
-}
-SYSCALL_ALIAS(sys_sync_file_range2, SyS_sync_file_range2);
-#endif

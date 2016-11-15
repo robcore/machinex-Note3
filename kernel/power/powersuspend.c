@@ -22,6 +22,10 @@
  *
  * v1.7.1 - Add autosleep and hybrid modes back
  *
+ *  v1.6 - remove autosleep and hybrid modes (autosleep not working on LP)
+ *
+ *  v1.7 - do only run state change if change actually requests a new state
+ *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
  * may be copied, distributed, and modified under those terms.
@@ -131,6 +135,8 @@ abort_resume:
 	mutex_unlock(&power_suspend_lock);
 }
 
+bool power_suspended = false;
+
 void set_power_suspend_state(int new_state)
 {
 	unsigned long irqflags;
@@ -217,7 +223,6 @@ static ssize_t power_suspend_mode_store(struct kobject *kobj,
 	sscanf(buf, "%d\n", &data);
 
 	switch (data) {
-		case POWER_SUSPEND_AUTOSLEEP:
 		case POWER_SUSPEND_PANEL:
 		case POWER_SUSPEND_USERSPACE:
 		case POWER_SUSPEND_HYBRID:	mode = data;

@@ -1352,7 +1352,8 @@ static int a2xx_create_gmem_shadow(struct adreno_device *adreno_dev,
 	calc_gmemsize(&drawctxt->context_gmem_shadow, adreno_dev->gmem_size);
 	tmp_ctx.gmem_base = adreno_dev->gmem_base;
 
-	result = kgsl_allocate(&drawctxt->context_gmem_shadow.gmemshadow,
+	result = kgsl_allocate(&(adreno_dev->dev),
+		&drawctxt->context_gmem_shadow.gmemshadow,
 		drawctxt->base.proc_priv->pagetable,
 		drawctxt->context_gmem_shadow.size);
 
@@ -1383,7 +1384,7 @@ static int a2xx_create_gmem_shadow(struct adreno_device *adreno_dev,
 				&drawctxt->context_gmem_shadow);
 
 	kgsl_cache_range_op(&drawctxt->context_gmem_shadow.gmemshadow,
-			    KGSL_CACHE_OP_FLUSH);
+			    0, 0, KGSL_CACHE_OP_FLUSH);
 
 	kgsl_cffdump_syncmem(drawctxt->base.device,
 			&drawctxt->context_gmem_shadow.gmemshadow,
@@ -1450,7 +1451,7 @@ static int a2xx_drawctxt_create(struct adreno_device *adreno_dev,
 	 * and texture and vertex buffer storage too
 	 */
 
-	ret = kgsl_allocate(&drawctxt->gpustate,
+	ret = kgsl_allocate(&(adreno_dev->dev), &drawctxt->gpustate,
 		drawctxt->base.proc_priv->pagetable, _context_size(adreno_dev));
 
 	if (ret)
@@ -1477,7 +1478,7 @@ static int a2xx_drawctxt_create(struct adreno_device *adreno_dev,
 
 	/* Flush and sync the gpustate memory */
 
-	kgsl_cache_range_op(&drawctxt->gpustate,
+	kgsl_cache_range_op(&drawctxt->gpustate, 0, 0,
 			    KGSL_CACHE_OP_FLUSH);
 
 	kgsl_cffdump_syncmem(drawctxt->base.device,
@@ -1803,7 +1804,7 @@ static void a2xx_cp_intrcallback(struct kgsl_device *device)
 	kgsl_regwrite(device, REG_CP_INT_ACK, status);
 
 	if (status & (CP_INT_CNTL__IB1_INT_MASK | CP_INT_CNTL__RB_INT_MASK)) {
-		queue_work(device->work_queue, &device->ts_expired_ws);
+		queue_work(device->work_queue, &device->event_work);
 		adreno_dispatcher_schedule(device);
 	}
 }
@@ -2114,6 +2115,7 @@ static void a2xx_postmortem_dump(struct adreno_device *adreno_dev)
 	"INT_CNTL = %08X | INT_STATUS   = %08X | READ_ERROR   = %08X\n",
 	r1, r2, r3);
 
+/*
 	{
 		char cmdFifo[16];
 		struct log_field lines[] = {
@@ -2143,6 +2145,7 @@ static void a2xx_postmortem_dump(struct adreno_device *adreno_dev)
 		adreno_dump_fields(device, " STATUS=", lines,
 				ARRAY_SIZE(lines));
 	}
+*/
 
 	kgsl_regread(device, REG_CP_RB_BASE, &r1);
 	kgsl_regread(device, REG_CP_RB_CNTL, &r2);
@@ -2174,6 +2177,7 @@ static void a2xx_postmortem_dump(struct adreno_device *adreno_dev)
 	kgsl_regread(device, REG_CP_STAT, &cp_stat);
 	KGSL_LOG_DUMP(device, "CP_STAT      = %08X\n", cp_stat);
 #ifndef CONFIG_MSM_KGSL_PSTMRTMDMP_CP_STAT_NO_DETAIL
+/*
 	{
 		struct log_field lns[] = {
 			{cp_stat &  BIT(0), "WR_BSY     0"},
@@ -2219,6 +2223,7 @@ static void a2xx_postmortem_dump(struct adreno_device *adreno_dev)
 		};
 		adreno_dump_fields(device, " CP_STT=", lns, ARRAY_SIZE(lns));
 	}
+*/
 #endif
 
 	kgsl_regread(device, REG_SCRATCH_REG0, &r1);

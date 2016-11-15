@@ -314,7 +314,7 @@ static int recent_mt_check(const struct xt_mtchk_param *par)
 #ifdef CONFIG_PROC_FS
 	struct proc_dir_entry *pde;
 #endif
-	unsigned i;
+	unsigned int i;
 	int ret = -EINVAL;
 
 	if (unlikely(!hash_rnd_inited)) {
@@ -373,8 +373,7 @@ static int recent_mt_check(const struct xt_mtchk_param *par)
 		ret = -ENOMEM;
 		goto out;
 	}
-	pde->uid = ip_list_uid;
-	pde->gid = ip_list_gid;
+	proc_set_user(pde, ip_list_uid, ip_list_gid);
 #endif
 	spin_lock_bh(&recent_lock);
 	list_add_tail(&t->list, &recent_net->tables);
@@ -478,14 +477,13 @@ static const struct seq_operations recent_seq_ops = {
 
 static int recent_seq_open(struct inode *inode, struct file *file)
 {
-	struct proc_dir_entry *pde = PDE(inode);
 	struct recent_iter_state *st;
 
 	st = __seq_open_private(file, &recent_seq_ops, sizeof(*st));
 	if (st == NULL)
 		return -ENOMEM;
 
-	st->table    = pde->data;
+	st->table    = PDE_DATA(inode);
 	return 0;
 }
 
@@ -493,8 +491,7 @@ static ssize_t
 recent_mt_proc_write(struct file *file, const char __user *input,
 		     size_t size, loff_t *loff)
 {
-	const struct proc_dir_entry *pde = PDE(file->f_path.dentry->d_inode);
-	struct recent_table *t = pde->data;
+	struct recent_table *t = PDE_DATA(file_inode(file));
 	struct recent_entry *e;
 	char buf[sizeof("+b335:1d35:1e55:dead:c0de:1715:5afe:c0de")];
 	const char *c = buf;
@@ -582,7 +579,7 @@ static int __net_init recent_proc_net_init(struct net *net)
 
 static void __net_exit recent_proc_net_exit(struct net *net)
 {
-	proc_net_remove(net, "xt_recent");
+	remove_proc_entry("xt_recent", net->proc_net);
 }
 #else
 static inline int recent_proc_net_init(struct net *net)

@@ -226,7 +226,6 @@ static int pfkey_broadcast(struct sk_buff *skb,
 {
 	struct netns_pfkey *net_pfkey = net_generic(net, pfkey_net_id);
 	struct sock *sk;
-	struct hlist_node *node;
 	struct sk_buff *skb2 = NULL;
 	int err = -ESRCH;
 
@@ -237,7 +236,7 @@ static int pfkey_broadcast(struct sk_buff *skb,
 		return -ENOMEM;
 
 	rcu_read_lock();
-	sk_for_each_rcu(sk, node, &net_pfkey->table) {
+	sk_for_each_rcu(sk, &net_pfkey->table) {
 		struct pfkey_sock *pfk = pfkey_sk(sk);
 		int err2;
 
@@ -1715,7 +1714,7 @@ static int key_notify_sa_flush(const struct km_event *c)
 static int pfkey_flush(struct sock *sk, struct sk_buff *skb, const struct sadb_msg *hdr, void * const *ext_hdrs)
 {
 	struct net *net = sock_net(sk);
-	unsigned proto;
+	unsigned int proto;
 	struct km_event c;
 	struct xfrm_audit audit_info;
 	int err, err2;
@@ -3554,7 +3553,7 @@ static int pfkey_sendmsg(struct kiocb *kiocb,
 		goto out;
 
 	err = -EMSGSIZE;
-	if ((unsigned)len > sk->sk_sndbuf - 32)
+	if ((unsigned int)len > sk->sk_sndbuf - 32)
 		goto out;
 
 	err = -ENOBUFS;
@@ -3730,7 +3729,7 @@ static int __net_init pfkey_init_proc(struct net *net)
 
 static void __net_exit pfkey_exit_proc(struct net *net)
 {
-	proc_net_remove(net, "pfkey");
+	remove_proc_entry("pfkey", net->proc_net);
 }
 #else
 static inline int pfkey_init_proc(struct net *net)

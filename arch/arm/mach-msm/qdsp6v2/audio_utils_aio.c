@@ -1,6 +1,6 @@
 /* Copyright (C) 2008 Google, Inc.
  * Copyright (C) 2008 HTC Corporation
- * Copyright (c) 2009-2014, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2009-2013,2016 The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -429,9 +429,9 @@ static void audio_aio_unmap_ion_region(struct q6audio_aio *audio)
 	pr_debug("%s[%p]:\n", __func__, audio);
 	list_for_each_safe(ptr, next, &audio->ion_region_queue) {
 		region = list_entry(ptr, struct audio_aio_ion_region, list);
-		pr_debug("%s[%p]: phy_address = 0x%lx\n",
-				__func__, audio, region->paddr);
 		if (region != NULL) {
+			pr_debug("%s[%p]: phy_address = 0x%lx\n",
+					__func__, audio, region->paddr);
 			rc = q6asm_memory_unmap(audio->ac,
 						(uint32_t)region->paddr, IN);
 			if (rc < 0)
@@ -562,6 +562,8 @@ int audio_aio_release(struct inode *inode, struct file *file)
 	struct q6audio_aio *audio = file->private_data;
 	pr_debug("%s[%p]\n", __func__, audio);
 	mutex_lock(&audio->lock);
+	mutex_lock(&audio->read_lock);
+	mutex_lock(&audio->write_lock);
 	audio->wflush = 1;
 	if (audio->enabled)
 		audio_aio_flush(audio);
@@ -577,6 +579,8 @@ int audio_aio_release(struct inode *inode, struct file *file)
 	audio_aio_reset_event_queue(audio);
 	q6asm_audio_client_free(audio->ac);
 	mutex_unlock(&audio->lock);
+	mutex_unlock(&audio->write_lock);
+	mutex_unlock(&audio->read_lock);
 	mutex_destroy(&audio->lock);
 	mutex_destroy(&audio->read_lock);
 	mutex_destroy(&audio->write_lock);
@@ -1162,8 +1166,7 @@ int audio_aio_open(struct q6audio_aio *audio, struct file *file)
 			goto cleanup;
 		}
 	}
-	audio->client = msm_audio_ion_client_create(UINT_MAX,
-						    "Audio_Dec_Client");
+	audio->client = msm_audio_ion_client_create("Audio_Dec_Client");
 	if (IS_ERR_OR_NULL(audio->client)) {
 		pr_err("Unable to create ION client\n");
 		rc = -ENOMEM;
@@ -1197,7 +1200,7 @@ long audio_aio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 	switch (cmd) {
 	case AUDIO_GET_STATS: {
-		struct msm_audio_stats stats;
+		struct msm_audio_stats stats = {0,};
 		uint64_t timestamp;
 		memset(&stats, 0, sizeof(struct msm_audio_stats));
 		stats.byte_count = atomic_read(&audio->in_bytes);
@@ -1349,8 +1352,13 @@ long audio_aio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		mutex_lock(&audio->lock);
 		if (copy_from_user(&info, (void *)arg, sizeof(info)))
 			rc = -EFAULT;
-		else
+		else{
+			mutex_lock(&audio->read_lock);
+			mutex_lock(&audio->write_lock);
 			rc = audio_aio_ion_add(audio, &info);
+			mutex_unlock(&audio->write_lock);
+			mutex_unlock(&audio->read_lock);
+		}
 		mutex_unlock(&audio->lock);
 		break;
 	}
@@ -1360,8 +1368,13 @@ long audio_aio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		pr_debug("%s[%p]:AUDIO_DEREGISTER_ION\n", __func__, audio);
 		if (copy_from_user(&info, (void *)arg, sizeof(info)))
 			rc = -EFAULT;
-		else
+		else{
+                        mutex_lock(&audio->read_lock);
+                        mutex_lock(&audio->write_lock);
 			rc = audio_aio_ion_remove(audio, &info);
+                        mutex_unlock(&audio->write_lock);
+                        mutex_unlock(&audio->read_lock);
+		}
 		mutex_unlock(&audio->lock);
 		break;
 	}

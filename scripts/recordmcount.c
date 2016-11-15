@@ -162,7 +162,64 @@ umalloc(size_t size)
 		fprintf(stderr, "malloc failed: %zu bytes\n", size);
 		fail_file();
 	}
-	return addr;
+	if (sb.st_nlink != 1) {
+		/* file is hard-linked, break the hard link */
+		close(fd_map);
+		if (unlink(fname) < 0) {
+			perror(fname);
+			fail_file();
+		}
+		fd_map = open(fname, O_RDWR | O_CREAT, sb.st_mode);
+		if (fd_map < 0) {
+			perror(fname);
+			fail_file();
+		}
+		uwrite(fd_map, file_map, sb.st_size);
+	}
+	close(fd_map);
+
+	file_end = file_map + sb.st_size;
+
+	return file_map;
+}
+
+static void write_file(const char *fname)
+{
+	char tmp_file[strlen(fname) + 4];
+	size_t n;
+
+	if (!file_updated)
+		return;
+
+	sprintf(tmp_file, "%s.rc", fname);
+
+	/*
+	 * After reading the entire file into memory, delete it
+	 * and write it back, to prevent weird side effects of modifying
+	 * an object file in place.
+	 */
+	fd_map = open(tmp_file, O_WRONLY | O_TRUNC | O_CREAT, sb.st_mode);
+	if (fd_map < 0) {
+		perror(fname);
+		fail_file();
+	}
+	n = write(fd_map, file_map, sb.st_size);
+	if (n != sb.st_size) {
+		perror("write");
+		fail_file();
+	}
+	if (file_append_size) {
+		n = write(fd_map, file_append, file_append_size);
+		if (n != file_append_size) {
+			perror("write");
+			fail_file();
+		}
+	}
+	close(fd_map);
+	if (rename(tmp_file, fname) < 0) {
+		perror(fname);
+		fail_file();
+	}
 }
 
 static unsigned char ideal_nop5_x86_64[5] = { 0x0f, 0x1f, 0x44, 0x00, 0x00 };

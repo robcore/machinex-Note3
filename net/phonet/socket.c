@@ -58,7 +58,7 @@ static struct  {
 
 void __init pn_sock_init(void)
 {
-	unsigned i;
+	unsigned int i;
 
 	for (i = 0; i < PN_HASHSIZE; i++)
 		INIT_HLIST_HEAD(pnsocks.hlist + i);
@@ -76,7 +76,6 @@ static struct hlist_head *pn_hash_list(u16 obj)
  */
 struct sock *pn_find_sock_by_sa(struct net *net, const struct sockaddr_pn *spn)
 {
-	struct hlist_node *node;
 	struct sock *sknode;
 	struct sock *rval = NULL;
 	u16 obj = pn_sockaddr_get_object(spn);
@@ -84,7 +83,7 @@ struct sock *pn_find_sock_by_sa(struct net *net, const struct sockaddr_pn *spn)
 	struct hlist_head *hlist = pn_hash_list(obj);
 
 	rcu_read_lock();
-	sk_for_each_rcu(sknode, node, hlist) {
+	sk_for_each_rcu(sknode, hlist) {
 		struct pn_sock *pn = pn_sk(sknode);
 		BUG_ON(!pn->sobject); /* unbound socket */
 
@@ -116,14 +115,13 @@ struct sock *pn_find_sock_by_sa(struct net *net, const struct sockaddr_pn *spn)
 void pn_deliver_sock_broadcast(struct net *net, struct sk_buff *skb)
 {
 	struct hlist_head *hlist = pnsocks.hlist;
-	unsigned h;
+	unsigned int h;
 
 	rcu_read_lock();
 	for (h = 0; h < PN_HASHSIZE; h++) {
-		struct hlist_node *node;
 		struct sock *sknode;
 
-		sk_for_each(sknode, node, hlist) {
+		sk_for_each(sknode, hlist) {
 			struct sk_buff *clone;
 
 			if (!net_eq(sock_net(sknode), net))
@@ -543,12 +541,11 @@ static struct sock *pn_sock_get_idx(struct seq_file *seq, loff_t pos)
 {
 	struct net *net = seq_file_net(seq);
 	struct hlist_head *hlist = pnsocks.hlist;
-	struct hlist_node *node;
 	struct sock *sknode;
-	unsigned h;
+	unsigned int h;
 
 	for (h = 0; h < PN_HASHSIZE; h++) {
-		sk_for_each_rcu(sknode, node, hlist) {
+		sk_for_each_rcu(sknode, hlist) {
 			if (!net_eq(net, sock_net(sknode)))
 				continue;
 			if (!pos)
@@ -709,7 +706,7 @@ int pn_sock_unbind_res(struct sock *sk, u8 res)
 
 void pn_sock_unbind_all_res(struct sock *sk)
 {
-	unsigned res, match = 0;
+	unsigned int res, match = 0;
 
 	mutex_lock(&resource_mutex);
 	for (res = 0; res < 256; res++) {
@@ -731,7 +728,7 @@ void pn_sock_unbind_all_res(struct sock *sk)
 static struct sock **pn_res_get_idx(struct seq_file *seq, loff_t pos)
 {
 	struct net *net = seq_file_net(seq);
-	unsigned i;
+	unsigned int i;
 
 	if (!net_eq(net, &init_net))
 		return NULL;
@@ -749,7 +746,7 @@ static struct sock **pn_res_get_idx(struct seq_file *seq, loff_t pos)
 static struct sock **pn_res_get_next(struct seq_file *seq, struct sock **sk)
 {
 	struct net *net = seq_file_net(seq);
-	unsigned i;
+	unsigned int i;
 
 	BUG_ON(!net_eq(net, &init_net));
 

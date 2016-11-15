@@ -25,7 +25,7 @@ config CPU_FREQ_TABLE
 
 config SCHED_FREQ_INPUT
 	bool "Scheduler inputs to cpufreq governor"
-	depends on SMP && FAIR_GROUP_SCHED
+	depends on SCHED_HMP
 	help
 	  This option enables support for scheduler based CPU utilization
 	  calculations which may then be used by any cpufreq governor. The
@@ -68,6 +68,19 @@ config QUAD_CORES_SOC_STAT
 	help
 	  This will show overall CPU frequency statistics via sysfs.
 	  If this option is not set, it defaults to dual core stats
+
+config UNI_CPU_POLICY_LIMIT
+	bool "Enable Policy limit changing on CPU0, reflecting modifications on all other cpus"
+	default y
+	help
+	  Policy limits changed on CPU0 reflects modifications on all other cpus
+
+config MULTI_CPU_POLICY_LIMIT
+	bool "Enable functions extended by all_cpus declaration for reflecting policy limits on all cpus"
+	depends on (!UNI_CPU_POLICY_LIMIT)
+	default n
+	help
+	  Functions extended by all_cpus declaration to reflect policy limits on all cpus
 
 choice
 	prompt "Default CPUFreq governor"

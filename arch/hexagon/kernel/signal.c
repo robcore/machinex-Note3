@@ -20,7 +20,6 @@
 
 #include <linux/linkage.h>
 #include <linux/syscalls.h>
-#include <linux/freezer.h>
 #include <linux/tracehook.h>
 #include <asm/registers.h>
 #include <asm/thread_info.h>
@@ -30,8 +29,6 @@
 #include <asm/cacheflush.h>
 #include <asm/signal.h>
 #include <asm/vdso.h>
-
-#define _BLOCKABLE (~(sigmask(SIGKILL) | sigmask(SIGSTOP)))
 
 struct rt_sigframe {
 	unsigned long tramp[2];
@@ -149,11 +146,9 @@ sigsegv:
 /*
  * Setup invocation of signal handler
  */
-static int handle_signal(int sig, siginfo_t *info, struct k_sigaction *ka,
-			 sigset_t *oldset, struct pt_regs *regs)
+static void handle_signal(int sig, siginfo_t *info, struct k_sigaction *ka,
+			 struct pt_regs *regs)
 {
-	int rc;
-
 	/*
 	 * If we're handling a signal that aborted a system call,
 	 * set up the error return value before adding the signal
@@ -186,15 +181,12 @@ static int handle_signal(int sig, siginfo_t *info, struct k_sigaction *ka,
 	 * Set up the stack frame; not doing the SA_SIGINFO thing.  We
 	 * only set up the rt_frame flavor.
 	 */
-	rc = setup_rt_frame(sig, ka, info, oldset, regs);
-
 	/* If there was an error on setup, no signal was delivered. */
-	if (rc)
-		return rc;
+	if (setup_rt_frame(sig, ka, info, sigmask_to_save(), regs) < 0)
+		return;
 
-	block_sigmask(ka, sig);
-
-	return 0;
+	signal_delivered(sig, info, ka, regs,
+			test_thread_flag(TIF_SINGLESTEP));
 }
 
 /*
@@ -215,24 +207,7 @@ static void do_signal(struct pt_regs *regs)
 	signo = get_signal_to_deliver(&info, &sigact, regs, NULL);
 
 	if (signo > 0) {
-		sigset_t *oldset;
-
-		if (test_thread_flag(TIF_RESTORE_SIGMASK))
-			oldset = &current->saved_sigmask;
-		else
-			oldset = &current->blocked;
-
-		if (handle_signal(signo, &info, &sigact, oldset, regs) == 0) {
-			/*
-			 * Successful delivery case.  The saved sigmask is
-			 * stored in the signal frame, and will be restored
-			 * by sigreturn.  We can clear the TIF flag.
-			 */
-			clear_thread_flag(TIF_RESTORE_SIGMASK);
-
-			tracehook_signal_handler(signo, &info, &sigact, regs,
-				test_thread_flag(TIF_SINGLESTEP));
-		}
+		handle_signal(signo, &info, &sigact, regs);
 		return;
 	}
 
@@ -259,10 +234,7 @@ no_signal:
 
 no_restart:
 	/* If there's no signal to deliver, put the saved sigmask back */
-	if (test_thread_flag(TIF_RESTORE_SIGMASK)) {
-		clear_thread_flag(TIF_RESTORE_SIGMASK);
-		sigprocmask(SIG_SETMASK, &current->saved_sigmask, NULL);
-	}
+	restore_saved_sigmask();
 }
 
 void do_notify_resume(struct pt_regs *regs, unsigned long thread_info_flags)
@@ -272,8 +244,7 @@ void do_notify_resume(struct pt_regs *regs, unsigned long thread_info_flags)
 
 	if (thread_info_flags & _TIF_NOTIFY_RESUME) {
 		clear_thread_flag(TIF_NOTIFY_RESUME);
-		if (current->replacement_session_keyring)
-			key_replace_session_keyring();
+		tracehook_notify_resume(regs);
 	}
 }
 
@@ -299,7 +270,6 @@ asmlinkage int sys_rt_sigreturn(void)
 	if (__copy_from_user(&blocked, &frame->uc.uc_sigmask, sizeof(blocked)))
 		goto badframe;
 
-	sigdelsetmask(&blocked, ~_BLOCKABLE);
 	set_current_blocked(&blocked);
 
 	if (restore_sigcontext(regs, &frame->uc.uc_mcontext))

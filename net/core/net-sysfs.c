@@ -28,7 +28,6 @@
 
 #ifdef CONFIG_SYSFS
 static const char fmt_hex[] = "%#x\n";
-static const char fmt_long_hex[] = "%#lx\n";
 static const char fmt_dec[] = "%d\n";
 static const char fmt_udec[] = "%u\n";
 static const char fmt_ulong[] = "%lu\n";
@@ -232,7 +231,7 @@ NETDEVICE_SHOW(flags, fmt_hex);
 
 static int change_flags(struct net_device *net, unsigned long new_flags)
 {
-	return dev_change_flags(net, (unsigned) new_flags);
+	return dev_change_flags(net, (unsigned int) new_flags);
 }
 
 static ssize_t store_flags(struct device *dev, struct device_attribute *attr,
@@ -536,8 +535,7 @@ static ssize_t show_rps_map(struct netdev_rx_queue *queue,
 {
 	struct rps_map *map;
 	cpumask_var_t mask;
-	size_t len = 0;
-	int i;
+	int i, len;
 
 	if (!zalloc_cpumask_var(&mask, GFP_KERNEL))
 		return -ENOMEM;
@@ -548,17 +546,11 @@ static ssize_t show_rps_map(struct netdev_rx_queue *queue,
 		for (i = 0; i < map->len; i++)
 			cpumask_set_cpu(map->cpus[i], mask);
 
-	len += cpumask_scnprintf(buf + len, PAGE_SIZE, mask);
-	if (PAGE_SIZE - len < 3) {
-		rcu_read_unlock();
-		free_cpumask_var(mask);
-		return -EINVAL;
-	}
+	len = snprintf(buf, PAGE_SIZE, "%*pb\n", cpumask_pr_args(mask));
 	rcu_read_unlock();
-
 	free_cpumask_var(mask);
-	len += sprintf(buf + len, "\n");
-	return len;
+
+	return len < PAGE_SIZE ? len : -EINVAL;
 }
 
 static ssize_t store_rps_map(struct netdev_rx_queue *queue,
@@ -582,7 +574,7 @@ static ssize_t store_rps_map(struct netdev_rx_queue *queue,
 		return err;
 	}
 
-	map = kzalloc(max_t(unsigned,
+	map = kzalloc(max_t(unsigned int,
 	    RPS_MAP_SIZE(cpumask_weight(mask)), L1_CACHE_BYTES),
 	    GFP_KERNEL);
 	if (!map) {
@@ -903,7 +895,7 @@ static ssize_t bql_set_hold_time(struct netdev_queue *queue,
 				 const char *buf, size_t len)
 {
 	struct dql *dql = &queue->dql;
-	unsigned value;
+	unsigned int value;
 	int err;
 
 	err = kstrtouint(buf, 10, &value);
@@ -992,8 +984,7 @@ static ssize_t show_xps_map(struct netdev_queue *queue,
 	struct xps_dev_maps *dev_maps;
 	cpumask_var_t mask;
 	unsigned long index;
-	size_t len = 0;
-	int i;
+	int i, len;
 
 	if (!zalloc_cpumask_var(&mask, GFP_KERNEL))
 		return -ENOMEM;
@@ -1019,15 +1010,9 @@ static ssize_t show_xps_map(struct netdev_queue *queue,
 	}
 	rcu_read_unlock();
 
-	len += cpumask_scnprintf(buf + len, PAGE_SIZE, mask);
-	if (PAGE_SIZE - len < 3) {
-		free_cpumask_var(mask);
-		return -EINVAL;
-	}
-
+	len = snprintf(buf, PAGE_SIZE, "%*pb\n", cpumask_pr_args(mask));
 	free_cpumask_var(mask);
-	len += sprintf(buf + len, "\n");
-	return len;
+	return len < PAGE_SIZE ? len : -EINVAL;
 }
 
 static DEFINE_MUTEX(xps_map_mutex);
@@ -1107,7 +1092,7 @@ static ssize_t store_xps_map(struct netdev_queue *queue,
 		return err;
 	}
 
-	new_dev_maps = kzalloc(max_t(unsigned,
+	new_dev_maps = kzalloc(max_t(unsigned int,
 	    XPS_DEV_MAPS_SIZE, L1_CACHE_BYTES), GFP_KERNEL);
 	if (!new_dev_maps) {
 		free_cpumask_var(mask);

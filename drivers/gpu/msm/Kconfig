@@ -8,6 +8,7 @@ config MSM_KGSL
 	select DEVFREQ_GOV_SIMPLE_ONDEMAND
 	select DEVFREQ_GOV_PERFORMANCE
 	select DEVFREQ_GOV_MSM_ADRENO_TZ
+	select DEVFREQ_GOV_CONSERVATIVE
 	---help---
 	  3D graphics driver. Required to use hardware accelerated
 	  OpenGL ES 2.0 and 1.1.
@@ -106,8 +107,3 @@ config MSM_KGSL_PAGE_TABLE_COUNT
 config MSM_KGSL_MMU_PAGE_FAULT
 	bool "Force the GPU MMU to page fault for unmapped regions"
 	default y
-
-config MSM_KGSL_DISABLE_SHADOW_WRITES
-	bool "Disable register shadow writes for context switches"
-	default n
-	depends on MSM_KGSL

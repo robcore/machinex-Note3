@@ -86,8 +86,10 @@ pte_alloc_one_kernel(struct mm_struct *mm, unsigned long addr)
 	pte_t *pte;
 
 	pte = (pte_t *)__get_free_page(PGALLOC_GFP);
+#if !defined(CONFIG_CPU_CACHE_V7) || !defined(CONFIG_SMP)
 	if (pte)
 		clean_pte_table(pte);
+#endif
 
 	return pte;
 }
@@ -103,8 +105,10 @@ pte_alloc_one(struct mm_struct *mm, unsigned long addr)
 	pte = alloc_pages(PGALLOC_GFP, 0);
 #endif
 	if (pte) {
+#if !defined(CONFIG_CPU_CACHE_V7) || !defined(CONFIG_SMP)
 		if (!PageHighMem(pte))
 			clean_pte_table(page_address(pte));
+#endif
 		pgtable_page_ctor(pte);
 	}
 
@@ -200,7 +204,15 @@ pmd_populate_kernel(struct mm_struct *mm, pmd_t *pmdp, pte_t *ptep)
 static inline void
 pmd_populate(struct mm_struct *mm, pmd_t *pmdp, pgtable_t ptep)
 {
-	__pmd_populate(pmdp, page_to_phys(ptep), _PAGE_USER_TABLE);
+	extern pmdval_t user_pmd_table;
+	pmdval_t prot;
+
+	if (__LINUX_ARM_ARCH__ >= 6 && !IS_ENABLED(CONFIG_ARM_LPAE))
+		prot = user_pmd_table;
+	else
+		prot = _PAGE_USER_TABLE;
+
+	__pmd_populate(pmdp, page_to_phys(ptep), prot);
 }
 #define pmd_pgtable(pmd) pmd_page(pmd)
 

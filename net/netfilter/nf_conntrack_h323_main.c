@@ -2,6 +2,7 @@
  * H.323 connection tracking helper
  *
  * Copyright (c) 2006 Jing Min Zhao <zhaojingmin@users.sourceforge.net>
+ * Copyright (c) 2006-2012 Patrick McHardy <kaber@trash.net>
  *
  * This source code is licensed under General Public License version 2.
  *
@@ -605,8 +606,7 @@ static int h245_help(struct sk_buff *skb, unsigned int protoff,
 
       drop:
 	spin_unlock_bh(&nf_h323_lock);
-	if (net_ratelimit())
-		pr_info("nf_ct_h245: packet dropped\n");
+	net_info_ratelimited("nf_ct_h245: packet dropped\n");
 	return NF_DROP;
 }
 
@@ -1156,8 +1156,7 @@ static int q931_help(struct sk_buff *skb, unsigned int protoff,
 
       drop:
 	spin_unlock_bh(&nf_h323_lock);
-	if (net_ratelimit())
-		pr_info("nf_ct_q931: packet dropped\n");
+	net_info_ratelimited("nf_ct_q931: packet dropped\n");
 	return NF_DROP;
 }
 
@@ -1230,7 +1229,7 @@ static struct nf_conntrack_expect *find_expect(struct nf_conn *ct,
 
 /****************************************************************************/
 static int set_expect_timeout(struct nf_conntrack_expect *exp,
-			      unsigned timeout)
+			      unsigned int timeout)
 {
 	if (!exp || !del_timer(&exp->timeout))
 		return 0;
@@ -1731,8 +1730,7 @@ static int ras_help(struct sk_buff *skb, unsigned int protoff,
 
       drop:
 	spin_unlock_bh(&nf_h323_lock);
-	if (net_ratelimit())
-		pr_info("nf_ct_ras: packet dropped\n");
+	net_info_ratelimited("nf_ct_ras: packet dropped\n");
 	return NF_DROP;
 }
 

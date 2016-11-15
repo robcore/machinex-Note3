@@ -191,14 +191,6 @@ void show_stack(struct task_struct *task, unsigned long *fp)
 	do_show_stack(task, fp, 0);
 }
 
-void dump_stack(void)
-{
-	unsigned long *fp;
-	asm("%0 = r30" : "=r" (fp));
-	show_stack(current, fp);
-}
-EXPORT_SYMBOL(dump_stack);
-
 int die(const char *str, struct pt_regs *regs, long err)
 {
 	static struct {
@@ -225,7 +217,7 @@ int die(const char *str, struct pt_regs *regs, long err)
 	do_show_stack(current, &regs->r30, pt_elr(regs));
 
 	bust_spinlocks(0);
-	add_taint(TAINT_DIE);
+	add_taint(TAINT_DIE, LOCKDEP_NOW_UNRELIABLE);
 
 	spin_unlock_irq(&die.lock);
 

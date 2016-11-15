@@ -993,6 +993,7 @@ static int usb_debugfs_init(void)
 		usb_debug_root = NULL;
 		return -ENOENT;
 	}
+	usb_init_pool_max();
 
 	return 0;
 }

@@ -528,13 +528,6 @@ sys_sigaction(int sig, const struct old_sigaction __user *act,
 }
 #endif /* CONFIG_X86_32 */
 
-long
-sys_sigaltstack(const stack_t __user *uss, stack_t __user *uoss,
-		struct pt_regs *regs)
-{
-	return do_sigaltstack(uss, uoss, regs->sp);
-}
-
 /*
  * Do a signal return; undo the signal stack.
  */
@@ -554,7 +547,6 @@ unsigned long sys_sigreturn(struct pt_regs *regs)
 				    sizeof(frame->extramask))))
 		goto badframe;
 
-	sigdelsetmask(&set, ~_BLOCKABLE);
 	set_current_blocked(&set);
 
 	if (restore_sigcontext(regs, &frame->sc, &ax))
@@ -580,7 +572,6 @@ long sys_rt_sigreturn(struct pt_regs *regs)
 	if (__copy_from_user(&set, &frame->uc.uc_sigmask, sizeof(set)))
 		goto badframe;
 
-	sigdelsetmask(&set, ~_BLOCKABLE);
 	set_current_blocked(&set);
 
 	if (restore_sigcontext(regs, &frame->uc.uc_mcontext, &ax))
@@ -646,42 +637,28 @@ setup_rt_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 		struct pt_regs *regs)
 {
 	int usig = signr_convert(sig);
-	sigset_t *set = &current->blocked;
-	int ret;
-
-	if (current_thread_info()->status & TS_RESTORE_SIGMASK)
-		set = &current->saved_sigmask;
+	sigset_t *set = sigmask_to_save();
 
 	/* Set up the stack frame */
 	if (is_ia32) {
 		if (ka->sa.sa_flags & SA_SIGINFO)
-			ret = ia32_setup_rt_frame(usig, ka, info, set, regs);
+			return ia32_setup_rt_frame(usig, ka, info, set, regs);
 		else
-			ret = ia32_setup_frame(usig, ka, set, regs);
+			return ia32_setup_frame(usig, ka, set, regs);
 #ifdef CONFIG_X86_X32_ABI
 	} else if (is_x32) {
-		ret = x32_setup_rt_frame(usig, ka, info,
+		return x32_setup_rt_frame(usig, ka, info,
 					 (compat_sigset_t *)set, regs);
 #endif
 	} else {
-		ret = __setup_rt_frame(sig, ka, info, set, regs);
+		return __setup_rt_frame(sig, ka, info, set, regs);
 	}
-
-	if (ret) {
-		force_sigsegv(sig, current);
-		return -EFAULT;
-	}
-
-	current_thread_info()->status &= ~TS_RESTORE_SIGMASK;
-	return ret;
 }
 
-static int
+static void
 handle_signal(unsigned long sig, siginfo_t *info, struct k_sigaction *ka,
 		struct pt_regs *regs)
 {
-	int ret;
-
 	/* Are we from a system call? */
 	if (syscall_get_nr(current, regs) >= 0) {
 		/* If so, check system call restarting.. */
@@ -712,10 +689,10 @@ handle_signal(unsigned long sig, siginfo_t *info, struct k_sigaction *ka,
 	    likely(test_and_clear_thread_flag(TIF_FORCED_TF)))
 		regs->flags &= ~X86_EFLAGS_TF;
 
-	ret = setup_rt_frame(sig, ka, info, regs);
-
-	if (ret)
-		return ret;
+	if (setup_rt_frame(sig, ka, info, regs) < 0) {
+		force_sigsegv(sig, current);
+		return;
+	}
 
 	/*
 	 * Clear the direction flag as per the ABI for function entry.
@@ -730,12 +707,8 @@ handle_signal(unsigned long sig, siginfo_t *info, struct k_sigaction *ka,
 	 */
 	regs->flags &= ~X86_EFLAGS_TF;
 
-	block_sigmask(ka, sig);
-
-	tracehook_signal_handler(sig, info, ka, regs,
-				 test_thread_flag(TIF_SINGLESTEP));
-
-	return 0;
+	signal_delivered(sig, info, ka, regs,
+			 test_thread_flag(TIF_SINGLESTEP));
 }
 
 static inline unsigned long get_nr_restart_syscall(const struct pt_regs *regs)
@@ -798,10 +771,7 @@ static void do_signal(struct pt_regs *regs)
 	 * If there's no signal to deliver, we just put the saved sigmask
 	 * back.
 	 */
-	if (current_thread_info()->status & TS_RESTORE_SIGMASK) {
-		current_thread_info()->status &= ~TS_RESTORE_SIGMASK;
-		set_current_blocked(&current->saved_sigmask);
-	}
+	restore_saved_sigmask();
 }
 
 /*
@@ -824,8 +794,6 @@ do_notify_resume(struct pt_regs *regs, void *unused, __u32 thread_info_flags)
 	if (thread_info_flags & _TIF_NOTIFY_RESUME) {
 		clear_thread_flag(TIF_NOTIFY_RESUME);
 		tracehook_notify_resume(regs);
-		if (current->replacement_session_keyring)
-			key_replace_session_keyring();
 	}
 	if (thread_info_flags & _TIF_USER_RETURN_NOTIFY)
 		fire_user_return_notifiers();
@@ -924,7 +892,6 @@ asmlinkage long sys32_x32_rt_sigreturn(struct pt_regs *regs)
 	struct rt_sigframe_x32 __user *frame;
 	sigset_t set;
 	unsigned long ax;
-	struct pt_regs tregs;
 
 	frame = (struct rt_sigframe_x32 __user *)(regs->sp - 8);
 
@@ -933,14 +900,12 @@ asmlinkage long sys32_x32_rt_sigreturn(struct pt_regs *regs)
 	if (__copy_from_user(&set, &frame->uc.uc_sigmask, sizeof(set)))
 		goto badframe;
 
-	sigdelsetmask(&set, ~_BLOCKABLE);
 	set_current_blocked(&set);
 
 	if (restore_sigcontext(regs, &frame->uc.uc_mcontext, &ax))
 		goto badframe;
 
-	tregs = *regs;
-	if (sys32_sigaltstack(&frame->uc.uc_stack, NULL, &tregs) == -EFAULT)
+	if (compat_restore_altstack(&frame->uc.uc_stack))
 		goto badframe;
 
 	return ax;

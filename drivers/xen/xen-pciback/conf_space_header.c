@@ -13,6 +13,10 @@ struct pci_cmd_info {
 	u16 val;
 };
 
+struct pci_cmd_info {
+	u16 val;
+};
+
 struct pci_bar_info {
 	u32 val;
 	u32 len_val;
@@ -31,6 +35,8 @@ static void *command_init(struct pci_dev *dev, int offset)
 {
 	struct pci_cmd_info *cmd = kmalloc(sizeof(*cmd), GFP_KERNEL);
 	int err;
+	u16 val;
+	struct pci_cmd_info *cmd = data;
 
 	if (!cmd)
 		return ERR_PTR(-ENOMEM);
@@ -102,6 +108,19 @@ static int command_write(struct pci_dev *dev, int offset, u16 value, void *data)
 			value &= ~PCI_COMMAND_INVALIDATE;
 		}
 	}
+
+	cmd->val = value;
+
+	if (!xen_pcibk_permissive && (!dev_data || !dev_data->permissive))
+		return 0;
+
+	/* Only allow the guest to control certain bits. */
+	err = pci_read_config_word(dev, offset, &val);
+	if (err || val == value)
+		return err;
+
+	value &= PCI_COMMAND_GUEST;
+	value |= val & ~PCI_COMMAND_GUEST;
 
 	cmd->val = value;
 

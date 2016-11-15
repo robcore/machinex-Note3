@@ -135,7 +135,7 @@ static int update_netdev_tables(void)
 	return ret;
 }
 
-static struct cgroup_subsys_state *cgrp_create(struct cgroup *cgrp)
+static struct cgroup_subsys_state *cgrp_css_alloc(struct cgroup *cgrp)
 {
 	struct cgroup_netprio_state *cs;
 	int ret = -EINVAL;
@@ -165,7 +165,7 @@ out:
 	return ERR_PTR(ret);
 }
 
-static void cgrp_destroy(struct cgroup *cgrp)
+static void cgrp_css_free(struct cgroup *cgrp)
 {
 	struct cgroup_netprio_state *cs;
 	struct net_device *dev;
@@ -309,14 +309,22 @@ static struct cftype ss_files[] = {
 
 struct cgroup_subsys net_prio_subsys = {
 	.name		= "net_prio",
-	.create		= cgrp_create,
-	.destroy	= cgrp_destroy,
+	.css_alloc	= cgrp_css_alloc,
+	.css_free	= cgrp_css_free,
 	.attach		= net_prio_attach,
-#ifdef CONFIG_NETPRIO_CGROUP
 	.subsys_id	= net_prio_subsys_id,
-#endif
 	.base_cftypes	= ss_files,
-	.module		= THIS_MODULE
+	.module		= THIS_MODULE,
+
+	/*
+	 * net_prio has artificial limit on the number of cgroups and
+	 * disallows nesting making it impossible to co-mount it with other
+	 * hierarchical subsystems.  Remove the artificially low PRIOIDX_SZ
+	 * limit and properly nest configuration such that children follow
+	 * their parents' configurations by default and are allowed to
+	 * override and remove the following.
+	 */
+	.broken_hierarchy = true,
 };
 
 static int netprio_device_event(struct notifier_block *unused,
@@ -352,10 +360,6 @@ static int __init init_cgroup_netprio(void)
 	ret = cgroup_load_subsys(&net_prio_subsys);
 	if (ret)
 		goto out;
-#ifndef CONFIG_NETPRIO_CGROUP
-	smp_wmb();
-	net_prio_subsys_id = net_prio_subsys.subsys_id;
-#endif
 
 	register_netdevice_notifier(&netprio_device_notifier);
 
@@ -371,11 +375,6 @@ static void __exit exit_cgroup_netprio(void)
 	unregister_netdevice_notifier(&netprio_device_notifier);
 
 	cgroup_unload_subsys(&net_prio_subsys);
-
-#ifndef CONFIG_NETPRIO_CGROUP
-	net_prio_subsys_id = -1;
-	synchronize_rcu();
-#endif
 
 	rtnl_lock();
 	for_each_netdev(&init_net, dev) {

@@ -237,7 +237,7 @@ ohci_at91_reset (struct usb_hcd *hcd)
 }
 
 static int __devinit
-ohci_at91_start (struct usb_hcd *hcd)
+ohci_at91_reset (struct usb_hcd *hcd)
 {
 	struct ohci_hcd		*ohci = hcd_to_ohci (hcd);
 	int			ret;

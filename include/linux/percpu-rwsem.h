@@ -5,17 +5,19 @@
 #include <linux/rwsem.h>
 #include <linux/percpu.h>
 #include <linux/wait.h>
+#include <linux/rcu_sync.h>
 #include <linux/lockdep.h>
 
 struct percpu_rw_semaphore {
+	struct rcu_sync		rss;
 	unsigned int __percpu	*fast_read_ctr;
-	atomic_t		write_ctr;
 	struct rw_semaphore	rw_sem;
 	atomic_t		slow_read_ctr;
 	wait_queue_head_t	write_waitq;
 };
 
 extern void percpu_down_read(struct percpu_rw_semaphore *);
+extern int  percpu_down_read_trylock(struct percpu_rw_semaphore *);
 extern void percpu_up_read(struct percpu_rw_semaphore *);
 
 extern void percpu_down_write(struct percpu_rw_semaphore *);

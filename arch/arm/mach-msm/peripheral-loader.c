@@ -38,6 +38,7 @@
 
 #include <mach/msm_iomap.h>
 #include <mach/ramdump.h>
+#include <mach/subsystem_restart.h>
 
 #include "peripheral-loader.h"
 
@@ -208,6 +209,7 @@ static void __pil_proxy_unvote(struct pil_priv *priv)
 	struct pil_desc *desc = priv->desc;
 
 	desc->ops->proxy_unvote(desc);
+	notify_proxy_unvote(desc->dev);
 	wake_unlock(&priv->wlock);
 	module_put(desc->owner);
 
@@ -234,6 +236,7 @@ static int pil_proxy_vote(struct pil_desc *desc)
 
 	if (desc->proxy_unvote_irq)
 		enable_irq(desc->proxy_unvote_irq);
+	notify_proxy_vote(desc->dev);
 
 	return ret;
 }
@@ -837,7 +840,7 @@ int pil_desc_init(struct pil_desc *desc)
 		ret = request_threaded_irq(desc->proxy_unvote_irq,
 				  NULL,
 				  proxy_unvote_intr_handler,
-				  IRQF_TRIGGER_RISING,
+				  IRQF_TRIGGER_RISING|IRQF_ONESHOT,
 				  desc->name, desc);
 		if (ret < 0) {
 			dev_err(desc->dev,
@@ -913,7 +916,7 @@ void write_hw_rev_to_smem(unsigned int hw_rev)
 
 static int __init msm_pil_init(void)
 {
-	ion = msm_ion_client_create(UINT_MAX, "pil");
+	ion = msm_ion_client_create("pil");
 	if (IS_ERR(ion)) /* Can't support relocatable images */
 		ion = NULL;
 #ifdef CONFIG_ARCH_MSM8226

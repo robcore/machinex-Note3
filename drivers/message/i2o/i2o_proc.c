@@ -1605,98 +1605,98 @@ static int i2o_seq_show_sensors(struct seq_file *seq, void *v)
 
 static int i2o_seq_open_hrt(struct inode *inode, struct file *file)
 {
-	return single_open(file, i2o_seq_show_hrt, PDE(inode)->data);
+	return single_open(file, i2o_seq_show_hrt, PDE_DATA(inode));
 };
 
 static int i2o_seq_open_lct(struct inode *inode, struct file *file)
 {
-	return single_open(file, i2o_seq_show_lct, PDE(inode)->data);
+	return single_open(file, i2o_seq_show_lct, PDE_DATA(inode));
 };
 
 static int i2o_seq_open_status(struct inode *inode, struct file *file)
 {
-	return single_open(file, i2o_seq_show_status, PDE(inode)->data);
+	return single_open(file, i2o_seq_show_status, PDE_DATA(inode));
 };
 
 static int i2o_seq_open_hw(struct inode *inode, struct file *file)
 {
-	return single_open(file, i2o_seq_show_hw, PDE(inode)->data);
+	return single_open(file, i2o_seq_show_hw, PDE_DATA(inode));
 };
 
 static int i2o_seq_open_ddm_table(struct inode *inode, struct file *file)
 {
-	return single_open(file, i2o_seq_show_ddm_table, PDE(inode)->data);
+	return single_open(file, i2o_seq_show_ddm_table, PDE_DATA(inode));
 };
 
 static int i2o_seq_open_driver_store(struct inode *inode, struct file *file)
 {
-	return single_open(file, i2o_seq_show_driver_store, PDE(inode)->data);
+	return single_open(file, i2o_seq_show_driver_store, PDE_DATA(inode));
 };
 
 static int i2o_seq_open_drivers_stored(struct inode *inode, struct file *file)
 {
-	return single_open(file, i2o_seq_show_drivers_stored, PDE(inode)->data);
+	return single_open(file, i2o_seq_show_drivers_stored, PDE_DATA(inode));
 };
 
 static int i2o_seq_open_groups(struct inode *inode, struct file *file)
 {
-	return single_open(file, i2o_seq_show_groups, PDE(inode)->data);
+	return single_open(file, i2o_seq_show_groups, PDE_DATA(inode));
 };
 
 static int i2o_seq_open_phys_device(struct inode *inode, struct file *file)
 {
-	return single_open(file, i2o_seq_show_phys_device, PDE(inode)->data);
+	return single_open(file, i2o_seq_show_phys_device, PDE_DATA(inode));
 };
 
 static int i2o_seq_open_claimed(struct inode *inode, struct file *file)
 {
-	return single_open(file, i2o_seq_show_claimed, PDE(inode)->data);
+	return single_open(file, i2o_seq_show_claimed, PDE_DATA(inode));
 };
 
 static int i2o_seq_open_users(struct inode *inode, struct file *file)
 {
-	return single_open(file, i2o_seq_show_users, PDE(inode)->data);
+	return single_open(file, i2o_seq_show_users, PDE_DATA(inode));
 };
 
 static int i2o_seq_open_priv_msgs(struct inode *inode, struct file *file)
 {
-	return single_open(file, i2o_seq_show_priv_msgs, PDE(inode)->data);
+	return single_open(file, i2o_seq_show_priv_msgs, PDE_DATA(inode));
 };
 
 static int i2o_seq_open_authorized_users(struct inode *inode, struct file *file)
 {
 	return single_open(file, i2o_seq_show_authorized_users,
-			   PDE(inode)->data);
+			   PDE_DATA(inode));
 };
 
 static int i2o_seq_open_dev_identity(struct inode *inode, struct file *file)
 {
-	return single_open(file, i2o_seq_show_dev_identity, PDE(inode)->data);
+	return single_open(file, i2o_seq_show_dev_identity, PDE_DATA(inode));
 };
 
 static int i2o_seq_open_ddm_identity(struct inode *inode, struct file *file)
 {
-	return single_open(file, i2o_seq_show_ddm_identity, PDE(inode)->data);
+	return single_open(file, i2o_seq_show_ddm_identity, PDE_DATA(inode));
 };
 
 static int i2o_seq_open_uinfo(struct inode *inode, struct file *file)
 {
-	return single_open(file, i2o_seq_show_uinfo, PDE(inode)->data);
+	return single_open(file, i2o_seq_show_uinfo, PDE_DATA(inode));
 };
 
 static int i2o_seq_open_sgl_limits(struct inode *inode, struct file *file)
 {
-	return single_open(file, i2o_seq_show_sgl_limits, PDE(inode)->data);
+	return single_open(file, i2o_seq_show_sgl_limits, PDE_DATA(inode));
 };
 
 static int i2o_seq_open_sensors(struct inode *inode, struct file *file)
 {
-	return single_open(file, i2o_seq_show_sensors, PDE(inode)->data);
+	return single_open(file, i2o_seq_show_sensors, PDE_DATA(inode));
 };
 
 static int i2o_seq_open_dev_name(struct inode *inode, struct file *file)
 {
-	return single_open(file, i2o_seq_show_dev_name, PDE(inode)->data);
+	return single_open(file, i2o_seq_show_dev_name, PDE_DATA(inode));
 };
 
 static const struct file_operations i2o_seq_fops_lct = {
@@ -1938,13 +1938,11 @@ static void i2o_proc_device_add(struct proc_dir_entry *dir,
 
 	osm_debug("adding device /proc/i2o/%s/%s\n", dev->iop->name, buff);
 
-	devdir = proc_mkdir(buff, dir);
+	devdir = proc_mkdir_data(buff, 0, dir, dev);
 	if (!devdir) {
 		osm_warn("Could not allocate procdir!\n");
 		return;
 	}
-
-	devdir->data = dev;
 
 	i2o_proc_create_entries(devdir, generic_dev_entries, dev);
 
@@ -1979,11 +1977,9 @@ static int i2o_proc_iop_add(struct proc_dir_entry *dir,
 
 	osm_debug("adding IOP /proc/i2o/%s\n", c->name);
 
-	iopdir = proc_mkdir(c->name, dir);
+	iopdir = proc_mkdir_data(c->name, 0, dir, c);
 	if (!iopdir)
 		return -1;
-
-	iopdir->data = c;
 
 	i2o_proc_create_entries(iopdir, i2o_proc_generic_iop_entries, c);
 

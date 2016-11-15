@@ -92,6 +92,7 @@ struct slob_block {
 };
 typedef struct slob_block slob_t;
 
+#include "slab.h"
 /*
  * All partially free slob pages go on these lists.
  */
@@ -360,7 +361,7 @@ static void slob_free(void *block, int size)
 			clear_slob_page_free(sp);
 		spin_unlock_irqrestore(&slob_lock, flags);
 		__ClearPageSlab(sp);
-		reset_page_mapcount(sp);
+		page_mapcount_reset(sp);
 		slob_free_pages(b, 0);
 		return;
 	}
@@ -462,7 +463,8 @@ __do_kmalloc_node(size_t size, gfp_t gfp, int node, unsigned long caller)
 	return ret;
 }
 
-void *__kmalloc_node(size_t size, gfp_t gfp, int node)
+static __always_inline void *
+__do_kmalloc_node(size_t size, gfp_t gfp, int node, unsigned long caller)
 {
 	return __do_kmalloc_node(size, gfp, node, _RET_IP_);
 }
@@ -593,6 +595,12 @@ void kmem_cache_free(struct kmem_cache *c, void *b)
 	trace_kmem_cache_free(_RET_IP_, b);
 }
 EXPORT_SYMBOL(kmem_cache_free);
+
+int __kmem_cache_shutdown(struct kmem_cache *c)
+{
+	/* No way to check for remaining objects */
+	return 0;
+}
 
 int __kmem_cache_shutdown(struct kmem_cache *c)
 {

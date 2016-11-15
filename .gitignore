@@ -34,6 +34,9 @@ modules.builtin
 *.gcno
 *.zip
 
+READY-RELEASES/*.zip
+READY-KERNEL/view_only_config
+
 #
 # Top-level generic files
 #

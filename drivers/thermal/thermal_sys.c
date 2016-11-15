@@ -408,25 +408,19 @@ int sensor_init(struct thermal_zone_device *tz)
 	return 0;
 }
 
+
 static int get_idr(struct idr *idr, struct mutex *lock, int *id)
 {
-	int err;
-
-again:
-	if (unlikely(idr_pre_get(idr, GFP_KERNEL) == 0))
-		return -ENOMEM;
+	int ret;
 
 	if (lock)
 		mutex_lock(lock);
-	err = idr_get_new(idr, NULL, id);
+	ret = idr_alloc(idr, NULL, 0, 0, GFP_KERNEL);
 	if (lock)
 		mutex_unlock(lock);
-	if (unlikely(err == -EAGAIN))
-		goto again;
-	else if (unlikely(err))
-		return err;
-
-	*id = *id & MAX_ID_MASK;
+	if (unlikely(ret < 0))
+		return ret;
+	*id = ret;
 	return 0;
 }
 
@@ -1101,17 +1095,14 @@ thermal_remove_hwmon_sysfs(struct thermal_zone_device *tz)
 static void thermal_zone_device_set_polling(struct thermal_zone_device *tz,
 					    int delay)
 {
-	cancel_delayed_work(&(tz->poll_queue));
-
-	if (!delay)
-		return;
-
 	if (delay > 1000)
-		queue_delayed_work(system_freezable_wq, &(tz->poll_queue),
+		mod_delayed_work(system_freezable_wq, &(tz->poll_queue),
 				      round_jiffies(msecs_to_jiffies(delay)));
-	else
-		queue_delayed_work(system_freezable_wq, &(tz->poll_queue),
+	else if (delay)
+		mod_delayed_work(system_freezable_wq, &(tz->poll_queue),
 				      msecs_to_jiffies(delay));
+	else
+		cancel_delayed_work(&tz->poll_queue);
 }
 
 static void thermal_zone_device_passive(struct thermal_zone_device *tz,

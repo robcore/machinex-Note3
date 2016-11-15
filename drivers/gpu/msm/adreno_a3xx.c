@@ -22,6 +22,7 @@
 #include "kgsl_cffdump.h"
 #include "a3xx_reg.h"
 #include "adreno_a3xx_trace.h"
+#include "adreno_cp_parser.h"
 
 /*
  * Set of registers to dump for A3XX on postmortem and snapshot.
@@ -89,6 +90,87 @@ const unsigned int a330_registers[] = {
 };
 
 const unsigned int a330_registers_count = ARRAY_SIZE(a330_registers) / 2;
+
+/*
+ * Define registers for a3xx that contain addresses used by the
+ * cp parser logic
+ */
+const unsigned int a3xx_cp_addr_regs[ADRENO_CP_ADDR_MAX] = {
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VSC_PIPE_DATA_ADDRESS_0,
+				A3XX_VSC_PIPE_DATA_ADDRESS_0),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VSC_PIPE_DATA_LENGTH_0,
+				A3XX_VSC_PIPE_DATA_LENGTH_0),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VSC_PIPE_DATA_ADDRESS_1,
+				A3XX_VSC_PIPE_DATA_ADDRESS_1),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VSC_PIPE_DATA_LENGTH_1,
+				A3XX_VSC_PIPE_DATA_LENGTH_1),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VSC_PIPE_DATA_ADDRESS_2,
+				A3XX_VSC_PIPE_DATA_ADDRESS_2),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VSC_PIPE_DATA_LENGTH_2,
+				A3XX_VSC_PIPE_DATA_LENGTH_2),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VSC_PIPE_DATA_ADDRESS_3,
+				A3XX_VSC_PIPE_DATA_ADDRESS_3),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VSC_PIPE_DATA_LENGTH_3,
+				A3XX_VSC_PIPE_DATA_LENGTH_3),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VSC_PIPE_DATA_ADDRESS_4,
+				A3XX_VSC_PIPE_DATA_ADDRESS_4),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VSC_PIPE_DATA_LENGTH_4,
+				A3XX_VSC_PIPE_DATA_LENGTH_4),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VSC_PIPE_DATA_ADDRESS_5,
+				A3XX_VSC_PIPE_DATA_ADDRESS_5),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VSC_PIPE_DATA_LENGTH_5,
+				A3XX_VSC_PIPE_DATA_LENGTH_5),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VSC_PIPE_DATA_ADDRESS_6,
+				A3XX_VSC_PIPE_DATA_ADDRESS_6),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VSC_PIPE_DATA_LENGTH_6,
+				A3XX_VSC_PIPE_DATA_LENGTH_6),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VSC_PIPE_DATA_ADDRESS_7,
+				A3XX_VSC_PIPE_DATA_ADDRESS_7),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VSC_PIPE_DATA_LENGTH_7,
+				A3XX_VSC_PIPE_DATA_LENGTH_7),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VFD_FETCH_INSTR_1_0,
+				A3XX_VFD_FETCH_INSTR_1_0),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VFD_FETCH_INSTR_1_1,
+				A3XX_VFD_FETCH_INSTR_1_1),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VFD_FETCH_INSTR_1_2,
+				A3XX_VFD_FETCH_INSTR_1_2),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VFD_FETCH_INSTR_1_3,
+				A3XX_VFD_FETCH_INSTR_1_3),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VFD_FETCH_INSTR_1_4,
+				A3XX_VFD_FETCH_INSTR_1_4),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VFD_FETCH_INSTR_1_5,
+				A3XX_VFD_FETCH_INSTR_1_5),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VFD_FETCH_INSTR_1_6,
+				A3XX_VFD_FETCH_INSTR_1_6),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VFD_FETCH_INSTR_1_7,
+				A3XX_VFD_FETCH_INSTR_1_7),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VFD_FETCH_INSTR_1_8,
+				A3XX_VFD_FETCH_INSTR_1_8),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VFD_FETCH_INSTR_1_9,
+				A3XX_VFD_FETCH_INSTR_1_9),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VFD_FETCH_INSTR_1_10,
+				A3XX_VFD_FETCH_INSTR_1_A),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VFD_FETCH_INSTR_1_11,
+				A3XX_VFD_FETCH_INSTR_1_B),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VFD_FETCH_INSTR_1_12,
+				A3XX_VFD_FETCH_INSTR_1_C),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VFD_FETCH_INSTR_1_13,
+				A3XX_VFD_FETCH_INSTR_1_D),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VFD_FETCH_INSTR_1_14,
+				A3XX_VFD_FETCH_INSTR_1_E),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VFD_FETCH_INSTR_1_15,
+				A3XX_VFD_FETCH_INSTR_1_F),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_VSC_SIZE_ADDRESS,
+				A3XX_VSC_SIZE_ADDRESS),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_SP_VS_PVT_MEM_ADDR,
+				A3XX_SP_VS_PVT_MEM_ADDR_REG),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_SP_FS_PVT_MEM_ADDR,
+				A3XX_SP_FS_PVT_MEM_ADDR_REG),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_SP_VS_OBJ_START_REG,
+				A3XX_SP_VS_OBJ_START_REG),
+	ADRENO_REG_DEFINE(ADRENO_CP_ADDR_SP_FS_OBJ_START_REG,
+				A3XX_SP_FS_OBJ_START_REG),
+};
 
 /* Simple macro to facilitate bit setting in the gmem2sys and sys2gmem
  * functions.
@@ -2324,7 +2406,8 @@ static int a3xx_create_gmem_shadow(struct adreno_device *adreno_dev,
 	calc_gmemsize(&drawctxt->context_gmem_shadow, adreno_dev->gmem_size);
 	tmp_ctx.gmem_base = adreno_dev->gmem_base;
 
-	result = kgsl_allocate(&drawctxt->context_gmem_shadow.gmemshadow,
+	result = kgsl_allocate(&(adreno_dev->dev),
+		&drawctxt->context_gmem_shadow.gmemshadow,
 		drawctxt->base.proc_priv->pagetable,
 		drawctxt->context_gmem_shadow.size);
 
@@ -2340,7 +2423,7 @@ static int a3xx_create_gmem_shadow(struct adreno_device *adreno_dev,
 		&drawctxt->context_gmem_shadow);
 
 	kgsl_cache_range_op(&drawctxt->context_gmem_shadow.gmemshadow,
-		KGSL_CACHE_OP_FLUSH);
+		0, 0, KGSL_CACHE_OP_FLUSH);
 
 	return 0;
 }
@@ -2380,7 +2463,7 @@ static int a3xx_drawctxt_create(struct adreno_device *adreno_dev,
 	}
 	drawctxt->ops = &a3xx_legacy_ctx_ops;
 
-	ret = kgsl_allocate(&drawctxt->gpustate,
+	ret = kgsl_allocate(&(adreno_dev->dev), &drawctxt->gpustate,
 		drawctxt->base.proc_priv->pagetable, CONTEXT_SIZE);
 
 	if (ret)
@@ -2582,7 +2665,8 @@ int adreno_a3xx_pwron_fixup_init(struct adreno_device *adreno_dev)
 	if (test_bit(ADRENO_DEVICE_PWRON_FIXUP, &adreno_dev->priv))
 		return 0;
 
-	ret = kgsl_allocate_contiguous(&adreno_dev->pwron_fixup, PAGE_SIZE);
+	ret = kgsl_allocate_contiguous(&adreno_dev->dev,
+				&adreno_dev->pwron_fixup, PAGE_SIZE);
 
 	if (ret)
 		return ret;
@@ -3146,8 +3230,7 @@ static void a3xx_cp_callback(struct adreno_device *adreno_dev, int irq)
 {
 	struct kgsl_device *device = &adreno_dev->dev;
 
-	device->pwrctrl.irq_last = 1;
-	queue_work(device->work_queue, &device->ts_expired_ws);
+	queue_work(device->work_queue, &device->event_work);
 	adreno_dispatcher_schedule(device);
 }
 
@@ -4407,6 +4490,7 @@ static void a3xx_postmortem_dump(struct adreno_device *adreno_dev)
 	kgsl_regread(device, REG_RBBM_STATUS, &rbbm_status);
 	KGSL_LOG_DUMP(device, "RBBM:   STATUS   = %08X\n", rbbm_status);
 
+/*
 	{
 		struct log_field lines[] = {
 			{rbbm_status & BIT(0),  "HI busy     "},
@@ -4434,7 +4518,7 @@ static void a3xx_postmortem_dump(struct adreno_device *adreno_dev)
 		adreno_dump_fields(device, " STATUS=", lines,
 				ARRAY_SIZE(lines));
 	}
-
+*/
 	kgsl_regread(device, REG_CP_RB_BASE, &r1);
 	kgsl_regread(device, REG_CP_RB_CNTL, &r2);
 	rb_count = 2 << (r2 & (BIT(6) - 1));
@@ -4468,6 +4552,7 @@ static void a3xx_postmortem_dump(struct adreno_device *adreno_dev)
 	kgsl_regread(device, REG_CP_STAT, &cp_stat);
 	KGSL_LOG_DUMP(device, "CP_STAT      = %08X\n", cp_stat);
 #ifndef CONFIG_MSM_KGSL_PSTMRTMDMP_CP_STAT_NO_DETAIL
+/*
 	{
 		struct log_field lns[] = {
 			{cp_stat & BIT(0), "WR_BSY     0"},
@@ -4516,10 +4601,12 @@ static void a3xx_postmortem_dump(struct adreno_device *adreno_dev)
 		};
 		adreno_dump_fields(device, " CP_STT=", lns, ARRAY_SIZE(lns));
 	}
+*/
 #endif
 
 	kgsl_regread(device, A3XX_RBBM_INT_0_STATUS, &r1);
 	KGSL_LOG_DUMP(device, "MSTR_INT_SGNL = %08X\n", r1);
+/*
 	{
 		struct log_field ints[] = {
 			{r1 & BIT(0),  "RBBM_GPU_IDLE 0"},
@@ -4549,6 +4636,7 @@ static void a3xx_postmortem_dump(struct adreno_device *adreno_dev)
 		};
 		adreno_dump_fields(device, "INT_SGNL=", ints, ARRAY_SIZE(ints));
 	}
+*/
 }
 
 /* Register offset defines for A3XX */
@@ -4620,6 +4708,10 @@ static unsigned int a3xx_register_offsets[ADRENO_REG_REGISTER_MAX] = {
 	ADRENO_REG_DEFINE(ADRENO_REG_RBBM_RBBM_CTL, A3XX_RBBM_RBBM_CTL),
 	ADRENO_REG_DEFINE(ADRENO_REG_UCHE_INVALIDATE0,
 			A3XX_UCHE_CACHE_INVALIDATE0_REG),
+	ADRENO_REG_DEFINE(ADRENO_REG_VBIF_XIN_HALT_CTRL0,
+				A3XX_VBIF_XIN_HALT_CTRL0),
+	ADRENO_REG_DEFINE(ADRENO_REG_VBIF_XIN_HALT_CTRL1,
+				A3XX_VBIF_XIN_HALT_CTRL1),
 };
 
 struct adreno_reg_offsets a3xx_reg_offsets = {

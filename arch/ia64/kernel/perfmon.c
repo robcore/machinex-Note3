@@ -625,6 +625,7 @@ static struct file_system_type pfm_fs_type = {
 	.mount    = pfmfs_mount,
 	.kill_sb  = kill_anon_super,
 };
+MODULE_ALIAS_FS("pfmfs");
 
 DEFINE_PER_CPU(unsigned long, pfm_syst_info);
 DEFINE_PER_CPU(struct task_struct *, pmu_owner);
@@ -2184,7 +2185,7 @@ pfmfs_delete_dentry(const struct dentry *dentry)
 static char *pfmfs_dname(struct dentry *dentry, char *buffer, int buflen)
 {
 	return dynamic_dname(dentry, buffer, buflen, "pfm:[%lu]",
-			     dentry->d_inode->i_ino);
+			     d_inode(dentry)->i_ino);
 }
 
 static const struct dentry_operations pfmfs_dentry_operations = {
@@ -2227,9 +2228,9 @@ pfm_alloc_file(pfm_context_t *ctx)
 	d_add(path.dentry, inode);
 
 	file = alloc_file(&path, FMODE_READ, &pfm_file_ops);
-	if (!file) {
+	if (IS_ERR(file)) {
 		path_put(&path);
-		return ERR_PTR(-ENFILE);
+		return file;
 	}
 
 	file->f_flags = O_RDONLY;
@@ -2313,7 +2314,7 @@ pfm_smpl_buffer_alloc(struct task_struct *task, struct file *filp, pfm_context_t
 	 */
 	vma->vm_mm	     = mm;
 	vma->vm_file	     = get_file(filp);
-	vma->vm_flags	     = VM_READ| VM_MAYREAD |VM_RESERVED;
+	vma->vm_flags	     = VM_READ|VM_MAYREAD|VM_DONTEXPAND|VM_DONTDUMP;
 	vma->vm_page_prot    = PAGE_READONLY; /* XXX may need to change */
 
 	/*
@@ -2357,7 +2358,6 @@ pfm_smpl_buffer_alloc(struct task_struct *task, struct file *filp, pfm_context_t
 	 */
 	insert_vm_struct(mm, vma);
 
-	mm->total_vm  += size >> PAGE_SHIFT;
 	vm_stat_account(vma->vm_mm, vma->vm_flags, vma->vm_file,
 							vma_pages(vma));
 	up_write(&task->mm->mmap_sem);

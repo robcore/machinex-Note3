@@ -150,7 +150,7 @@ int irq_do_set_affinity(struct irq_data *data, const struct cpumask *mask,
 	struct irq_chip *chip = irq_data_get_irq_chip(data);
 	int ret;
 
-	ret = chip->irq_set_affinity(data, mask, false);
+	ret = chip->irq_set_affinity(data, mask, force);
 	switch (ret) {
 	case IRQ_SET_MASK_OK:
 		cpumask_copy(data->affinity, mask);
@@ -162,7 +162,8 @@ int irq_do_set_affinity(struct irq_data *data, const struct cpumask *mask,
 	return ret;
 }
 
-int __irq_set_affinity_locked(struct irq_data *data, const struct cpumask *mask)
+int irq_set_affinity_locked(struct irq_data *data, const struct cpumask *mask,
+			    bool force)
 {
 	struct irq_chip *chip = irq_data_get_irq_chip(data);
 	struct irq_desc *desc = irq_data_to_desc(data);
@@ -172,28 +173,21 @@ int __irq_set_affinity_locked(struct irq_data *data, const struct cpumask *mask)
 		return -EINVAL;
 
 	if (irq_can_move_pcntxt(data)) {
-		ret = irq_do_set_affinity(data, mask, false);
+		ret = irq_do_set_affinity(data, mask, force);
 	} else {
 		irqd_set_move_pending(data);
 		irq_copy_pending(desc, mask);
 	}
 
-	if (desc->affinity_notify) {
-		kref_get(&desc->affinity_notify->kref);
-		schedule_work(&desc->affinity_notify->work);
-	}
+	if (!list_empty(&desc->affinity_notify))
+		schedule_work(&desc->affinity_work);
+
 	irqd_set(data, IRQD_AFFINITY_SET);
 
 	return ret;
 }
 
-/**
- *	irq_set_affinity - Set the irq affinity of a given irq
- *	@irq:		Interrupt to set affinity
- *	@mask:		cpumask
- *
- */
-int irq_set_affinity(unsigned int irq, const struct cpumask *mask)
+int __irq_set_affinity(unsigned int irq, const struct cpumask *mask, bool force)
 {
 	struct irq_desc *desc = irq_to_desc(irq);
 	unsigned long flags;
@@ -203,7 +197,7 @@ int irq_set_affinity(unsigned int irq, const struct cpumask *mask)
 		return -EINVAL;
 
 	raw_spin_lock_irqsave(&desc->lock, flags);
-	ret =  __irq_set_affinity_locked(irq_desc_get_irq_data(desc), mask);
+	ret = irq_set_affinity_locked(irq_desc_get_irq_data(desc), mask, force);
 	raw_spin_unlock_irqrestore(&desc->lock, flags);
 	return ret;
 }
@@ -217,20 +211,23 @@ int irq_set_affinity_hint(unsigned int irq, const struct cpumask *m)
 		return -EINVAL;
 	desc->affinity_hint = m;
 	irq_put_desc_unlock(desc, flags);
+	/* set the initial affinity to prevent every interrupt being on CPU0 */
+	if (m)
+		__irq_set_affinity(irq, m, false);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(irq_set_affinity_hint);
 
-static void irq_affinity_notify(struct work_struct *work)
+void irq_affinity_notify(struct work_struct *work)
 {
-	struct irq_affinity_notify *notify =
-		container_of(work, struct irq_affinity_notify, work);
-	struct irq_desc *desc = irq_to_desc(notify->irq);
+	struct irq_desc *desc =
+			container_of(work, struct irq_desc, affinity_work);
 	cpumask_var_t cpumask;
 	unsigned long flags;
+	struct irq_affinity_notify *notify;
 
 	if (!desc || !alloc_cpumask_var(&cpumask, GFP_KERNEL))
-		goto out;
+		return;
 
 	raw_spin_lock_irqsave(&desc->lock, flags);
 	if (irq_move_pending(&desc->irq_data))
@@ -239,11 +236,20 @@ static void irq_affinity_notify(struct work_struct *work)
 		cpumask_copy(cpumask, desc->irq_data.affinity);
 	raw_spin_unlock_irqrestore(&desc->lock, flags);
 
-	notify->notify(notify, cpumask);
+	list_for_each_entry(notify, &desc->affinity_notify, list) {
+		/**
+		 * Check and get the kref only if the kref has not been
+		 * released by now. Its possible that the reference count
+		 * is already 0, we dont want to notify those if they are
+		 * already released.
+		 */
+		if (!kref_get_unless_zero(&notify->kref))
+			continue;
+		notify->notify(notify, cpumask);
+		kref_put(&notify->kref, notify->release);
+	}
 
 	free_cpumask_var(cpumask);
-out:
-	kref_put(&notify->kref, notify->release);
 }
 
 /**
@@ -261,33 +267,49 @@ int
 irq_set_affinity_notifier(unsigned int irq, struct irq_affinity_notify *notify)
 {
 	struct irq_desc *desc = irq_to_desc(irq);
-	struct irq_affinity_notify *old_notify;
 	unsigned long flags;
-
-	/* The release function is promised process context */
-	might_sleep();
 
 	if (!desc)
 		return -EINVAL;
 
-	/* Complete initialisation of *notify */
-	if (notify) {
-		notify->irq = irq;
-		kref_init(&notify->kref);
-		INIT_WORK(&notify->work, irq_affinity_notify);
+	if (!notify) {
+		WARN("%s called with NULL notifier - use irq_release_affinity_notifier function instead.\n",
+				__func__);
+		return -EINVAL;
 	}
 
+	notify->irq = irq;
+	kref_init(&notify->kref);
+	INIT_LIST_HEAD(&notify->list);
 	raw_spin_lock_irqsave(&desc->lock, flags);
-	old_notify = desc->affinity_notify;
-	desc->affinity_notify = notify;
+	list_add(&notify->list, &desc->affinity_notify);
 	raw_spin_unlock_irqrestore(&desc->lock, flags);
-
-	if (old_notify)
-		kref_put(&old_notify->kref, old_notify->release);
 
 	return 0;
 }
 EXPORT_SYMBOL_GPL(irq_set_affinity_notifier);
+
+/**
+ *	irq_release_affinity_notifier - Remove us from notifications
+ *	@notify: Context for notification
+ */
+int irq_release_affinity_notifier(struct irq_affinity_notify *notify)
+{
+	struct irq_desc *desc;
+	unsigned long flags;
+
+	if (!notify)
+		return -EINVAL;
+
+	desc = irq_to_desc(notify->irq);
+	raw_spin_lock_irqsave(&desc->lock, flags);
+	list_del(&notify->list);
+	raw_spin_unlock_irqrestore(&desc->lock, flags);
+	kref_put(&notify->kref, notify->release);
+
+	return 0;
+}
+EXPORT_SYMBOL(irq_release_affinity_notifier);
 
 #ifndef CONFIG_AUTO_IRQ_AFFINITY
 /*
@@ -1205,7 +1227,7 @@ __setup_irq(unsigned int irq, struct irq_desc *desc, struct irqaction *new)
 
 mismatch:
 	if (!(new->flags & IRQF_PROBE_SHARED)) {
-		pr_err("Flags mismatch irq %d. %08lx (%s) vs. %08lx (%s)\n",
+		pr_err("Flags mismatch irq %d. %08x (%s) vs. %08x (%s)\n",
 		       irq, new->flags, new->name, old->flags, old->name);
 #ifdef CONFIG_DEBUG_SHIRQ
 		dump_stack();
@@ -1382,13 +1404,17 @@ EXPORT_SYMBOL_GPL(remove_irq);
 void free_irq(unsigned int irq, void *dev_id)
 {
 	struct irq_desc *desc = irq_to_desc(irq);
-
+#ifdef CONFIG_SMP
+	struct irq_affinity_notify *notify;
+#endif
 	if (!desc || WARN_ON(irq_settings_is_per_cpu_devid(desc)))
 		return;
 
 #ifdef CONFIG_SMP
-	if (WARN_ON(desc->affinity_notify))
-		desc->affinity_notify = NULL;
+	WARN_ON(!list_empty(&desc->affinity_notify));
+
+	list_for_each_entry(notify, &desc->affinity_notify, list)
+		kref_put(&notify->kref, notify->release);
 #endif
 
 	kfree(__free_irq(irq, dev_id));
@@ -1613,6 +1639,7 @@ static struct irqaction *__free_percpu_irq(unsigned int irq, void __percpu *dev_
 	if (!desc)
 		return NULL;
 
+	chip_bus_lock(desc);
 	raw_spin_lock_irqsave(&desc->lock, flags);
 
 	action = desc->action;
@@ -1631,6 +1658,7 @@ static struct irqaction *__free_percpu_irq(unsigned int irq, void __percpu *dev_
 	desc->action = NULL;
 
 	raw_spin_unlock_irqrestore(&desc->lock, flags);
+	chip_bus_sync_unlock(desc);
 
 	unregister_handler_proc(irq, action);
 

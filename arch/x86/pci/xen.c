@@ -68,6 +68,10 @@ static int xen_register_pirq(u32 gsi, int gsi_override, int triggering,
 	if (irq > 0)
 		return irq;
 
+	irq = xen_irq_from_gsi(gsi);
+	if (irq > 0)
+		return irq;
+
 	if (set_pirq)
 		pirq = gsi;
 

@@ -964,7 +964,7 @@ long compat_put_bitmap(compat_ulong_t __user *umask, unsigned long *mask,
 }
 
 void
-sigset_from_compat (sigset_t *set, compat_sigset_t *compat)
+sigset_from_compat(sigset_t *set, const compat_sigset_t *compat)
 {
 	switch (_NSIG_WORDS) {
 	case 4: set->sig[3] = compat->sig[6] | (((long)compat->sig[7]) << 32 );
@@ -974,6 +974,17 @@ sigset_from_compat (sigset_t *set, compat_sigset_t *compat)
 	}
 }
 EXPORT_SYMBOL_GPL(sigset_from_compat);
+
+void
+sigset_to_compat(compat_sigset_t *compat, const sigset_t *set)
+{
+	switch (_NSIG_WORDS) {
+	case 4: compat->sig[7] = (set->sig[3] >> 32); compat->sig[6] = set->sig[3];
+	case 3: compat->sig[5] = (set->sig[2] >> 32); compat->sig[4] = set->sig[2];
+	case 2: compat->sig[3] = (set->sig[1] >> 32); compat->sig[2] = set->sig[1];
+	case 1: compat->sig[1] = (set->sig[0] >> 32); compat->sig[0] = set->sig[0];
+	}
+}
 
 asmlinkage long
 compat_sys_rt_sigtimedwait (compat_sigset_t __user *uthese,
@@ -1007,17 +1018,6 @@ compat_sys_rt_sigtimedwait (compat_sigset_t __user *uthese,
 
 	return ret;
 
-}
-
-asmlinkage long
-compat_sys_rt_tgsigqueueinfo(compat_pid_t tgid, compat_pid_t pid, int sig,
-			     struct compat_siginfo __user *uinfo)
-{
-	siginfo_t info;
-
-	if (copy_siginfo_from_user32(&info, uinfo))
-		return -EFAULT;
-	return do_rt_tgsigqueueinfo(tgid, pid, sig, &info);
 }
 
 #ifdef __ARCH_WANT_COMPAT_SYS_TIME
@@ -1059,23 +1059,6 @@ asmlinkage long compat_sys_stime(compat_time_t __user *tptr)
 }
 
 #endif /* __ARCH_WANT_COMPAT_SYS_TIME */
-
-#ifdef __ARCH_WANT_COMPAT_SYS_RT_SIGSUSPEND
-asmlinkage long compat_sys_rt_sigsuspend(compat_sigset_t __user *unewset, compat_size_t sigsetsize)
-{
-	sigset_t newset;
-	compat_sigset_t newset32;
-
-	/* XXX: Don't preclude handling different sized sigset_t's.  */
-	if (sigsetsize != sizeof(sigset_t))
-		return -EINVAL;
-
-	if (copy_from_user(&newset32, unewset, sizeof(compat_sigset_t)))
-		return -EFAULT;
-	sigset_from_compat(&newset, &newset32);
-	return sigsuspend(&newset);
-}
-#endif /* __ARCH_WANT_COMPAT_SYS_RT_SIGSUSPEND */
 
 asmlinkage long compat_sys_adjtimex(struct compat_timex __user *utp)
 {
@@ -1150,69 +1133,20 @@ asmlinkage long compat_sys_migrate_pages(compat_pid_t pid,
 }
 #endif
 
-struct compat_sysinfo {
-	s32 uptime;
-	u32 loads[3];
-	u32 totalram;
-	u32 freeram;
-	u32 sharedram;
-	u32 bufferram;
-	u32 totalswap;
-	u32 freeswap;
-	u16 procs;
-	u16 pad;
-	u32 totalhigh;
-	u32 freehigh;
-	u32 mem_unit;
-	char _f[20-2*sizeof(u32)-sizeof(int)];
-};
-
-asmlinkage long
-compat_sys_sysinfo(struct compat_sysinfo __user *info)
+COMPAT_SYSCALL_DEFINE2(sched_rr_get_interval,
+		       compat_pid_t, pid,
+		       struct compat_timespec __user *, interval)
 {
-	struct sysinfo s;
+	struct timespec t;
+	int ret;
+	mm_segment_t old_fs = get_fs();
 
-	do_sysinfo(&s);
-
-	/* Check to see if any memory value is too large for 32-bit and scale
-	 *  down if needed
-	 */
-	if ((s.totalram >> 32) || (s.totalswap >> 32)) {
-		int bitcount = 0;
-
-		while (s.mem_unit < PAGE_SIZE) {
-			s.mem_unit <<= 1;
-			bitcount++;
-		}
-
-		s.totalram >>= bitcount;
-		s.freeram >>= bitcount;
-		s.sharedram >>= bitcount;
-		s.bufferram >>= bitcount;
-		s.totalswap >>= bitcount;
-		s.freeswap >>= bitcount;
-		s.totalhigh >>= bitcount;
-		s.freehigh >>= bitcount;
-	}
-
-	if (!access_ok(VERIFY_WRITE, info, sizeof(struct compat_sysinfo)) ||
-	    __put_user (s.uptime, &info->uptime) ||
-	    __put_user (s.loads[0], &info->loads[0]) ||
-	    __put_user (s.loads[1], &info->loads[1]) ||
-	    __put_user (s.loads[2], &info->loads[2]) ||
-	    __put_user (s.totalram, &info->totalram) ||
-	    __put_user (s.freeram, &info->freeram) ||
-	    __put_user (s.sharedram, &info->sharedram) ||
-	    __put_user (s.bufferram, &info->bufferram) ||
-	    __put_user (s.totalswap, &info->totalswap) ||
-	    __put_user (s.freeswap, &info->freeswap) ||
-	    __put_user (s.procs, &info->procs) ||
-	    __put_user (s.totalhigh, &info->totalhigh) ||
-	    __put_user (s.freehigh, &info->freehigh) ||
-	    __put_user (s.mem_unit, &info->mem_unit))
+	set_fs(KERNEL_DS);
+	ret = sys_sched_rr_get_interval(pid, (struct timespec __user *)&t);
+	set_fs(old_fs);
+	if (put_compat_timespec(&t, interval))
 		return -EFAULT;
-
-	return 0;
+	return ret;
 }
 
 /*

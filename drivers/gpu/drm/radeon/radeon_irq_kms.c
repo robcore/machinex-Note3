@@ -56,6 +56,11 @@ static void radeon_hotplug_work_func(struct work_struct *work)
 	if (!rdev->mode_info.mode_config_initialized)
 		return;
 
+	/* we can race here at startup, some boards seem to trigger
+	 * hotplug irqs when they shouldn't. */
+	if (!rdev->mode_info.mode_config_initialized)
+		return;
+
 	mutex_lock(&mode_config->mutex);
 	if (mode_config->num_connector) {
 		list_for_each_entry(connector, &mode_config->connector_list, head)
@@ -224,7 +229,7 @@ void radeon_irq_kms_fini(struct radeon_device *rdev)
 		if (rdev->msi_enabled)
 			pci_disable_msi(rdev->pdev);
 	}
-	flush_work_sync(&rdev->hotplug_work);
+	flush_work(&rdev->hotplug_work);
 }
 
 void radeon_irq_kms_sw_irq_get(struct radeon_device *rdev, int ring)

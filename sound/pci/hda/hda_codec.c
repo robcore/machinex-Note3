@@ -2103,6 +2103,16 @@ static void vmaster_hook(void *private_data, int enabled)
 	hook->hook(hook->codec, enabled);
 }
 
+/* meta hook to call each driver's vmaster hook */
+static void vmaster_hook(void *private_data, int enabled)
+{
+	struct hda_vmaster_mute_hook *hook = private_data;
+
+	if (hook->mute_mode != HDA_VMUTE_FOLLOW_MASTER)
+		enabled = hook->mute_mode;
+	hook->hook(hook->codec, enabled);
+}
+
 /**
  * snd_hda_find_mixer_ctl - Find a mixer control element with the given name
  * @codec: HD-audio codec

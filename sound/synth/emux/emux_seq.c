@@ -263,6 +263,12 @@ snd_emux_event_input(struct snd_seq_event *ev, int direct, void *private_data,
 	return 0;
 }
 
+void snd_emux_dec_count(struct snd_emux *emu)
+{
+	mutex_lock(&emu->register_mutex);
+	__snd_emux_dec_count(emu);
+	mutex_unlock(&emu->register_mutex);
+}
 
 /*
  * increment usage count

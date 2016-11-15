@@ -23,6 +23,11 @@
 #include <linux/regulator/consumer.h>
 #include <linux/clk.h>
 
+#ifdef CONFIG_STATE_NOTIFIER
+#include <linux/state_notifier.h>
+bool scr_suspended;
+#endif
+
 #include "mdss.h"
 #include "mdss_fb.h"
 #include "mdss_panel.h"
@@ -1474,6 +1479,12 @@ static int mdss_dsi_event_handler(struct mdss_panel_data *pdata,
 		ctrl_pdata->mdp_tg_on = 1;
 		if (ctrl_pdata->on_cmds.link_state == DSI_HS_MODE)
 			rc = mdss_dsi_unblank(pdata);
+#ifdef CONFIG_STATE_NOTIFIER
+#ifdef CONFIG_TOUCHSCREEN_SWEEP2WAKE
+		scr_suspended = false;
+#endif
+		state_resume();
+#endif
 		break;
 	case MDSS_EVENT_BLANK:
 		if (ctrl_pdata->off_cmds.link_state == DSI_HS_MODE)

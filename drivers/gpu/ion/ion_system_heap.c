@@ -34,7 +34,7 @@ static unsigned int high_order_gfp_flags = (GFP_HIGHUSER |
 					    __GFP_NO_KSWAPD) & ~__GFP_WAIT;
 static unsigned int low_order_gfp_flags  = (GFP_HIGHUSER |
 					 __GFP_NOWARN);
-static const unsigned int orders[] = {9, 8, 4, 0};
+static const unsigned int orders[] = {4, 0};
 static const int num_orders = ARRAY_SIZE(orders);
 static int order_to_index(unsigned int order)
 {
@@ -122,6 +122,11 @@ static struct page_info *alloc_largest_available(struct ion_system_heap *heap,
 	struct page_info *info;
 	int i;
 	bool from_pool;
+
+	info = kmalloc(sizeof(struct page_info), GFP_KERNEL);
+	if (!info)
+		return NULL;
+
 	for (i = 0; i < num_orders; i++) {
 		if (size < order_to_size(orders[i]))
 			continue;
@@ -132,14 +137,14 @@ static struct page_info *alloc_largest_available(struct ion_system_heap *heap,
 		if (!page)
 			continue;
 
-		info = kmalloc(sizeof(struct page_info), GFP_KERNEL);
-		if (info) {
-			info->page = page;
-			info->order = orders[i];
-			info->from_pool = from_pool;
-		}
+		info->page = page;
+		info->order = orders[i];
+		info->from_pool = from_pool;
+		INIT_LIST_HEAD(&info->list);
 		return info;
 	}
+	kfree(info);
+
 	return NULL;
 }
 static unsigned int process_info(struct page_info *info,
@@ -193,6 +198,12 @@ static int ion_system_heap_allocate(struct ion_heap *heap,
 	struct pages_mem data;
 	unsigned int sz;
 	bool split_pages = ion_buffer_fault_user_mappings(buffer);
+
+	if (align > PAGE_SIZE)
+		return -EINVAL;
+
+	if (size / PAGE_SIZE > totalram_pages / 2)
+		return -ENOMEM;
 
 	data.size = 0;
 	INIT_LIST_HEAD(&pages);
@@ -365,15 +376,39 @@ static struct ion_heap_ops system_heap_ops = {
 	.map_user = ion_heap_map_user,
 };
 
-static int ion_system_heap_shrink(struct shrinker *shrinker,
-				  struct shrink_control *sc) {
-
+static unsigned long ion_system_heap_shrink_count(struct shrinker *shrinker,
+				  struct shrink_control *sc)
+{
 	struct ion_heap *heap = container_of(shrinker, struct ion_heap,
 					     shrinker);
 	struct ion_system_heap *sys_heap = container_of(heap,
 							struct ion_system_heap,
 							heap);
 	int nr_total = 0;
+	int i;
+
+	/* total number of items is whatever the page pools are holding
+	   plus whatever's in the freelist */
+	for (i = 0; i < num_orders; i++) {
+		nr_total += ion_page_pool_shrink(
+			sys_heap->uncached_pools[i], sc->gfp_mask, 0);
+		nr_total += ion_page_pool_shrink(
+			sys_heap->cached_pools[i], sc->gfp_mask, 0);
+	}
+	nr_total += ion_heap_freelist_size(heap) / PAGE_SIZE;
+	return nr_total;
+
+}
+
+static unsigned long ion_system_heap_shrink_scan(struct shrinker *shrinker,
+				  struct shrink_control *sc)
+{
+
+	struct ion_heap *heap = container_of(shrinker, struct ion_heap,
+					     shrinker);
+	struct ion_system_heap *sys_heap = container_of(heap,
+							struct ion_system_heap,
+							heap);
 	int nr_freed = 0;
 	int i;
 
@@ -402,16 +437,7 @@ static int ion_system_heap_shrink(struct shrinker *shrinker,
 	}
 
 end:
-	/* total number of items is whatever the page pools are holding
-	   plus whatever's in the freelist */
-	for (i = 0; i < num_orders; i++) {
-		nr_total += ion_page_pool_shrink(
-			sys_heap->uncached_pools[i], sc->gfp_mask, 0);
-		nr_total += ion_page_pool_shrink(
-			sys_heap->cached_pools[i], sc->gfp_mask, 0);
-	}
-	nr_total += ion_heap_freelist_size(heap) / PAGE_SIZE;
-	return nr_total;
+	return nr_freed;
 
 }
 
@@ -512,7 +538,8 @@ struct ion_heap *ion_system_heap_create(struct ion_platform_heap *unused)
 	if (ion_system_heap_create_pools(heap->cached_pools))
 		goto err_create_cached_pools;
 
-	heap->heap.shrinker.shrink = ion_system_heap_shrink;
+	heap->heap.shrinker.scan_objects = ion_system_heap_shrink_scan;
+	heap->heap.shrinker.count_objects = ion_system_heap_shrink_count;
 	heap->heap.shrinker.seeks = DEFAULT_SEEKS;
 	heap->heap.shrinker.batch = 0;
 	register_shrinker(&heap->heap.shrinker);
@@ -554,8 +581,12 @@ static int ion_system_contig_heap_allocate(struct ion_heap *heap,
 					   unsigned long align,
 					   unsigned long flags)
 {
+	int order = get_order(len);
 	int ret;
 	struct kmalloc_buffer_info *info;
+
+	if (align > (PAGE_SIZE << order))
+		return -EINVAL;
 
 	info = kmalloc(sizeof(struct kmalloc_buffer_info), GFP_KERNEL);
 	if (!info) {

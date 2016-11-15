@@ -209,7 +209,7 @@ static void stripe_dtr(struct dm_target *ti)
 	for (i = 0; i < sc->stripes; i++)
 		dm_put_device(ti, sc->stripe[i].dev);
 
-	flush_work_sync(&sc->trigger_event);
+	flush_work(&sc->trigger_event);
 	kfree(sc);
 }
 
@@ -248,7 +248,7 @@ static int stripe_map_discard(struct stripe_c *sc, struct bio *bio,
 	sector_t begin, end;
 
 	stripe_map_range_sector(sc, bio->bi_sector, target_stripe, &begin);
-	stripe_map_range_sector(sc, bio->bi_sector + bio_sectors(bio),
+	stripe_map_range_sector(sc, bio_end_sector(bio),
 				target_stripe, &end);
 	if (begin < end) {
 		bio->bi_bdev = sc->stripe[target_stripe].dev->bdev;

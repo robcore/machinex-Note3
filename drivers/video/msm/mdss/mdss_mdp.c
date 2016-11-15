@@ -1213,7 +1213,7 @@ static u32 mdss_mdp_res_init(struct mdss_data_type *mdata)
 	mdata->hist_intr.state = 0;
 	spin_lock_init(&mdata->hist_intr.lock);
 
-	mdata->iclient = msm_ion_client_create(-1, mdata->pdev->name);
+	mdata->iclient = msm_ion_client_create(mdata->pdev->name);
 	if (IS_ERR_OR_NULL(mdata->iclient)) {
 		pr_err("msm_ion_client_create() return error (%p)\n",
 				mdata->iclient);
@@ -2459,6 +2459,7 @@ static int mdss_mdp_parse_dt_misc(struct platform_device *pdev)
 	if (rc)
 		pr_debug("max bandwidth (high) property not specified\n");
 
+#if 0 /* no such dtsi config for LG G2 board */
 	mdata->nclk_lvl = mdss_mdp_parse_dt_prop_len(pdev,
 					"qcom,mdss-clk-levels");
 
@@ -2475,6 +2476,7 @@ static int mdss_mdp_parse_dt_misc(struct platform_device *pdev)
 		if (rc)
 			pr_debug("clock levels not found\n");
 	}
+#endif
 
 	return 0;
 }

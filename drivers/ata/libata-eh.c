@@ -3128,6 +3128,9 @@ static int ata_eh_revalidate_and_attach(struct ata_link *link,
 		ehc->i.flags |= ATA_EHI_SETMODE;
 	}
 
+	link->last_lpm_change = jiffies;
+	link->flags |= ATA_LFLAG_CHANGED;
+
 	return 0;
 
  err:

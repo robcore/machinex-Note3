@@ -350,6 +350,8 @@ void show_regs(struct pt_regs * regs)
 {
 	int i, wmask;
 
+	show_regs_print_info(KERN_DEFAULT);
+
 	wmask = regs->wmask & ~1;
 
 	for (i = 0; i < 16; i++) {
@@ -467,14 +469,6 @@ void show_stack(struct task_struct *task, unsigned long *sp)
 	show_trace(task, stack);
 }
 
-void dump_stack(void)
-{
-	show_stack(current, NULL);
-}
-
-EXPORT_SYMBOL(dump_stack);
-
-
 void show_code(unsigned int *pc)
 {
 	long i;
@@ -512,7 +506,7 @@ void die(const char * str, struct pt_regs * regs, long err)
 	if (!user_mode(regs))
 		show_stack(NULL, (unsigned long*)regs->areg[1]);
 
-	add_taint(TAINT_DIE);
+	add_taint(TAINT_DIE, LOCKDEP_NOW_UNRELIABLE);
 	spin_unlock_irq(&die_lock);
 
 	if (in_interrupt())

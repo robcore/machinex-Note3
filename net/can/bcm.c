@@ -225,7 +225,7 @@ static int bcm_proc_show(struct seq_file *m, void *v)
 
 static int bcm_proc_open(struct inode *inode, struct file *file)
 {
-	return single_open(file, bcm_proc_show, PDE(inode)->data);
+	return single_open(file, bcm_proc_show, PDE_DATA(inode));
 }
 
 static const struct file_operations bcm_proc_fops = {
@@ -1627,7 +1627,7 @@ static void __exit bcm_module_exit(void)
 	can_proto_unregister(&bcm_can_proto);
 
 	if (proc_dir)
-		proc_net_remove(&init_net, "can-bcm");
+		remove_proc_entry("can-bcm", init_net.proc_net);
 }
 
 module_init(bcm_module_init);

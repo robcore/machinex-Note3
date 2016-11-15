@@ -72,6 +72,7 @@ struct tick_sched {
 
 extern void __init tick_init(void);
 extern int tick_is_oneshot_available(void);
+extern u64 jiffy_to_sched_clock(u64 *now, u64 *jiffy_sched_clock);
 extern struct tick_device *tick_get_device(int cpu);
 
 # ifdef CONFIG_HIGH_RES_TIMERS
@@ -93,6 +94,7 @@ extern struct cpumask *tick_get_broadcast_mask(void);
 #  ifdef CONFIG_TICK_ONESHOT
 extern struct cpumask *tick_get_broadcast_oneshot_mask(void);
 #  endif
+
 #else
 static inline struct tick_device *tick_get_broadcast_device(void)
 {
@@ -109,7 +111,7 @@ static inline struct cpumask *tick_get_broadcast_mask(void)
 extern void tick_clock_notify(void);
 extern int tick_check_oneshot_change(int allow_nohz);
 extern struct tick_sched *tick_get_tick_sched(int cpu);
-extern void tick_check_idle(int cpu);
+extern void tick_check_idle(void);
 extern int tick_oneshot_mode_active(void);
 #  ifndef arch_needs_cpu
 #   define arch_needs_cpu(cpu) (0)
@@ -117,7 +119,7 @@ extern int tick_oneshot_mode_active(void);
 # else
 static inline void tick_clock_notify(void) { }
 static inline int tick_check_oneshot_change(int allow_nohz) { return 0; }
-static inline void tick_check_idle(int cpu) { }
+static inline void tick_check_idle(void) { }
 static inline int tick_oneshot_mode_active(void) { return 0; }
 static inline struct cpumask *tick_get_broadcast_oneshot_mask(void)
 {
@@ -130,9 +132,20 @@ static inline void tick_init(void) { }
 static inline void tick_cancel_sched_timer(int cpu) { }
 static inline void tick_clock_notify(void) { }
 static inline int tick_check_oneshot_change(int allow_nohz) { return 0; }
-static inline void tick_check_idle(int cpu) { }
+static inline void tick_check_idle(void) { }
 static inline int tick_oneshot_mode_active(void) { return 0; }
 #endif /* !CONFIG_GENERIC_CLOCKEVENTS */
+
+enum tick_broadcast_state {
+	TICK_BROADCAST_EXIT,
+	TICK_BROADCAST_ENTER,
+};
+
+#if defined(CONFIG_GENERIC_CLOCKEVENTS_BROADCAST) && defined(CONFIG_TICK_ONESHOT)
+extern int tick_broadcast_oneshot_control(enum tick_broadcast_state state);
+#else
+static inline int tick_broadcast_oneshot_control(enum tick_broadcast_state state) { return 0; }
+#endif
 
 # ifdef CONFIG_NO_HZ_COMMON
 DECLARE_PER_CPU(struct tick_sched, tick_cpu_sched);
@@ -140,6 +153,14 @@ DECLARE_PER_CPU(struct tick_sched, tick_cpu_sched);
 static inline int tick_nohz_tick_stopped(void)
 {
 	return __this_cpu_read(tick_cpu_sched.tick_stopped);
+}
+static inline int tick_broadcast_enter(void)
+{
+	return tick_broadcast_oneshot_control(TICK_BROADCAST_ENTER);
+}
+static inline void tick_broadcast_exit(void)
+{
+	tick_broadcast_oneshot_control(TICK_BROADCAST_EXIT);
 }
 
 extern void tick_nohz_idle_enter(void);
@@ -169,9 +190,19 @@ static inline u64 get_cpu_iowait_time_us(int cpu, u64 *unused) { return -1; }
 # endif /* !CONFIG_NO_HZ_COMMON */
 
 #ifdef CONFIG_NO_HZ_FULL
+extern void tick_nohz_init(void);
 extern int tick_nohz_full_cpu(int cpu);
+extern void tick_nohz_full_check(void);
+extern void tick_nohz_full_kick(void);
+extern void tick_nohz_full_kick_all(void);
+extern void tick_nohz_task_switch(struct task_struct *tsk);
 #else
+static inline void tick_nohz_init(void) { }
 static inline int tick_nohz_full_cpu(int cpu) { return 0; }
+static inline void tick_nohz_full_check(void) { }
+static inline void tick_nohz_full_kick(void) { }
+static inline void tick_nohz_full_kick_all(void) { }
+static inline void tick_nohz_task_switch(struct task_struct *tsk) { }
 #endif
 
 #endif

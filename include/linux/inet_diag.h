@@ -72,6 +72,7 @@ enum {
 	INET_DIAG_BC_AUTO,
 	INET_DIAG_BC_S_COND,
 	INET_DIAG_BC_D_COND,
+	INET_DIAG_BC_DEV_COND, /* u32 ifindex */
 };
 
 struct inet_diag_hostcond {
@@ -133,6 +134,7 @@ struct tcpvegas_info {
 };
 
 #ifdef __KERNEL__
+struct net;
 struct sock;
 struct inet_hashinfo;
 struct nlattr;
@@ -153,6 +155,10 @@ struct inet_diag_handler {
 	void			(*idiag_get_info)(struct sock *sk,
 						  struct inet_diag_msg *r,
 						  void *info);
+
+	int			(*destroy)(struct sk_buff *in_skb,
+					   struct inet_diag_req_v2 *req);
+
 	__u16                   idiag_type;
 };
 
@@ -167,6 +173,10 @@ void inet_diag_dump_icsk(struct inet_hashinfo *h, struct sk_buff *skb,
 int inet_diag_dump_one_icsk(struct inet_hashinfo *hashinfo,
 		struct sk_buff *in_skb, const struct nlmsghdr *nlh,
 		struct inet_diag_req_v2 *req);
+
+struct sock *inet_diag_find_one_icsk(struct net *net,
+				     struct inet_hashinfo *hashinfo,
+				     struct inet_diag_req_v2 *req);
 
 int inet_diag_bc_sk(const struct nlattr *_bc, struct sock *sk);
 

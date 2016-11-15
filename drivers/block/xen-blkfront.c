@@ -644,7 +644,7 @@ static void xlvbd_release_gendisk(struct blkfront_info *info)
 	spin_unlock_irqrestore(&info->io_lock, flags);
 
 	/* Flush gnttab callback work. Must be done with no locks held. */
-	flush_work_sync(&info->work);
+	flush_work(&info->work);
 
 	del_gendisk(info->gd);
 
@@ -693,7 +693,7 @@ static void blkif_free(struct blkfront_info *info, int suspend)
 	spin_unlock_irq(&info->io_lock);
 
 	/* Flush gnttab callback work. Must be done with no locks held. */
-	flush_work_sync(&info->work);
+	flush_work(&info->work);
 
 	/* Free resources associated with old device channel. */
 	if (info->ring_ref != GRANT_INVALID_REF) {
@@ -1404,7 +1404,7 @@ out:
 	return err;
 }
 
-static int blkif_release(struct gendisk *disk, fmode_t mode)
+static void blkif_release(struct gendisk *disk, fmode_t mode)
 {
 	struct blkfront_info *info = disk->private_data;
 	struct block_device *bdev;
@@ -1445,7 +1445,6 @@ static int blkif_release(struct gendisk *disk, fmode_t mode)
 out:
 	bdput(bdev);
 	mutex_unlock(&blkfront_mutex);
-	return 0;
 }
 
 static const struct block_device_operations xlvbd_block_fops =

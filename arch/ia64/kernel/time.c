@@ -19,7 +19,7 @@
 #include <linux/interrupt.h>
 #include <linux/efi.h>
 #include <linux/timex.h>
-#include <linux/clocksource.h>
+#include <linux/timekeeper_internal.h>
 #include <linux/platform_device.h>
 
 #include <asm/machvec.h>
@@ -88,10 +88,10 @@ extern cputime_t cycle_to_cputime(u64 cyc);
  * accumulated times to the current process, and to prepare accounting on
  * the next process.
  */
-void ia64_account_on_switch(struct task_struct *prev, struct task_struct *next)
+void vtime_task_switch(struct task_struct *prev)
 {
 	struct thread_info *pi = task_thread_info(prev);
-	struct thread_info *ni = task_thread_info(next);
+	struct thread_info *ni = task_thread_info(current);
 	cputime_t delta_stime, delta_utime;
 	__u64 now;
 
@@ -116,29 +116,33 @@ void ia64_account_on_switch(struct task_struct *prev, struct task_struct *next)
  * Account time for a transition between system, hard irq or soft irq state.
  * Note that this function is called with interrupts enabled.
  */
-void account_system_vtime(struct task_struct *tsk)
+static cputime_t vtime_delta(struct task_struct *tsk)
 {
 	struct thread_info *ti = task_thread_info(tsk);
-	unsigned long flags;
 	cputime_t delta_stime;
 	__u64 now;
-
-	local_irq_save(flags);
 
 	now = ia64_get_itc();
 
 	delta_stime = cycle_to_cputime(ti->ac_stime + (now - ti->ac_stamp));
-	if (irq_count() || idle_task(smp_processor_id()) != tsk)
-		account_system_time(tsk, 0, delta_stime, delta_stime);
-	else
-		account_idle_time(delta_stime);
 	ti->ac_stime = 0;
-
 	ti->ac_stamp = now;
 
-	local_irq_restore(flags);
+	return delta_stime;
 }
-EXPORT_SYMBOL_GPL(account_system_vtime);
+
+void vtime_account_system(struct task_struct *tsk)
+{
+	cputime_t delta = vtime_delta(tsk);
+
+	account_system_time(tsk, 0, delta, delta);
+}
+EXPORT_SYMBOL_GPL(vtime_account_system);
+
+void vtime_account_idle(struct task_struct *tsk)
+{
+	account_idle_time(vtime_delta(tsk));
+}
 
 /*
  * Called from the timer interrupt handler to charge accumulated user time
@@ -454,7 +458,7 @@ void update_vsyscall_tz(void)
 {
 }
 
-void update_vsyscall(struct timespec *wall, struct timespec *wtm,
+void update_vsyscall_old(struct timespec *wall, struct timespec *wtm,
 			struct clocksource *c, u32 mult)
 {
 	write_seqcount_begin(&fsyscall_gtod_data.seq);

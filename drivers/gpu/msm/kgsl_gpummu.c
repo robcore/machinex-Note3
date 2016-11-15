@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2013,2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -357,7 +357,7 @@ err_ptpool_remove:
 	return NULL;
 }
 
-int kgsl_gpummu_pt_equal(struct kgsl_mmu *mmu,
+static int kgsl_gpummu_pt_equal(struct kgsl_mmu *mmu,
 			struct kgsl_pagetable *pt,
 			phys_addr_t pt_base)
 {
@@ -365,13 +365,13 @@ int kgsl_gpummu_pt_equal(struct kgsl_mmu *mmu,
 	return gpummu_pt && pt_base && (gpummu_pt->base.gpuaddr == pt_base);
 }
 
-void kgsl_gpummu_destroy_pagetable(struct kgsl_pagetable *pt)
+static void kgsl_gpummu_destroy_pagetable(struct kgsl_pagetable *pt)
 {
 	struct kgsl_gpummu_pt *gpummu_pt = pt->priv;
 	kgsl_ptpool_free((struct kgsl_ptpool *)kgsl_driver.ptpool,
 				gpummu_pt->base.hostptr);
 
-	kgsl_driver.stats.coherent -= KGSL_PAGETABLE_SIZE;
+	atomic_sub(KGSL_PAGETABLE_SIZE, &kgsl_driver.stats.coherent);
 
 	kfree(gpummu_pt->tlbflushfilter.base);
 
@@ -469,8 +469,8 @@ static void *kgsl_gpummu_create_pagetable(void)
 	/* ptpool allocations are from coherent memory, so update the
 	   device statistics acordingly */
 
-	KGSL_STATS_ADD(KGSL_PAGETABLE_SIZE, kgsl_driver.stats.coherent,
-		       kgsl_driver.stats.coherent_max);
+	KGSL_STATS_ADD(KGSL_PAGETABLE_SIZE, &kgsl_driver.stats.coherent,
+		       &kgsl_driver.stats.coherent_max);
 
 	return (void *)gpummu_pt;
 
@@ -652,7 +652,7 @@ kgsl_gpummu_unmap(struct kgsl_pagetable *pt,
 		/* check if PTE exists */
 		if (!kgsl_pt_map_get(gpummu_pt, pte))
 			KGSL_CORE_ERR("pt entry %x is already "
-			"unmapped for pagetable %p\n", pte, gpummu_pt);
+			"unmapped for pagetable %pK\n", pte, gpummu_pt);
 #endif
 		kgsl_pt_map_set(gpummu_pt, pte, GSL_PT_PAGE_DIRTY);
 		superpte = pte - (pte & (GSL_PT_SUPER_PTE - 1));

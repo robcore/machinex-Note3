@@ -86,7 +86,7 @@ static void do_account_vtime(struct task_struct *tsk, int hardirq_offset)
 	}
 }
 
-void account_vtime(struct task_struct *prev, struct task_struct *next)
+void vtime_task_switch(struct task_struct *prev)
 {
 	struct thread_info *ti;
 
@@ -94,12 +94,17 @@ void account_vtime(struct task_struct *prev, struct task_struct *next)
 	ti = task_thread_info(prev);
 	ti->user_timer = S390_lowcore.user_timer;
 	ti->system_timer = S390_lowcore.system_timer;
-	ti = task_thread_info(next);
+	ti = task_thread_info(current);
 	S390_lowcore.user_timer = ti->user_timer;
 	S390_lowcore.system_timer = ti->system_timer;
 }
 
-void account_process_tick(struct task_struct *tsk, int user_tick)
+/*
+ * In s390, accounting pending user time also implies
+ * accounting system time in order to correctly compute
+ * the stolen time accounting.
+ */
+void vtime_account_user(struct task_struct *tsk)
 {
 	do_account_vtime(tsk, HARDIRQ_OFFSET);
 }
@@ -108,7 +113,7 @@ void account_process_tick(struct task_struct *tsk, int user_tick)
  * Update process times based on virtual cpu times stored by entry.S
  * to the lowcore fields user_timer, system_timer & steal_clock.
  */
-void account_system_vtime(struct task_struct *tsk)
+void vtime_account_irq_enter(struct task_struct *tsk)
 {
 	struct thread_info *ti = task_thread_info(tsk);
 	__u64 timer, system;
@@ -122,7 +127,11 @@ void account_system_vtime(struct task_struct *tsk)
 	ti->system_timer = S390_lowcore.system_timer;
 	account_system_time(tsk, 0, system, system);
 }
-EXPORT_SYMBOL_GPL(account_system_vtime);
+EXPORT_SYMBOL_GPL(vtime_account_irq_enter);
+
+void vtime_account_system(struct task_struct *tsk)
+__attribute__((alias("vtime_account_irq_enter")));
+EXPORT_SYMBOL_GPL(vtime_account_system);
 
 void __kprobes vtime_stop_cpu(void)
 {

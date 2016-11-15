@@ -35,6 +35,8 @@ extern void __ucmpdi2(void);
 extern void __udivsi3(void);
 extern void __umodsi3(void);
 extern void __do_div64(void);
+extern void __bswapsi2(void);
+extern void __bswapdi2(void);
 
 extern void __aeabi_idiv(void);
 extern void __aeabi_idivmod(void);
@@ -47,6 +49,9 @@ extern void __aeabi_uidivmod(void);
 extern void __aeabi_ulcmp(void);
 
 extern void fpundefinstr(void);
+
+void mmioset(void *, unsigned int, size_t);
+void mmiocpy(void *, const void *, size_t);
 
 	/* platform dependent support */
 EXPORT_SYMBOL(arm_delay_ops);
@@ -86,6 +91,9 @@ EXPORT_SYMBOL(memmove);
 EXPORT_SYMBOL(memchr);
 EXPORT_SYMBOL(__memzero);
 
+EXPORT_SYMBOL(mmioset);
+EXPORT_SYMBOL(mmiocpy);
+
 #ifdef CONFIG_MMU
 EXPORT_SYMBOL(copy_page);
 
@@ -114,6 +122,8 @@ EXPORT_SYMBOL(__ucmpdi2);
 EXPORT_SYMBOL(__udivsi3);
 EXPORT_SYMBOL(__umodsi3);
 EXPORT_SYMBOL(__do_div64);
+EXPORT_SYMBOL(__bswapsi2);
+EXPORT_SYMBOL(__bswapdi2);
 
 #ifdef CONFIG_AEABI
 EXPORT_SYMBOL(__aeabi_idiv);

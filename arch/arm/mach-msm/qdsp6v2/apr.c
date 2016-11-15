@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -26,6 +26,7 @@
 #include <linux/sysfs.h>
 #include <linux/device.h>
 #include <linux/slab.h>
+#include <mach/scm.h>
 #include <sound/apr_audio-v2.h>
 #include <asm/mach-types.h>
 #include <mach/subsystem_restart.h>
@@ -36,12 +37,14 @@
 #include <mach/subsystem_notif.h>
 #include <mach/subsystem_restart.h>
 
+#define SCM_Q6_NMI_CMD 0x1
+
 static struct apr_q6 q6;
 static struct apr_client client[APR_DEST_MAX][APR_CLIENT_MAX];
 
 static wait_queue_head_t dsp_wait;
 static wait_queue_head_t modem_wait;
-int is_modem_up = 0;
+static bool is_modem_up;
 /* Subsystem restart: QDSP6 data, functions */
 static struct workqueue_struct *apr_reset_workqueue;
 static void apr_reset_deregister(struct work_struct *work);
@@ -220,11 +223,11 @@ int apr_wait_for_device_up(int dest_id)
 	if (dest_id == APR_DEST_MODEM)
 		rc = wait_event_interruptible_timeout(modem_wait,
 				    (apr_get_modem_state() == APR_SUBSYS_UP),
-				    (1 * HZ));
+				    msecs_to_jiffies(1000));
 	else if (dest_id == APR_DEST_QDSP6)
 		rc = wait_event_interruptible_timeout(dsp_wait,
 				    (apr_get_q6_state() == APR_SUBSYS_UP),
-				    (1 * HZ));
+				    msecs_to_jiffies(1000));
 	else
 		pr_err("%s: unknown dest_id %d\n", __func__, dest_id);
 	/* returns left time */
@@ -301,11 +304,7 @@ int apr_send_pkt(void *handle, uint32_t *buf)
 
 	hdr->src_domain = APR_DOMAIN_APPS;
 	hdr->src_svc = svc->id;
-	if (dest_id == APR_DEST_MODEM)
-		hdr->dest_domain = APR_DOMAIN_MODEM;
-	else if (dest_id == APR_DEST_QDSP6)
-		hdr->dest_domain = APR_DOMAIN_ADSP;
-
+	hdr->dest_domain = svc->dest_domain;
 	hdr->dest_svc = svc->id;
 
 	w_len = apr_tal_write(clnt->handle, buf, hdr->pkt_size);
@@ -315,6 +314,119 @@ int apr_send_pkt(void *handle, uint32_t *buf)
 
 	return w_len;
 }
+
+struct apr_svc *apr_register(char *dest, char *svc_name, apr_fn svc_fn,
+				uint32_t src_port, void *priv)
+{
+	struct apr_client *clnt;
+	int client_id = 0;
+	int svc_idx = 0;
+	int svc_id = 0;
+	int dest_id = 0;
+	int domain_id = 0;
+	int temp_port = 0;
+	struct apr_svc *svc = NULL;
+	int rc = 0;
+
+	if (!dest || !svc_name || !svc_fn)
+		return NULL;
+
+	if (!strcmp(dest, "ADSP"))
+		domain_id = APR_DOMAIN_ADSP;
+	else if (!strcmp(dest, "MODEM")) {
+		/* Register voice services if destination permits */
+		if (!apr_register_voice_svc())
+			goto done;
+		domain_id = APR_DOMAIN_MODEM;
+	} else {
+		pr_err("APR: wrong destination\n");
+		goto done;
+	}
+
+	dest_id = apr_get_dest_id(dest);
+
+	if (dest_id == APR_DEST_QDSP6) {
+		if (apr_get_q6_state() != APR_SUBSYS_LOADED) {
+			pr_err("%s: adsp not up\n", __func__);
+			return NULL;
+		}
+		pr_debug("%s: adsp Up\n", __func__);
+	} else if (dest_id == APR_DEST_MODEM) {
+		if (apr_get_modem_state() == APR_SUBSYS_DOWN) {
+			if (is_modem_up) {
+				pr_err("%s: modem shutdown due to SSR, ret",
+					__func__);
+				return NULL;
+			}
+			pr_debug("%s: Wait for modem to bootup\n", __func__);
+			rc = apr_wait_for_device_up(APR_DEST_MODEM);
+			if (rc == 0) {
+				pr_err("%s: Modem is not Up\n", __func__);
+				return NULL;
+			}
+		}
+		pr_debug("%s: modem Up\n", __func__);
+	}
+
+	if (apr_get_svc(svc_name, domain_id, &client_id, &svc_idx, &svc_id)) {
+		pr_err("%s: apr_get_svc failed\n", __func__);
+		goto done;
+	}
+
+	clnt = &client[dest_id][client_id];
+	mutex_lock(&clnt->m_lock);
+	if (!clnt->handle) {
+		clnt->handle = apr_tal_open(client_id, dest_id,
+				APR_DL_SMD, apr_cb_func, NULL);
+		if (!clnt->handle) {
+			svc = NULL;
+			pr_err("APR: Unable to open handle\n");
+			mutex_unlock(&clnt->m_lock);
+			goto done;
+		}
+	}
+	mutex_unlock(&clnt->m_lock);
+	svc = &clnt->svc[svc_idx];
+	mutex_lock(&svc->m_lock);
+	clnt->id = client_id;
+	if (svc->need_reset) {
+		mutex_unlock(&svc->m_lock);
+		pr_err("APR: Service needs reset\n");
+		goto done;
+	}
+	svc->id = svc_id;
+	svc->dest_id = dest_id;
+	svc->client_id = client_id;
+	svc->dest_domain = domain_id;
+	if (src_port != 0xFFFFFFFF) {
+		temp_port = ((src_port >> 8) * 8) + (src_port & 0xFF);
+		pr_debug("port = %d t_port = %d\n", src_port, temp_port);
+		if (temp_port >= APR_MAX_PORTS || temp_port < 0) {
+			pr_err("APR: temp_port out of bounds\n");
+			mutex_unlock(&svc->m_lock);
+			return NULL;
+		}
+		if (!svc->port_cnt && !svc->svc_cnt)
+			clnt->svc_cnt++;
+		svc->port_cnt++;
+		svc->port_fn[temp_port] = svc_fn;
+		svc->port_priv[temp_port] = priv;
+	} else {
+		if (!svc->fn) {
+			if (!svc->port_cnt && !svc->svc_cnt)
+				clnt->svc_cnt++;
+			svc->fn = svc_fn;
+			if (svc->port_cnt)
+				svc->svc_cnt++;
+			svc->priv = priv;
+		}
+	}
+
+	mutex_unlock(&svc->m_lock);
+done:
+	return svc;
+}
+
 
 void apr_cb_func(void *buf, int len, void *priv)
 {
@@ -381,7 +493,6 @@ void apr_cb_func(void *buf, int len, void *priv)
 
 	svc = hdr->dest_svc;
 	if (hdr->src_domain == APR_DOMAIN_MODEM) {
-		src = APR_DEST_MODEM;
 		if (svc == APR_SVC_MVS || svc == APR_SVC_MVM ||
 		    svc == APR_SVC_CVS || svc == APR_SVC_CVP ||
 		    svc == APR_SVC_TEST_CLIENT)
@@ -391,7 +502,6 @@ void apr_cb_func(void *buf, int len, void *priv)
 			return;
 		}
 	} else if (hdr->src_domain == APR_DOMAIN_ADSP) {
-		src = APR_DEST_QDSP6;
 		if (svc == APR_SVC_AFE || svc == APR_SVC_ASM ||
 		    svc == APR_SVC_VSM || svc == APR_SVC_VPM ||
 		    svc == APR_SVC_ADM || svc == APR_SVC_ADSP_CORE ||
@@ -410,6 +520,10 @@ void apr_cb_func(void *buf, int len, void *priv)
 		pr_err("APR: Pkt from wrong source: %d\n", hdr->src_domain);
 		return;
 	}
+
+	src = apr_get_data_src(hdr);
+	if (src == APR_DEST_MAX)
+		return;
 
 	pr_debug("src =%d clnt = %d\n", src, clnt);
 	apr_client = &client[src][clnt];
@@ -447,7 +561,7 @@ void apr_cb_func(void *buf, int len, void *priv)
 		pr_err("APR: Rxed a packet for NULL callback\n");
 }
 
-int apr_get_svc(const char *svc_name, int dest_id, int *client_id,
+int apr_get_svc(const char *svc_name, int domain_id, int *client_id,
 		int *svc_idx, int *svc_id)
 {
 	int i;
@@ -455,7 +569,7 @@ int apr_get_svc(const char *svc_name, int dest_id, int *client_id,
 	struct apr_svc_table *tbl;
 	int ret = 0;
 
-	if (dest_id == APR_DEST_QDSP6) {
+	if ((domain_id == APR_DOMAIN_ADSP)) {
 		tbl = (struct apr_svc_table *)&svc_tbl_qdsp6;
 		size = ARRAY_SIZE(svc_tbl_qdsp6);
 	} else {
@@ -464,7 +578,7 @@ int apr_get_svc(const char *svc_name, int dest_id, int *client_id,
 	}
 
 	for (i = 0; i < size; i++) {
-		if (!strncmp(svc_name, tbl[i].name, strlen(tbl[i].name))) {
+		if (!strcmp(svc_name, tbl[i].name)) {
 			*client_id = tbl[i].client_id;
 			*svc_idx = tbl[i].idx;
 			*svc_id = tbl[i].id;
@@ -472,8 +586,8 @@ int apr_get_svc(const char *svc_name, int dest_id, int *client_id,
 		}
 	}
 
-	pr_debug("%s: svc_name = %s c_id = %d dest_id = %d\n",
-		 __func__, svc_name, *client_id, dest_id);
+	pr_debug("%s: svc_name = %s c_id = %d domain_id = %d\n",
+		 __func__, svc_name, *client_id, domain_id);
 	if (i == size) {
 		pr_err("%s: APR: Wrong svc name %s\n", __func__, svc_name);
 		ret = -EINVAL;
@@ -570,14 +684,8 @@ void apr_reset(void *handle)
 	queue_work(apr_reset_workqueue, &apr_reset_worker->work);
 }
 
-static int adsp_state(int state)
-{
-	pr_info("dsp state = %d\n", state);
-	return 0;
-}
-
 /* Dispatch the Reset events to Modem and audio clients */
-void dispatch_event(unsigned long code, unsigned short proc)
+void dispatch_event(unsigned long code, uint16_t proc)
 {
 	struct apr_client *apr_client;
 	struct apr_client_data data;
@@ -587,7 +695,9 @@ void dispatch_event(unsigned long code, unsigned short proc)
 
 	data.opcode = RESET_EVENTS;
 	data.reset_event = code;
-	data.reset_proc = proc;
+
+	/* Service domain can be different from the processor */
+	data.reset_proc = apr_get_reset_domain(proc);
 
 	clnt = APR_CLIENT_AUDIO;
 	apr_client = &client[proc][clnt];
@@ -631,14 +741,21 @@ void dispatch_event(unsigned long code, unsigned short proc)
 static int modem_notifier_cb(struct notifier_block *this, unsigned long code,
 			     void *_cmd)
 {
+	static int boot_count = 2;
+
+	if (boot_count) {
+		boot_count--;
+		return NOTIFY_OK;
+	}
+
 	switch (code) {
 	case SUBSYS_BEFORE_SHUTDOWN:
 		pr_debug("M-Notify: Shutdown started\n");
-		apr_set_modem_state(APR_SUBSYS_DOWN);
-		dispatch_event(code, APR_DEST_MODEM);
 		break;
 	case SUBSYS_AFTER_SHUTDOWN:
 		pr_debug("M-Notify: Shutdown Completed\n");
+		apr_set_modem_state(APR_SUBSYS_DOWN);
+		dispatch_event(code, APR_DEST_MODEM);
 		break;
 	case SUBSYS_BEFORE_POWERUP:
 		pr_debug("M-notify: Bootup started\n");
@@ -647,7 +764,7 @@ static int modem_notifier_cb(struct notifier_block *this, unsigned long code,
 		if (apr_cmpxchg_modem_state(APR_SUBSYS_DOWN, APR_SUBSYS_UP) ==
 						APR_SUBSYS_DOWN)
 			wake_up(&modem_wait);
-                is_modem_up = 1;
+		is_modem_up = 1;
 		pr_debug("M-Notify: Bootup Completed\n");
 		break;
 	default:
@@ -661,16 +778,34 @@ static struct notifier_block mnb = {
 	.notifier_call = modem_notifier_cb,
 };
 
+static bool powered_on;
+
 static int lpass_notifier_cb(struct notifier_block *this, unsigned long code,
 			     void *_cmd)
 {
+	static int boot_count = 2;
+	struct notif_data *data = (struct notif_data *)_cmd;
+
+	if (boot_count) {
+		boot_count--;
+		return NOTIFY_OK;
+	}
+
 	switch (code) {
 	case SUBSYS_BEFORE_SHUTDOWN:
 		pr_debug("L-Notify: Shutdown started\n");
 		apr_set_q6_state(APR_SUBSYS_DOWN);
 		dispatch_event(code, APR_DEST_QDSP6);
+		if (data && data->crashed) {
+			/* Send NMI to QDSP6 via an SCM call. */
+			scm_call_atomic1(SCM_SVC_UTIL, SCM_Q6_NMI_CMD, 0x1);
+			/* The write should go through before q6 is shutdown */
+			mb();
+			pr_debug("L-Notify: Q6 NMI was sent.\n");
+		}
 		break;
 	case SUBSYS_AFTER_SHUTDOWN:
+		powered_on = false;
 		pr_debug("L-Notify: Shutdown Completed\n");
 		break;
 	case SUBSYS_BEFORE_POWERUP:
@@ -680,6 +815,7 @@ static int lpass_notifier_cb(struct notifier_block *this, unsigned long code,
 		if (apr_cmpxchg_q6_state(APR_SUBSYS_DOWN,
 				APR_SUBSYS_LOADED) == APR_SUBSYS_DOWN)
 			wake_up(&dsp_wait);
+		powered_on = true;
 		pr_debug("L-Notify: Bootup Completed\n");
 		break;
 	default:
@@ -693,6 +829,18 @@ static struct notifier_block lnb = {
 	.notifier_call = lpass_notifier_cb,
 };
 
+static int panic_handler(struct notifier_block *this,
+				unsigned long event, void *ptr)
+{
+	if (powered_on)
+		/* Send NMI to QDSP6 via an SCM call. */
+		scm_call_atomic1(SCM_SVC_UTIL, SCM_Q6_NMI_CMD, 0x1);
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block panic_nb = {
+	.notifier_call  = panic_handler,
+};
 
 static int __init apr_init(void)
 {
@@ -708,10 +856,11 @@ static int __init apr_init(void)
 		}
 	apr_set_subsys_state();
 	mutex_init(&q6.lock);
-	dsp_debug_register(adsp_state);
 	apr_reset_workqueue = create_singlethread_workqueue("apr_driver");
 	if (!apr_reset_workqueue)
 		return -ENOMEM;
+	atomic_notifier_chain_register(&panic_notifier_list, &panic_nb);
+
 	return 0;
 }
 device_initcall(apr_init);
@@ -721,8 +870,7 @@ static int __init apr_late_init(void)
 	int ret = 0;
 	init_waitqueue_head(&dsp_wait);
 	init_waitqueue_head(&modem_wait);
-	subsys_notif_register_notifier("modem", &mnb);
-	subsys_notif_register_notifier(apr_get_lpass_subsys_name(), &lnb);
+	subsys_notif_register(&mnb, &lnb);
 	return ret;
 }
 late_initcall(apr_late_init);

@@ -30,7 +30,7 @@
 
 static int setfl(int fd, struct file * filp, unsigned long arg)
 {
-	struct inode * inode = filp->f_path.dentry->d_inode;
+	struct inode * inode = file_inode(filp);
 	int error = 0;
 
 	/*
@@ -149,7 +149,7 @@ pid_t f_getown(struct file *filp)
 
 static int f_setown_ex(struct file *filp, unsigned long arg)
 {
-	struct f_owner_ex * __user owner_p = (void * __user)arg;
+	struct f_owner_ex __user *owner_p = (void __user *)arg;
 	struct f_owner_ex owner;
 	struct pid *pid;
 	int type;
@@ -189,7 +189,7 @@ static int f_setown_ex(struct file *filp, unsigned long arg)
 
 static int f_getown_ex(struct file *filp, unsigned long arg)
 {
-	struct f_owner_ex * __user owner_p = (void * __user)arg;
+	struct f_owner_ex __user *owner_p = (void __user *)arg;
 	struct f_owner_ex owner;
 	int ret = 0;
 
@@ -227,7 +227,7 @@ static int f_getown_ex(struct file *filp, unsigned long arg)
 static int f_getowner_uids(struct file *filp, unsigned long arg)
 {
 	struct user_namespace *user_ns = current_user_ns();
-	uid_t * __user dst = (void * __user)arg;
+	uid_t __user *dst = (void __user *)arg;
 	uid_t src[2];
 	int err;
 
@@ -258,7 +258,7 @@ static long do_fcntl(int fd, unsigned int cmd, unsigned long arg,
 		err = f_dupfd(arg, filp, 0);
 		break;
 	case F_DUPFD_CLOEXEC:
-		err = f_dupfd(arg, filp, FD_CLOEXEC);
+		err = f_dupfd(arg, filp, O_CLOEXEC);
 		break;
 	case F_GETFD:
 		err = get_close_on_exec(fd) ? FD_CLOEXEC : 0;
@@ -348,25 +348,23 @@ static int check_fcntl_cmd(unsigned cmd)
 
 SYSCALL_DEFINE3(fcntl, unsigned int, fd, unsigned int, cmd, unsigned long, arg)
 {	
-	struct file *filp;
-	int fput_needed;
+	struct fd f = fdget_raw(fd);
 	long err = -EBADF;
 
-	filp = fget_raw_light(fd, &fput_needed);
-	if (!filp)
+	if (!f.file)
 		goto out;
 
-	if (unlikely(filp->f_mode & FMODE_PATH)) {
+	if (unlikely(f.file->f_mode & FMODE_PATH)) {
 		if (!check_fcntl_cmd(cmd))
 			goto out1;
 	}
 
-	err = security_file_fcntl(filp, cmd, arg);
+	err = security_file_fcntl(f.file, cmd, arg);
 	if (!err)
-		err = do_fcntl(fd, cmd, arg, filp);
+		err = do_fcntl(fd, cmd, arg, f.file);
 
 out1:
- 	fput_light(filp, fput_needed);
+ 	fdput(f);
 out:
 	return err;
 }
@@ -375,38 +373,36 @@ out:
 SYSCALL_DEFINE3(fcntl64, unsigned int, fd, unsigned int, cmd,
 		unsigned long, arg)
 {	
-	struct file * filp;
+	struct fd f = fdget_raw(fd);
 	long err = -EBADF;
-	int fput_needed;
 
-	filp = fget_raw_light(fd, &fput_needed);
-	if (!filp)
+	if (!f.file)
 		goto out;
 
-	if (unlikely(filp->f_mode & FMODE_PATH)) {
+	if (unlikely(f.file->f_mode & FMODE_PATH)) {
 		if (!check_fcntl_cmd(cmd))
 			goto out1;
 	}
 
-	err = security_file_fcntl(filp, cmd, arg);
+	err = security_file_fcntl(f.file, cmd, arg);
 	if (err)
 		goto out1;
 	
 	switch (cmd) {
 		case F_GETLK64:
-			err = fcntl_getlk64(filp, (struct flock64 __user *) arg);
+			err = fcntl_getlk64(f.file, (struct flock64 __user *) arg);
 			break;
 		case F_SETLK64:
 		case F_SETLKW64:
-			err = fcntl_setlk64(fd, filp, cmd,
+			err = fcntl_setlk64(fd, f.file, cmd,
 					(struct flock64 __user *) arg);
 			break;
 		default:
-			err = do_fcntl(fd, cmd, arg, filp);
+			err = do_fcntl(fd, cmd, arg, f.file);
 			break;
 	}
 out1:
-	fput_light(filp, fput_needed);
+	fdput(f);
 out:
 	return err;
 }

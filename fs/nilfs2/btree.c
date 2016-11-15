@@ -33,6 +33,8 @@
 
 static void __nilfs_btree_init(struct nilfs_bmap *bmap);
 
+static void __nilfs_btree_init(struct nilfs_bmap *bmap);
+
 static struct nilfs_btree_path *nilfs_btree_alloc_path(void)
 {
 	struct nilfs_btree_path *path;
@@ -365,6 +367,34 @@ static int nilfs_btree_node_broken(const struct nilfs_btree_node *node,
 		printk(KERN_CRIT "NILFS: bad btree node (blocknr=%llu): "
 		       "level = %d, flags = 0x%x, nchildren = %d\n",
 		       (unsigned long long)blocknr, level, flags, nchildren);
+		ret = 1;
+	}
+	return ret;
+}
+
+/**
+ * nilfs_btree_root_broken - verify consistency of btree root node
+ * @node: btree root node to be examined
+ * @ino: inode number
+ *
+ * Return Value: If node is broken, 1 is returned. Otherwise, 0 is returned.
+ */
+static int nilfs_btree_root_broken(const struct nilfs_btree_node *node,
+				   unsigned long ino)
+{
+	int level, flags, nchildren;
+	int ret = 0;
+
+	level = nilfs_btree_node_get_level(node);
+	flags = nilfs_btree_node_get_flags(node);
+	nchildren = nilfs_btree_node_get_nchildren(node);
+
+	if (unlikely(level < NILFS_BTREE_LEVEL_NODE_MIN ||
+		     level >= NILFS_BTREE_LEVEL_MAX ||
+		     nchildren < 0 ||
+		     nchildren > NILFS_BTREE_ROOT_NCHILDREN_MAX)) {
+		pr_crit("NILFS: bad btree root (inode number=%lu): level = %d, flags = 0x%x, nchildren = %d\n",
+			ino, level, flags, nchildren);
 		ret = 1;
 	}
 	return ret;

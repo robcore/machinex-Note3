@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -132,7 +132,7 @@ unsigned int msm_spm_get_vdd(unsigned int cpu)
 EXPORT_SYMBOL(msm_spm_get_vdd);
 
 static int msm_spm_dev_set_low_power_mode(struct msm_spm_device *dev,
-		unsigned int mode, bool notify_rpm)
+		unsigned int mode, bool notify_rpm, bool pc_mode)
 {
 	uint32_t i;
 	uint32_t start_addr = 0;
@@ -152,7 +152,7 @@ static int msm_spm_dev_set_low_power_mode(struct msm_spm_device *dev,
 			}
 		}
 		ret = msm_spm_drv_set_low_power_mode(&dev->reg_data,
-					start_addr);
+					start_addr, pc_mode);
 	}
 	return ret;
 }
@@ -256,7 +256,8 @@ EXPORT_SYMBOL(msm_spm_reinit);
 int msm_spm_set_low_power_mode(unsigned int mode, bool notify_rpm)
 {
 	struct msm_spm_device *dev = &__get_cpu_var(msm_cpu_spm_device);
-	return msm_spm_dev_set_low_power_mode(dev, mode, notify_rpm);
+	bool pc_mode = (mode == MSM_SPM_MODE_POWER_COLLAPSE) ? true : false;
+	return msm_spm_dev_set_low_power_mode(dev, mode, notify_rpm, pc_mode);
 }
 EXPORT_SYMBOL(msm_spm_set_low_power_mode);
 
@@ -295,8 +296,13 @@ int __init msm_spm_init(struct msm_spm_platform_data *data, int nr_devs)
  */
 int msm_spm_l2_set_low_power_mode(unsigned int mode, bool notify_rpm)
 {
+	bool pc_mode = true;
+
+	if (mode == MSM_SPM_L2_MODE_DISABLED ||
+		mode == MSM_SPM_L2_MODE_RETENTION)
+		pc_mode = false;
 	return msm_spm_dev_set_low_power_mode(
-			&msm_spm_l2_device, mode, notify_rpm);
+			&msm_spm_l2_device, mode, notify_rpm, pc_mode);
 }
 EXPORT_SYMBOL(msm_spm_l2_set_low_power_mode);
 
@@ -354,7 +360,7 @@ static int __devinit msm_spm_dev_probe(struct platform_device *pdev)
 	char *key = NULL;
 	uint32_t val = 0;
 	struct msm_spm_seq_entry modes[MSM_SPM_MODE_NR];
-	size_t len = 0;
+	int len = 0;
 	struct msm_spm_device *dev = NULL;
 	struct resource *res = NULL;
 	uint32_t mode_count = 0;

@@ -189,6 +189,8 @@ pktgen.conf-1-1-flows            # 1 CPU 1 dev multiple flows.
 
 Run in shell: ./pktgen.conf-X-Y It does all the setup including sending. 
 
+Plus using the device flag QUEUE_MAP_CPU, which maps the SKBs TX queue
+to the running threads CPU (directly from smp_processor_id()).
 
 Interrupt affinity
 ===================

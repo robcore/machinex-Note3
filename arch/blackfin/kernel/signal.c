@@ -10,7 +10,6 @@
 #include <linux/tty.h>
 #include <linux/personality.h>
 #include <linux/binfmts.h>
-#include <linux/freezer.h>
 #include <linux/uaccess.h>
 #include <linux/tracehook.h>
 
@@ -254,7 +253,7 @@ handle_restart(struct pt_regs *regs, struct k_sigaction *ka, int has_handler)
  */
 static int
 handle_signal(int sig, siginfo_t *info, struct k_sigaction *ka,
-	      sigset_t *oldset, struct pt_regs *regs)
+	      struct pt_regs *regs)
 {
 	int ret;
 
@@ -264,7 +263,7 @@ handle_signal(int sig, siginfo_t *info, struct k_sigaction *ka,
 		handle_restart(regs, ka, 1);
 
 	/* set up the stack frame */
-	ret = setup_rt_frame(sig, ka, info, oldset, regs);
+	ret = setup_rt_frame(sig, ka, info, sigmask_to_save(), regs);
 
 	if (ret == 0) {
 		spin_lock_irq(&current->sighand->siglock);
@@ -292,22 +291,16 @@ asmlinkage void do_signal(struct pt_regs *regs)
 	siginfo_t info;
 	int signr;
 	struct k_sigaction ka;
-	sigset_t *oldset;
 
 	current->thread.esp0 = (unsigned long)regs;
 
 	if (try_to_freeze())
 		goto no_signal;
 
-	if (test_thread_flag(TIF_RESTORE_SIGMASK))
-		oldset = &current->saved_sigmask;
-	else
-		oldset = &current->blocked;
-
 	signr = get_signal_to_deliver(&info, &ka, regs, NULL);
 	if (signr > 0) {
 		/* Whee!  Actually deliver the signal.  */
-		if (handle_signal(signr, &info, &ka, oldset, regs) == 0) {
+		if (handle_signal(signr, &info, &ka, regs) == 0) {
 			/* a signal was successfully delivered; the saved
 			 * sigmask will have been stored in the signal frame,
 			 * and will be restored by sigreturn, so we can simply
@@ -330,10 +323,7 @@ asmlinkage void do_signal(struct pt_regs *regs)
 
 	/* if there's no signal to deliver, we just put the saved sigmask
 	 * back */
-	if (test_thread_flag(TIF_RESTORE_SIGMASK)) {
-		clear_thread_flag(TIF_RESTORE_SIGMASK);
-		sigprocmask(SIG_SETMASK, &current->saved_sigmask, NULL);
-	}
+	restore_saved_sigmask();
 }
 
 /*
@@ -347,8 +337,6 @@ asmlinkage void do_notify_resume(struct pt_regs *regs)
 	if (test_thread_flag(TIF_NOTIFY_RESUME)) {
 		clear_thread_flag(TIF_NOTIFY_RESUME);
 		tracehook_notify_resume(regs);
-		if (current->replacement_session_keyring)
-			key_replace_session_keyring();
 	}
 }
 

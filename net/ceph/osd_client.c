@@ -221,7 +221,6 @@ struct ceph_osd_request *ceph_osdc_alloc_request(struct ceph_osd_client *osdc,
 	kref_init(&req->r_kref);
 	init_completion(&req->r_completion);
 	init_completion(&req->r_safe_completion);
-	RB_CLEAR_NODE(&req->r_node);
 	INIT_LIST_HEAD(&req->r_unsafe_item);
 	INIT_LIST_HEAD(&req->r_linger_item);
 	INIT_LIST_HEAD(&req->r_linger_osd);
@@ -1194,7 +1193,7 @@ static void handle_reply(struct ceph_osd_client *osdc, struct ceph_msg *msg,
 	}
 
 	if (!req->r_got_reply) {
-		unsigned bytes;
+		unsigned int bytes;
 
 		req->r_result = le32_to_cpu(rhead->result);
 		bytes = le32_to_cpu(msg->hdr.data_len);

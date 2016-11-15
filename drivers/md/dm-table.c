@@ -11,6 +11,7 @@
 #include <linux/vmalloc.h>
 #include <linux/blkdev.h>
 #include <linux/namei.h>
+#include <linux/mount.h>
 #include <linux/ctype.h>
 #include <linux/string.h>
 #include <linux/slab.h>
@@ -291,7 +292,7 @@ void dm_table_put(struct dm_table *t)
 	if (!t)
 		return;
 
-	smp_mb__before_atomic_dec();
+	smp_mb__before_atomic();
 	atomic_dec(&t->holders);
 }
 EXPORT_SYMBOL(dm_table_put);

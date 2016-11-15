@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1475,7 +1475,7 @@ static int wfd_open(struct file *filp)
 	v4l2_fh_init(&inst->event_handler, wfd_dev->pvdev);
 	v4l2_fh_add(&inst->event_handler);
 
-	wfd_stats_init(&inst->stats, MINOR(filp->f_dentry->d_inode->i_rdev));
+	wfd_stats_init(&inst->stats, MINOR(file_inode(filp)->i_rdev));
 
 	mdp_mops.secure = wfd_dev->secure;
 	mdp_mops.iommu_split_domain = wfd_dev->mdp_iommu_split_domain;
@@ -1711,7 +1711,7 @@ static int __devinit __wfd_probe(struct platform_device *pdev)
 
 	pdev->dev.platform_data = (void *) wfd_dev;
 
-	ion_client = msm_ion_client_create(-1, "wfd");
+	ion_client = msm_ion_client_create("wfd");
 
 	rc = wfd_stats_setup();
 	if (rc) {

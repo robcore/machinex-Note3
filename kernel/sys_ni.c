@@ -25,6 +25,7 @@ cond_syscall(sys_swapoff);
 cond_syscall(sys_kexec_load);
 cond_syscall(compat_sys_kexec_load);
 cond_syscall(sys_init_module);
+cond_syscall(sys_finit_module);
 cond_syscall(sys_delete_module);
 cond_syscall(sys_socketpair);
 cond_syscall(sys_bind);
@@ -198,6 +199,7 @@ cond_syscall(sys_perf_event_open);
 /* fanotify! */
 cond_syscall(sys_fanotify_init);
 cond_syscall(sys_fanotify_mark);
+cond_syscall(compat_sys_fanotify_mark);
 
 /* open by handle */
 cond_syscall(sys_name_to_handle_at);

@@ -1,6 +1,8 @@
 #ifndef MMC_QUEUE_H
 #define MMC_QUEUE_H
 
+#define MMC_REQ_SPECIAL_MASK    (REQ_DISCARD | REQ_FLUSH)
+
 struct request;
 struct task_struct;
 
@@ -69,5 +71,7 @@ extern void mmc_queue_bounce_pre(struct mmc_queue_req *);
 extern void mmc_queue_bounce_post(struct mmc_queue_req *);
 
 extern void print_mmc_packing_stats(struct mmc_card *card);
+
+extern int mmc_access_rpmb(struct mmc_queue *);
 
 #endif

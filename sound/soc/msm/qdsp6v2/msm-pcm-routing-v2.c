@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -383,7 +383,7 @@ void msm_pcm_routing_reg_psthr_stream(int fedai_id, int dspst_id,
 	mutex_unlock(&routing_lock);
 }
 
-void msm_pcm_routing_reg_phy_stream(int fedai_id, int perf_mode,
+int msm_pcm_routing_reg_phy_stream(int fedai_id, int perf_mode,
 					int dspst_id, int stream_type)
 {
 	int i, session_type, path_type, port_type, port_id, topology;
@@ -394,7 +394,7 @@ void msm_pcm_routing_reg_phy_stream(int fedai_id, int perf_mode,
 	if (fedai_id > MSM_FRONTEND_DAI_MM_MAX_ID) {
 		/* bad ID assigned in machine driver */
 		pr_err("%s: bad MM ID %d\n", __func__, fedai_id);
-		return;
+		return -EINVAL;
 	}
 
 	if (stream_type == SNDRV_PCM_STREAM_PLAYBACK) {
@@ -467,19 +467,24 @@ void msm_pcm_routing_reg_phy_stream(int fedai_id, int perf_mode,
 			payload.num_copps, payload.copp_ids, 0, perf_mode);
 
 	mutex_unlock(&routing_lock);
+    return 0;
 }
 
-void msm_pcm_routing_reg_phy_stream_v2(int fedai_id, bool perf_mode,
+int msm_pcm_routing_reg_phy_stream_v2(int fedai_id, int perf_mode,
 				       int dspst_id, int stream_type,
 				       struct msm_pcm_routing_evt event_info)
 {
-	msm_pcm_routing_reg_phy_stream(fedai_id, perf_mode, dspst_id,
-				       stream_type);
+	if (msm_pcm_routing_reg_phy_stream(fedai_id, perf_mode, dspst_id,
+				       stream_type)) {
+        pr_err("%s: failed to reg phy stream\n", __func__);
+        return -EINVAL;
+    }
 
 	if (stream_type == SNDRV_PCM_STREAM_PLAYBACK)
 		fe_dai_map[fedai_id][SESSION_TYPE_RX].event_info = event_info;
 	else
 		fe_dai_map[fedai_id][SESSION_TYPE_TX].event_info = event_info;
+    return 0;
 }
 
 void msm_pcm_routing_dereg_phy_stream(int fedai_id, int stream_type)
@@ -1174,7 +1179,7 @@ static int msm_routing_get_channel_map_mixer(struct snd_kcontrol *kcontrol,
 	char channel_map[PCM_FORMAT_MAX_NUM_CHANNEL];
 	int i;
 
-	adm_get_multi_ch_map(channel_map);
+	adm_get_multi_ch_map(channel_map, ADM_PATH_PLAYBACK);
 	for (i = 0; i < PCM_FORMAT_MAX_NUM_CHANNEL; i++)
 		ucontrol->value.integer.value[i] = (unsigned) channel_map[i];
 	return 0;
@@ -1188,7 +1193,7 @@ static int msm_routing_put_channel_map_mixer(struct snd_kcontrol *kcontrol,
 
 	for (i = 0; i < PCM_FORMAT_MAX_NUM_CHANNEL; i++)
 		channel_map[i] = (char)(ucontrol->value.integer.value[i]);
-	adm_set_multi_ch_map(channel_map);
+	adm_set_multi_ch_map(channel_map, ADM_PATH_PLAYBACK);
 
 	return 0;
 }
@@ -1291,6 +1296,17 @@ static int msm_routing_set_srs_trumedia_control_HDMI(
 	return ret;
 }
 
+static int msm_routing_set_srs_trumedia_control_Proxy(
+		struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol) {
+	int ret;
+	pr_debug("SRS control proxy  called");
+	mutex_lock(&routing_lock);
+	srs_port_id = RT_PROXY_PORT_001_RX;
+	ret =  msm_routing_set_srs_trumedia_control_(kcontrol, ucontrol);
+	mutex_unlock(&routing_lock);
+	return ret;
+}
 static void msm_send_eq_values(int eq_idx)
 {
 	int result;
@@ -3080,6 +3096,25 @@ static const struct snd_kcontrol_new lpa_SRS_trumedia_controls_I2S[] = {
 	}
 };
 
+static const struct snd_kcontrol_new lpa_SRS_trumedia_controls_Proxy[] = {
+	{.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
+	.name = "SRS TruMedia Proxy",
+	.access = SNDRV_CTL_ELEM_ACCESS_TLV_READ |
+		SNDRV_CTL_ELEM_ACCESS_READWRITE,
+	.info = snd_soc_info_volsw, \
+	.get = msm_routing_get_srs_trumedia_control,
+	.put = msm_routing_set_srs_trumedia_control_Proxy,
+	.private_value = ((unsigned long)&(struct soc_mixer_control)
+	{.reg = SND_SOC_NOPM,
+	.rreg = SND_SOC_NOPM,
+	.shift = 0,
+	.rshift = 0,
+	.max = 0xFFFFFFFF,
+	.platform_max = 0xFFFFFFFF,
+	.invert = 0
+	})
+	}
+};
 int msm_routing_get_dolby_security_control(
 		struct snd_kcontrol *kcontrol,
 		struct snd_ctl_elem_value *ucontrol) {
@@ -4728,6 +4763,9 @@ static int msm_routing_probe(struct snd_soc_platform *platform)
 				lpa_SRS_trumedia_controls_I2S,
 			ARRAY_SIZE(lpa_SRS_trumedia_controls_I2S));
 
+	snd_soc_add_platform_controls(platform,
+            lpa_SRS_trumedia_controls_Proxy,
+        ARRAY_SIZE(lpa_SRS_trumedia_controls_Proxy));
 	snd_soc_add_platform_controls(platform,
 				multi_ch_channel_map_mixer_controls,
 			ARRAY_SIZE(multi_ch_channel_map_mixer_controls));

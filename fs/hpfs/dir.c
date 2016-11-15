@@ -25,7 +25,7 @@ static loff_t hpfs_dir_lseek(struct file *filp, loff_t off, int whence)
 	loff_t new_off = off + (whence == 1 ? filp->f_pos : 0);
 	loff_t pos;
 	struct quad_buffer_head qbh;
-	struct inode *i = filp->f_path.dentry->d_inode;
+	struct inode *i = file_inode(filp);
 	struct hpfs_inode_info *hpfs_inode = hpfs_i(i);
 	struct super_block *s = i->i_sb;
 
@@ -59,7 +59,7 @@ fail:
 
 static int hpfs_readdir(struct file *filp, void *dirent, filldir_t filldir)
 {
-	struct inode *inode = filp->f_path.dentry->d_inode;
+	struct inode *inode = file_inode(filp);
 	struct hpfs_inode_info *hpfs_inode = hpfs_i(inode);
 	struct quad_buffer_head qbh;
 	struct hpfs_dirent *de;
@@ -89,7 +89,7 @@ static int hpfs_readdir(struct file *filp, void *dirent, filldir_t filldir)
 			ret = -EIOERROR;
 			goto out;
 		}
-		if (!fno->dirflag) {
+		if (!fnode_is_dir(fno)) {
 			e = 1;
 			hpfs_error(inode->i_sb, "not a directory, fnode %08lx",
 					(unsigned long)inode->i_ino);
@@ -191,7 +191,7 @@ out:
  *	      to tell read_inode to read fnode or not.
  */
 
-struct dentry *hpfs_lookup(struct inode *dir, struct dentry *dentry, struct nameidata *nd)
+struct dentry *hpfs_lookup(struct inode *dir, struct dentry *dentry, unsigned int flags)
 {
 	const unsigned char *name = dentry->d_name.name;
 	unsigned len = dentry->d_name.len;

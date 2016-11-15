@@ -90,35 +90,6 @@ SIGN1(sys32_mkdir, sys_mkdir, %o1)
 SIGN1(sys32_futex, compat_sys_futex, %o1)
 SIGN1(sys32_sysfs, compat_sys_sysfs, %o0)
 SIGN2(sys32_sendfile, compat_sys_sendfile, %o0, %o1)
-SIGN2(sys32_sendfile64, compat_sys_sendfile64, %o0, %o1)
-SIGN1(sys32_prctl, sys_prctl, %o0)
-SIGN1(sys32_sched_rr_get_interval, compat_sys_sched_rr_get_interval, %o0)
-SIGN2(sys32_waitpid, sys_waitpid, %o0, %o2)
-SIGN1(sys32_getgroups, sys_getgroups, %o0)
-SIGN1(sys32_getpgid, sys_getpgid, %o0)
-SIGN2(sys32_getpriority, sys_getpriority, %o0, %o1)
-SIGN1(sys32_getsid, sys_getsid, %o0)
-SIGN2(sys32_kill, sys_kill, %o0, %o1)
-SIGN1(sys32_nice, sys_nice, %o0)
-SIGN1(sys32_lseek, sys_lseek, %o1)
-SIGN2(sys32_open, sparc32_open, %o1, %o2)
-SIGN1(sys32_readlink, sys_readlink, %o2)
-SIGN1(sys32_sched_get_priority_max, sys_sched_get_priority_max, %o0)
-SIGN1(sys32_sched_get_priority_min, sys_sched_get_priority_min, %o0)
-SIGN1(sys32_sched_getparam, sys_sched_getparam, %o0)
-SIGN1(sys32_sched_getscheduler, sys_sched_getscheduler, %o0)
-SIGN1(sys32_sched_setparam, sys_sched_setparam, %o0)
-SIGN2(sys32_sched_setscheduler, sys_sched_setscheduler, %o0, %o1)
-SIGN1(sys32_getdomainname, sys_getdomainname, %o1)
-SIGN1(sys32_setdomainname, sys_setdomainname, %o1)
-SIGN1(sys32_setgroups, sys_setgroups, %o0)
-SIGN2(sys32_setpgid, sys_setpgid, %o0, %o1)
-SIGN3(sys32_setpriority, sys_setpriority, %o0, %o1, %o2)
-SIGN1(sys32_ssetmask, sys_ssetmask, %o0)
-SIGN2(sys32_syslog, sys_syslog, %o0, %o2)
-SIGN1(sys32_umask, sys_umask, %o0)
-SIGN3(sys32_tgkill, sys_tgkill, %o0, %o1, %o2)
-SIGN1(sys32_sendto, sys_sendto, %o0)
 SIGN1(sys32_recvfrom, compat_sys_recvfrom, %o0)
 SIGN3(sys32_socket, sys_socket, %o0, %o1, %o2)
 SIGN2(sys32_connect, sys_connect, %o0, %o2)
@@ -134,10 +105,6 @@ SIGN2(sys32_ioprio_get, sys_ioprio_get, %o0, %o1)
 SIGN3(sys32_ioprio_set, sys_ioprio_set, %o0, %o1, %o2)
 SIGN2(sys32_splice, sys_splice, %o0, %o2)
 SIGN2(sys32_sync_file_range, compat_sync_file_range, %o0, %o5)
-SIGN2(sys32_tee, sys_tee, %o0, %o1)
-SIGN1(sys32_vmsplice, compat_sys_vmsplice, %o0)
-SIGN1(sys32_truncate, sys_truncate, %o1)
-SIGN1(sys32_ftruncate, sys_ftruncate, %o1)
 
 	.globl		sys32_mmap2
 sys32_mmap2:
@@ -328,15 +295,6 @@ do_sys_accept4: /* sys_accept4(int, struct sockaddr *, int *, int) */
 66:	 lduwa		[%o1 + 0x4] %asi, %o1
 	nop
 	nop
-
-	.globl		sys32_fanotify_mark
-sys32_fanotify_mark:
-	sethi		%hi(sys_fanotify_mark), %g1
-	sllx		%o2, 32, %o2
-	or		%o2, %o3, %o2
-	mov		%o4, %o3
-	jmpl		%g1 + %lo(sys_fanotify_mark), %g0
-	 mov		%o5, %o4
 
 	.section	__ex_table,"a"
 	.align		4

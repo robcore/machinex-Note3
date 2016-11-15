@@ -19,16 +19,14 @@
 
 extern void stop_watchdog(void);
 
-extern int cris_hlt_counter;
-
 /* We use this if we don't have any better idle routine. */
 void default_idle(void)
 {
 	local_irq_disable();
-	if (!need_resched() && !cris_hlt_counter) {
-	        /* Halt until exception. */
+	if (!need_resched()) {
+		/* Halt until exception. */
 		__asm__ volatile("ei    \n\t"
-                                 "halt      ");
+				 "halt      ");
 	}
 	local_irq_enable();
 }
@@ -224,7 +222,7 @@ sys_execve(const char *fname,
 	   struct pt_regs *regs)
 {
 	int error;
-	char *filename;
+	struct filename *filename;
 
 	filename = getname(fname);
 	error = PTR_ERR(filename);
@@ -232,7 +230,7 @@ sys_execve(const char *fname,
 	if (IS_ERR(filename))
 	        goto out;
 
-	error = do_execve(filename, argv, envp, regs);
+	error = do_execve(filename->name, argv, envp, regs);
 	putname(filename);
  out:
 	return error;
@@ -250,6 +248,9 @@ get_wchan(struct task_struct *p)
 void show_regs(struct pt_regs * regs)
 {
 	unsigned long usp = rdusp();
+
+	show_regs_print_info(KERN_DEFAULT);
+
         printk("ERP: %08lx SRP: %08lx  CCS: %08lx USP: %08lx MOF: %08lx\n",
 		regs->erp, regs->srp, regs->ccs, usp, regs->mof);
 

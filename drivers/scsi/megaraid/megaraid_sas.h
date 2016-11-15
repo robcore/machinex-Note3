@@ -363,6 +363,8 @@ struct MR_PD_ADDRESS {
 	u64     sasAddr[2];
 } __packed;
 
+
+#define SGE_BUFFER_SIZE	4096
 /*
  * defines the physical drive list structure
  */

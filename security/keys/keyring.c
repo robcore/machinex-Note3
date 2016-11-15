@@ -30,6 +30,10 @@
 		(klist)->keys[index],					\
 		rwsem_is_locked((struct rw_semaphore *)&(keyring)->sem)))
 
+#define MAX_KEYRING_LINKS						\
+	min_t(size_t, USHRT_MAX - 1,					\
+	      ((PAGE_SIZE - sizeof(struct keyring_list)) / sizeof(struct key *)))
+
 #define KEY_LINK_FIXQUOTA 1UL
 
 /*
@@ -62,7 +66,7 @@ static inline unsigned keyring_hash(const char *desc)
  * operations.
  */
 static int keyring_instantiate(struct key *keyring,
-			       const void *data, size_t datalen);
+			       struct key_preparsed_payload *prep);
 static int keyring_match(const struct key *keyring, const void *criterion);
 static void keyring_revoke(struct key *keyring);
 static void keyring_destroy(struct key *keyring);
@@ -117,12 +121,12 @@ static void keyring_publish_name(struct key *keyring)
  * Returns 0 on success, -EINVAL if given any data.
  */
 static int keyring_instantiate(struct key *keyring,
-			       const void *data, size_t datalen)
+			       struct key_preparsed_payload *prep)
 {
 	int ret;
 
 	ret = -EINVAL;
-	if (datalen == 0) {
+	if (prep->datalen == 0) {
 		/* make the keyring available by name if it has one */
 		keyring_publish_name(keyring);
 		ret = 0;
@@ -253,17 +257,14 @@ error:
  * Allocate a keyring and link into the destination keyring.
  */
 struct key *keyring_alloc(const char *description, uid_t uid, gid_t gid,
-			  const struct cred *cred, unsigned long flags,
-			  struct key *dest)
+			  const struct cred *cred, key_perm_t perm,
+			  unsigned long flags, struct key *dest)
 {
 	struct key *keyring;
 	int ret;
 
 	keyring = key_alloc(&key_type_keyring, description,
-			    uid, gid, cred,
-			    (KEY_POS_ALL & ~KEY_POS_SETATTR) | KEY_USR_ALL,
-			    flags);
-
+			    uid, gid, cred, perm, flags);
 	if (!IS_ERR(keyring)) {
 		ret = key_instantiate_and_link(keyring, NULL, 0, dest, NULL);
 		if (ret < 0) {
@@ -274,6 +275,7 @@ struct key *keyring_alloc(const char *description, uid_t uid, gid_t gid,
 
 	return keyring;
 }
+EXPORT_SYMBOL(keyring_alloc);
 
 /**
  * keyring_search_aux - Search a keyring tree for a key matching some criteria
@@ -319,6 +321,8 @@ key_ref_t keyring_search_aux(key_ref_t keyring_ref,
 			     bool no_state_check)
 {
 	struct {
+		/* Need a separate keylist pointer for RCU purposes */
+		struct key *keyring;
 		struct keyring_list *keylist;
 		int kix;
 	} stack[KEYRING_SEARCH_MAX_DEPTH];
@@ -456,6 +460,7 @@ ascend:
 			continue;
 
 		/* stack the current position */
+		stack[sp].keyring = keyring;
 		stack[sp].keylist = keylist;
 		stack[sp].kix = kix;
 		sp++;
@@ -471,6 +476,7 @@ not_this_keyring:
 	if (sp > 0) {
 		/* resume the processing of a keyring higher up in the tree */
 		sp--;
+		keyring = stack[sp].keyring;
 		keylist = stack[sp].keylist;
 		kix = stack[sp].kix + 1;
 		goto ascend;
@@ -482,6 +488,10 @@ not_this_keyring:
 	/* we found a viable match */
 found:
 	atomic_inc(&key->usage);
+	key->last_used_at = now.tv_sec;
+	keyring->last_used_at = now.tv_sec;
+	while (sp > 0)
+		stack[--sp].keyring->last_used_at = now.tv_sec;
 	key_check(key);
 	key_ref = make_key_ref(key, possessed);
 error_2:
@@ -564,6 +574,8 @@ key_ref_t __keyring_search_one(key_ref_t keyring_ref,
 
 found:
 	atomic_inc(&key->usage);
+	keyring->last_used_at = key->last_used_at =
+		current_kernel_time().tv_sec;
 	rcu_read_unlock();
 	return make_key_ref(key, possessed);
 }
@@ -617,6 +629,7 @@ struct key *find_keyring_by_name(const char *name, bool skip_perm_check)
 			 * (ie. it has a zero usage count) */
 			if (!atomic_inc_not_zero(&keyring->usage))
 				continue;
+			keyring->last_used_at = current_kernel_time().tv_sec;
 			goto out;
 		}
 	}
@@ -736,12 +749,14 @@ static void keyring_unlink_rcu_disposal(struct rcu_head *rcu)
 int __key_link_begin(struct key *keyring, const struct key_type *type,
 		     const char *description, unsigned long *_prealloc)
 	__acquires(&keyring->sem)
+	__acquires(&keyring_serialise_link_sem)
 {
 	struct keyring_list *klist, *nklist;
 	unsigned long prealloc;
 	unsigned max;
+	time_t lowest_lru;
 	size_t size;
-	int loop, ret;
+	int loop, lru, ret;
 
 	kenter("%d,%s,%s,", key_serial(keyring), type->name, description);
 
@@ -762,7 +777,9 @@ int __key_link_begin(struct key *keyring, const struct key_type *type,
 	klist = rcu_dereference_locked_keyring(keyring);
 
 	/* see if there's a matching key we can displace */
+	lru = -1;
 	if (klist && klist->nkeys > 0) {
+		lowest_lru = TIME_T_MAX;
 		for (loop = klist->nkeys - 1; loop >= 0; loop--) {
 			struct key *key = rcu_deref_link_locked(klist, loop,
 								keyring);
@@ -776,7 +793,21 @@ int __key_link_begin(struct key *keyring, const struct key_type *type,
 				prealloc = 0;
 				goto done;
 			}
+			if (key->last_used_at < lowest_lru) {
+				lowest_lru = key->last_used_at;
+				lru = loop;
+			}
 		}
+	}
+
+	/* If the keyring is full then do an LRU discard */
+	if (klist &&
+	    klist->nkeys == klist->maxkeys &&
+	    klist->maxkeys >= MAX_KEYRING_LINKS) {
+		kdebug("LRU discard %d\n", lru);
+		klist->delkey = lru;
+		prealloc = 0;
+		goto done;
 	}
 
 	/* check that we aren't going to overrun the user's quota */
@@ -792,15 +823,14 @@ int __key_link_begin(struct key *keyring, const struct key_type *type,
 	} else {
 		/* grow the key list */
 		max = 4;
-		if (klist)
+		if (klist) {
 			max += klist->maxkeys;
+			if (max > MAX_KEYRING_LINKS)
+				max = MAX_KEYRING_LINKS;
+			BUG_ON(max <= klist->maxkeys);
+		}
 
-		ret = -ENFILE;
-		if (max > USHRT_MAX - 1)
-			goto error_quota;
 		size = sizeof(*klist) + sizeof(struct key *) * max;
-		if (size > PAGE_SIZE)
-			goto error_quota;
 
 		ret = -ENOMEM;
 		nklist = kmalloc(size, GFP_KERNEL);
@@ -879,6 +909,8 @@ void __key_link(struct key *keyring, struct key *key,
 	klist = rcu_dereference_locked_keyring(keyring);
 
 	atomic_inc(&key->usage);
+	keyring->last_used_at = key->last_used_at =
+		current_kernel_time().tv_sec;
 
 	/* there's a matching key we can displace or an empty slot in a newly
 	 * allocated list we can fill */
@@ -927,6 +959,7 @@ void __key_link(struct key *keyring, struct key *key,
 void __key_link_end(struct key *keyring, struct key_type *type,
 		    unsigned long prealloc)
 	__releases(&keyring->sem)
+	__releases(&keyring_serialise_link_sem)
 {
 	BUG_ON(type == NULL);
 	BUG_ON(type->name == NULL);

@@ -114,10 +114,10 @@ struct kgsl_pagetable {
 	struct kobject *kobj;
 
 	struct {
-		unsigned int entries;
-		unsigned int mapped;
-		unsigned int max_mapped;
-		unsigned int max_entries;
+		atomic_t entries;
+		atomic_t mapped;
+		atomic_t max_mapped;
+		atomic_t max_entries;
 	} stats;
 	const struct kgsl_mmu_pt_ops *pt_ops;
 	unsigned int tlb_flags;
@@ -175,6 +175,7 @@ struct kgsl_mmu_ops {
 			(struct kgsl_mmu *mmu, unsigned int *cmds);
 	int (*mmu_hw_halt_supported)(struct kgsl_mmu *mmu, int iommu_unit_num);
 	int (*mmu_set_pf_policy)(struct kgsl_mmu *mmu, unsigned int pf_policy);
+	void (*mmu_set_pagefault)(struct kgsl_mmu *mmu);
 };
 
 struct kgsl_mmu_pt_ops {
@@ -487,6 +488,12 @@ static inline int kgsl_mmu_set_pagefault_policy(struct kgsl_mmu *mmu,
 		return mmu->mmu_ops->mmu_set_pf_policy(mmu, pf_policy);
 	else
 		return 0;
+}
+
+static inline void kgsl_mmu_set_pagefault(struct kgsl_mmu *mmu)
+{
+	if (mmu->mmu_ops && mmu->mmu_ops->mmu_set_pagefault)
+		return mmu->mmu_ops->mmu_set_pagefault(mmu);
 }
 
 #endif /* __KGSL_MMU_H */

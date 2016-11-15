@@ -30,7 +30,6 @@
 #include <linux/errno.h>
 #include <linux/wait.h>
 #include <linux/of_platform.h>
-#include <linux/of_spi.h>
 #include <linux/of_gpio.h>
 #include <linux/interrupt.h>
 #include <linux/delay.h>
@@ -420,7 +419,7 @@ static int __init spi_ppc4xx_of_probe(struct platform_device *op)
 	 * This includes both "null" gpio's and real ones.
 	 */
 	num_gpios = of_gpio_count(np);
-	if (num_gpios) {
+	if (num_gpios > 0) {
 		int i;
 
 		hw->gpios = kzalloc(sizeof(int) * num_gpios, GFP_KERNEL);
@@ -467,15 +466,12 @@ static int __init spi_ppc4xx_of_probe(struct platform_device *op)
 	bbp->master->setup = spi_ppc4xx_setup;
 	bbp->master->cleanup = spi_ppc4xx_cleanup;
 
-	/* Allocate bus num dynamically. */
-	bbp->master->bus_num = -1;
-
 	/* the spi->mode bits understood by this driver: */
 	bbp->master->mode_bits =
 		SPI_CPHA | SPI_CPOL | SPI_CS_HIGH | SPI_LSB_FIRST;
 
 	/* this many pins in all GPIO controllers */
-	bbp->master->num_chipselect = num_gpios;
+	bbp->master->num_chipselect = num_gpios > 0 ? num_gpios : 0;
 
 	/* Get the clock for the OPB */
 	opbnp = of_find_compatible_node(NULL, NULL, "ibm,opb");

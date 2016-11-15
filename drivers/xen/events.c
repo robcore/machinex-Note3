@@ -610,6 +610,7 @@ static void disable_pirq(struct irq_data *data)
 {
 	disable_dynirq(data);
 }
+EXPORT_SYMBOL_GPL(xen_irq_from_gsi);
 
 int xen_irq_from_gsi(unsigned gsi)
 {

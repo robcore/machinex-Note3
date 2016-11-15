@@ -21,9 +21,9 @@
 
 #include <mach/msm_smd.h>
 #include <mach/subsystem_restart.h>
+#include <mach/msm_smsm.h>
 
 #include "ipc_router.h"
-#include "smd_private.h"
 
 static int msm_ipc_router_smd_xprt_debug_mask;
 module_param_named(debug_mask, msm_ipc_router_smd_xprt_debug_mask,
@@ -418,7 +418,7 @@ static void *msm_ipc_load_subsystem(uint32_t edge)
 	const char *peripheral;
 
 	peripheral = smd_edge_to_subsystem(edge);
-	if (peripheral) {
+	if (!IS_ERR_OR_NULL(peripheral)) {
 		pil = subsystem_get(peripheral);
 		if (IS_ERR(pil)) {
 			pr_err("%s: Failed to load %s\n",
@@ -504,7 +504,7 @@ void *msm_ipc_load_default_node(void)
 	const char *peripheral;
 
 	peripheral = smd_edge_to_subsystem(SMD_APPS_MODEM);
-	if (peripheral && !strncmp(peripheral, "modem", 6)) {
+	if (!IS_ERR_OR_NULL(peripheral) && !strcmp(peripheral, "modem")) {
 		pil = subsystem_get(peripheral);
 		if (IS_ERR(pil)) {
 			pr_err("%s: Failed to load %s\n",

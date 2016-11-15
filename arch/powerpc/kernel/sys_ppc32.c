@@ -143,48 +143,17 @@ long compat_sys_ipc(u32 call, u32 first, u32 second, u32 third, compat_uptr_t pt
  * proper conversion (sign extension) between the register representation of a signed int (msr in 32-bit mode)
  * and the register representation of a signed int (msr in 64-bit mode) is performed.
  */
-asmlinkage long compat_sys_sendfile(u32 out_fd, u32 in_fd, compat_off_t __user * offset, u32 count)
+asmlinkage long compat_sys_sendfile_wrapper(u32 out_fd, u32 in_fd,
+					    compat_off_t __user *offset, u32 count)
 {
-	mm_segment_t old_fs = get_fs();
-	int ret;
-	off_t of;
-	off_t __user *up;
-
-	if (offset && get_user(of, offset))
-		return -EFAULT;
-
-	/* The __user pointer cast is valid because of the set_fs() */		
-	set_fs(KERNEL_DS);
-	up = offset ? (off_t __user *) &of : NULL;
-	ret = sys_sendfile((int)out_fd, (int)in_fd, up, count);
-	set_fs(old_fs);
-	
-	if (offset && put_user(of, offset))
-		return -EFAULT;
-		
-	return ret;
+	return compat_sys_sendfile((int)out_fd, (int)in_fd, offset, count);
 }
 
-asmlinkage int compat_sys_sendfile64(int out_fd, int in_fd, compat_loff_t __user *offset, s32 count)
+asmlinkage long compat_sys_sendfile64_wrapper(u32 out_fd, u32 in_fd,
+					      compat_loff_t __user *offset, u32 count)
 {
-	mm_segment_t old_fs = get_fs();
-	int ret;
-	loff_t lof;
-	loff_t __user *up;
-	
-	if (offset && get_user(lof, offset))
-		return -EFAULT;
-		
-	/* The __user pointer cast is valid because of the set_fs() */		
-	set_fs(KERNEL_DS);
-	up = offset ? (loff_t __user *) &lof : NULL;
-	ret = sys_sendfile64(out_fd, in_fd, up, count);
-	set_fs(old_fs);
-	
-	if (offset && put_user(lof, offset))
-		return -EFAULT;
-		
-	return ret;
+	return sys_sendfile((int)out_fd, (int)in_fd,
+			    (off_t __user *)offset, count);
 }
 
 long compat_sys_execve(unsigned long a0, unsigned long a1, unsigned long a2,
@@ -335,12 +304,6 @@ long compat_sys_nice(u32 increment)
 {
 	/* sign extend increment */
 	return sys_nice((int)increment);
-}
-
-off_t ppc32_lseek(unsigned int fd, u32 offset, unsigned int origin)
-{
-	/* sign extend n */
-	return sys_lseek(fd, (int)offset, origin);
 }
 
 long compat_sys_truncate(const char __user * path, u32 length)
@@ -615,12 +578,4 @@ asmlinkage long compat_sys_sync_file_range2(int fd, unsigned int flags,
 	loff_t nbytes = ((loff_t)nbytes_hi << 32) | nbytes_lo;
 
 	return sys_sync_file_range(fd, offset, nbytes, flags);
-}
-
-asmlinkage long compat_sys_fanotify_mark(int fanotify_fd, unsigned int flags,
-					 unsigned mask_hi, unsigned mask_lo,
-					 int dfd, const char __user *pathname)
-{
-	u64 mask = ((u64)mask_hi << 32) | mask_lo;
-	return sys_fanotify_mark(fanotify_fd, flags, mask, dfd, pathname);
 }

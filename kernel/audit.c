@@ -273,6 +273,8 @@ static int audit_log_config_change(char *function_name, int new, int old,
 	int rc = 0;
 
 	ab = audit_log_start(NULL, GFP_KERNEL, AUDIT_CONFIG_CHANGE);
+	if (unlikely(!ab))
+		return rc;
 	audit_log_format(ab, "%s=%d old=%d auid=%u ses=%u", function_name, new,
 			 old, loginuid, sessionid);
 	if (sid) {
@@ -643,6 +645,8 @@ static int audit_log_common_recv_msg(struct audit_buffer **ab, u16 msg_type,
 	}
 
 	*ab = audit_log_start(NULL, GFP_KERNEL, msg_type);
+	if (unlikely(!*ab))
+		return rc;
 	audit_log_format(*ab, "pid=%d uid=%u auid=%u ses=%u",
 			 pid, uid, auid, ses);
 	if (sid) {
@@ -731,7 +735,7 @@ static int audit_receive_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 							audit_pid, loginuid,
 							sessionid, sid, 1);
 
-			audit_pid = new_pid;
+			audit_pid = 0;
 			audit_nlk_pid = NETLINK_CB(skb).pid;
 		}
 		if (status_get->mask & AUDIT_STATUS_RATE_LIMIT) {
@@ -750,7 +754,7 @@ static int audit_receive_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 		if (!audit_enabled && msg_type != AUDIT_USER_AVC)
 			return 0;
 
-		err = audit_filter_user(&NETLINK_CB(skb));
+		err = audit_filter_user();
 		if (err == 1) {
 			err = 0;
 			if (msg_type == AUDIT_USER_TTY) {
@@ -795,7 +799,7 @@ static int audit_receive_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 		/* fallthrough */
 	case AUDIT_LIST:
 		err = audit_receive_filter(msg_type, NETLINK_CB(skb).pid,
-					   uid, seq, data, nlmsg_len(nlh),
+					   seq, data, nlmsg_len(nlh),
 					   loginuid, sessionid, sid);
 		break;
 	case AUDIT_ADD_RULE:
@@ -814,7 +818,7 @@ static int audit_receive_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 		/* fallthrough */
 	case AUDIT_LIST_RULES:
 		err = audit_receive_filter(msg_type, NETLINK_CB(skb).pid,
-					   uid, seq, data, nlmsg_len(nlh),
+					   seq, data, nlmsg_len(nlh),
 					   loginuid, sessionid, sid);
 		break;
 	case AUDIT_TRIM:
@@ -974,14 +978,16 @@ static void audit_receive(struct sk_buff  *skb)
 static int __init audit_init(void)
 {
 	int i;
+	struct netlink_kernel_cfg cfg = {
+		.input	= audit_receive,
+	};
 
 	if (audit_initialized == AUDIT_DISABLED)
 		return 0;
 
 	printk(KERN_INFO "audit: initializing netlink socket (%s)\n",
 	       audit_default ? "enabled" : "disabled");
-	audit_sock = netlink_kernel_create(&init_net, NETLINK_AUDIT, 0,
-					   audit_receive, NULL, THIS_MODULE);
+	audit_sock = netlink_kernel_create(&init_net, NETLINK_AUDIT, &cfg);
 	if (!audit_sock)
 		audit_panic("cannot initialize netlink socket");
 	else
@@ -1460,6 +1466,27 @@ void audit_log_key(struct audit_buffer *ab, char *key)
 		audit_log_untrustedstring(ab, key);
 	else
 		audit_log_format(ab, "(null)");
+}
+
+/**
+ * audit_log_link_denied - report a link restriction denial
+ * @operation: specific link opreation
+ * @link: the path that triggered the restriction
+ */
+void audit_log_link_denied(const char *operation, struct path *link)
+{
+	struct audit_buffer *ab;
+
+	ab = audit_log_start(current->audit_context, GFP_KERNEL,
+			     AUDIT_ANOM_LINK);
+	audit_log_format(ab, "op=%s action=denied", operation);
+	audit_log_format(ab, " pid=%d comm=", current->pid);
+	audit_log_untrustedstring(ab, current->comm);
+	audit_log_d_path(ab, " path=", link);
+	audit_log_format(ab, " dev=");
+	audit_log_untrustedstring(ab, link->dentry->d_inode->i_sb->s_id);
+	audit_log_format(ab, " ino=%lu", link->dentry->d_inode->i_ino);
+	audit_log_end(ab);
 }
 
 /**

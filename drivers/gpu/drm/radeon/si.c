@@ -3054,6 +3054,9 @@ int si_rlc_init(struct radeon_device *rdev)
 		return r;
 	}
 
+	/* posting read */
+	RREG32(SRBM_STATUS);
+
 	return 0;
 }
 

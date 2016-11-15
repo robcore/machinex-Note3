@@ -31,7 +31,7 @@
 
 #define USB_THRESHOLD 512
 #define USB_BAM_MAX_STR_LEN 50
-#define USB_BAM_TIMEOUT (10*HZ)
+#define USB_BAM_TIMEOUT 10000
 
 enum usb_bam_sm {
 	USB_BAM_SM_INIT = 0,
@@ -378,7 +378,7 @@ static int connect_pipe(u8 idx, u32 *usb_pipe_idx)
 		data_buf->size = pipe_connect->data_fifo_size;
 		data_buf->base =
 			ioremap(data_buf->phys_base, data_buf->size);
-		memset(data_buf->base, 0, data_buf->size);
+		memset_io(data_buf->base, 0, data_buf->size);
 
 		desc_buf->phys_base =
 			pipe_connect->desc_fifo_base_offset +
@@ -386,7 +386,7 @@ static int connect_pipe(u8 idx, u32 *usb_pipe_idx)
 		desc_buf->size = pipe_connect->desc_fifo_size;
 		desc_buf->base =
 			ioremap(desc_buf->phys_base, desc_buf->size);
-		memset(desc_buf->base, 0, desc_buf->size);
+		memset_io(desc_buf->base, 0, desc_buf->size);
 		break;
 	case SYSTEM_MEM:
 		pr_debug("%s: USB BAM using system memory\n", __func__);
@@ -1028,8 +1028,10 @@ static void usb_bam_ipa_create_resources(void)
 		usb_prod_create_params.reg_params.user_data = &ipa_rm_bams[i];
 		ret = ipa_rm_create_resource(&usb_prod_create_params);
 		if (ret) {
+#ifdef CONFIG_IPA
 			pr_err("%s: Failed to create USB_PROD resource\n",
 								__func__);
+#endif
 			return;
 		}
 
@@ -1073,7 +1075,7 @@ static void wait_for_prod_granted(enum usb_bam cur_bam)
 	} else if (ret == -EINPROGRESS) {
 		pr_debug("%s: Waiting for PROD_GRANTED\n", __func__);
 		if (!wait_for_completion_timeout(&info.prod_avail[cur_bam],
-			USB_BAM_TIMEOUT))
+			msecs_to_jiffies(USB_BAM_TIMEOUT)))
 			pr_err("%s: Timeout wainting for PROD_GRANTED\n",
 				__func__);
 	} else
@@ -1117,7 +1119,7 @@ static void wait_for_prod_release(enum usb_bam cur_bam)
 	} else if (ret == -EINPROGRESS) {
 		pr_debug("%s: Waiting for PROD_RELEASED\n", __func__);
 		if (!wait_for_completion_timeout(&info.prod_released[cur_bam],
-						USB_BAM_TIMEOUT))
+					msecs_to_jiffies(USB_BAM_TIMEOUT)))
 			pr_err("%s: Timeout waiting for PROD_RELEASED\n",
 			__func__);
 	} else
@@ -2073,7 +2075,7 @@ void usb_bam_reset_complete(void)
 {
 	pr_debug("Waiting for reset compelte");
 	if (wait_for_completion_interruptible_timeout(&ctx.reset_done,
-			10*HZ) <= 0)
+			msecs_to_jiffies(10000)) <= 0)
 		pr_warn("Timeout while waiting for reset");
 
 	pr_debug("Finished Waiting for reset complete");

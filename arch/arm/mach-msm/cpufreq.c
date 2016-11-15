@@ -30,7 +30,6 @@
 #include <linux/clk.h>
 #include <linux/err.h>
 #include <linux/platform_device.h>
-#include <trace/events/power.h>
 #include <mach/socinfo.h>
 #include <mach/cpufreq.h>
 
@@ -40,6 +39,11 @@
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
 #include <asm/div64.h>
+#endif
+
+#ifdef CONFIG_CPU_VOLTAGE_TABLE
+#define UV_INTERFACE_VERSION 1.2
+static struct cpufreq_frequency_table *dts_freq_table;
 #endif
 
 static DEFINE_MUTEX(l2bw_lock);
@@ -118,6 +122,69 @@ struct cpufreq_suspend_t {
 
 static DEFINE_PER_CPU(struct cpufreq_suspend_t, cpufreq_suspend);
 
+#ifdef CONFIG_MSM_CPUFREQ_LIMITER
+static unsigned int upper_limit_freq[NR_CPUS] = {2265600, 2265600,
+						2265600, 2265600};
+static unsigned int lower_limit_freq[NR_CPUS] = {0, 0, 0, 0};
+static unsigned int lower_boost_limit_freq[NR_CPUS] = {0, 0, 0, 0};
+#define CPU_MAX_DEFAULT_FREQ	2265600
+#define CPU_MAX_OC_FREQ		2803200
+#define CPU_MIN_DEFAULT_FREQ	300000
+
+unsigned int get_cpu_min_lock(unsigned int cpu)
+{
+	if (cpu >= 0 && cpu < NR_CPUS)
+		return lower_limit_freq[cpu];
+	else
+		return 0;
+}
+EXPORT_SYMBOL(get_cpu_min_lock);
+
+void set_cpu_min_lock(unsigned int cpu, int freq)
+{
+	if (cpu >= 0 && cpu < NR_CPUS) {
+		if (freq <= CPU_MIN_DEFAULT_FREQ || freq > CPU_MAX_OC_FREQ)
+			lower_limit_freq[cpu] = 0;
+		else
+			lower_limit_freq[cpu] = freq;
+	}
+}
+EXPORT_SYMBOL(set_cpu_min_lock);
+
+void set_cpu_boost_min_lock(unsigned int cpu, int freq)
+{
+	if (cpu >= 0 && cpu < NR_CPUS) {
+		if (freq <= CPU_MIN_DEFAULT_FREQ || freq > CPU_MAX_OC_FREQ)
+			lower_boost_limit_freq[cpu] = 0;
+		else
+			lower_boost_limit_freq[cpu] = freq;
+	}
+}
+EXPORT_SYMBOL(set_cpu_boost_min_lock);
+
+unsigned int get_max_lock(unsigned int cpu)
+{
+	if (cpu >= 0 && cpu < NR_CPUS)
+		return upper_limit_freq[cpu];
+	else
+		return 0;
+}
+EXPORT_SYMBOL(get_max_lock);
+
+void set_max_lock(unsigned int cpu, unsigned int freq)
+{
+	if (cpu >= 0 && cpu <= NR_CPUS) {
+		if (freq == 0)
+			upper_limit_freq[cpu] = 0;
+		else if (freq < CPU_MIN_DEFAULT_FREQ || freq > CPU_MAX_OC_FREQ)
+			upper_limit_freq[cpu] = CPU_MAX_DEFAULT_FREQ;
+		else
+			upper_limit_freq[cpu] = freq;
+	}
+}
+EXPORT_SYMBOL(set_max_lock);
+#endif
+
 unsigned long msm_cpufreq_get_bw(void)
 {
 	return mem_bw[max_freq_index];
@@ -161,6 +228,31 @@ static int set_cpu_freq(struct cpufreq_policy *policy, unsigned int new_freq,
 	int saved_sched_rt_prio = -EINVAL;
 	struct cpufreq_freqs freqs;
 	struct sched_param param = { .sched_priority = MAX_RT_PRIO-1 };
+#ifdef CONFIG_MSM_CPUFREQ_LIMITER
+	unsigned int ll_freq = lower_limit_freq[policy->cpu];
+	unsigned int lbl_freq = lower_boost_limit_freq[policy->cpu];
+	unsigned int ul_freq = upper_limit_freq[policy->cpu];
+
+	if (ll_freq || ul_freq || lbl_freq) {
+		unsigned int t_freq = new_freq;
+
+		if (ll_freq && new_freq < ll_freq)
+			t_freq = ll_freq;
+
+		if (lbl_freq && new_freq < lbl_freq)
+			t_freq = lbl_freq;
+
+		if (ul_freq && new_freq > ul_freq)
+			t_freq = ul_freq;
+
+		new_freq = t_freq;
+
+		if (new_freq < policy->min)
+			new_freq = policy->min;
+		if (new_freq > policy->max)
+			new_freq = policy->max;
+	}
+#endif
 
 #ifdef CONFIG_SEC_DVFS
 	if (lower_limit_freq || upper_limit_freq) {
@@ -200,7 +292,6 @@ static int set_cpu_freq(struct cpufreq_policy *policy, unsigned int new_freq,
 
 	cpufreq_notify_transition(&freqs, CPUFREQ_PRECHANGE);
 
-	trace_cpu_frequency_switch_start(freqs.old, freqs.new, policy->cpu);
 	if (is_clk) {
 		unsigned long rate = new_freq * 1000;
 #ifdef CONFIG_SEC_PM
@@ -226,10 +317,8 @@ static int set_cpu_freq(struct cpufreq_policy *policy, unsigned int new_freq,
 		ret = acpuclk_set_rate(policy->cpu, new_freq, SETRATE_CPUFREQ);
 	}
 
-	if (!ret) {
-		trace_cpu_frequency_switch_end(policy->cpu);
+	if (!ret)
 		cpufreq_notify_transition(&freqs, CPUFREQ_POSTCHANGE);
-	}
 
 	/* Restore priority after clock ramp-up */
 	if (freqs.new > freqs.old && saved_sched_policy >= 0) {
@@ -260,6 +349,11 @@ static int msm_cpufreq_target(struct cpufreq_policy *policy,
 	struct cpufreq_work_struct *cpu_work = NULL;
 
 	mutex_lock(&per_cpu(cpufreq_suspend, policy->cpu).suspend_mutex);
+
+	if (target_freq == policy->cur) {
+		ret = 0;
+		goto done;
+	}
 
 	if (per_cpu(cpufreq_suspend, policy->cpu).device_suspended) {
 		pr_debug("cpufreq: cpu%d scheduling frequency change "
@@ -362,6 +456,9 @@ static int __cpuinit msm_cpufreq_init(struct cpufreq_policy *policy)
 	pr_info("cpufreq: cpuinfo_min_freq: %d\n", cpuinfo_min_freq);
 	*/
 #endif
+
+	policy->max = 2265600;
+	policy->min = 300000;
 
 	if (is_clk)
 		cur_freq = clk_get_rate(cpu_clk[policy->cpu])/1000;
@@ -595,10 +692,43 @@ static int cpufreq_parse_dt(struct device *dev)
 	freq_table[i].index = i;
 	freq_table[i].frequency = CPUFREQ_TABLE_END;
 
+#ifdef CONFIG_CPU_VOLTAGE_TABLE
+	dts_freq_table =
+		devm_kzalloc(dev, (nf + 1) *
+			sizeof(struct cpufreq_frequency_table),
+			GFP_KERNEL);
+
+	if (!dts_freq_table)
+		return -ENOMEM;
+
+	for (i = 0, j = 0; i < nf; i++, j += 3)
+		dts_freq_table[i].frequency = data[j];
+	dts_freq_table[i].frequency = CPUFREQ_TABLE_END;
+#endif
+
 	devm_kfree(dev, data);
 
 	return 0;
 }
+
+#ifdef CONFIG_CPU_VOLTAGE_TABLE
+bool is_used_by_scaling(unsigned int freq)
+{
+	unsigned int i, cpu_freq;
+
+	if (!dts_freq_table)
+		return -EINVAL;
+
+	for (i = 0; dts_freq_table[i].frequency != CPUFREQ_TABLE_END; i++) {
+		cpu_freq = dts_freq_table[i].frequency;
+		if (cpu_freq == CPUFREQ_ENTRY_INVALID)
+			continue;
+		if (freq == cpu_freq)
+			return true;
+	}
+	return false;
+}
+#endif
 
 #ifdef CONFIG_DEBUG_FS
 static int msm_cpufreq_show(struct seq_file *m, void *unused)
@@ -712,4 +842,4 @@ static int __init msm_cpufreq_register(void)
 	return cpufreq_register_driver(&msm_cpufreq_driver);
 }
 
-device_initcall(msm_cpufreq_register);
+subsys_initcall(msm_cpufreq_register);

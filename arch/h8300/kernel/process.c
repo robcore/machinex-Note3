@@ -109,6 +109,8 @@ void machine_power_off(void)
 
 void show_regs(struct pt_regs * regs)
 {
+	show_regs_print_info(KERN_DEFAULT);
+
 	printk("\nPC: %08lx  Status: %02x",
 	       regs->pc, regs->ccr);
 	printk("\nORIG_ER0: %08lx ER0: %08lx ER1: %08lx",
@@ -217,14 +219,14 @@ asmlinkage int sys_execve(const char *name,
 			  int dummy, ...)
 {
 	int error;
-	char * filename;
+	struct filename *filename;
 	struct pt_regs *regs = (struct pt_regs *) ((unsigned char *)&dummy-4);
 
 	filename = getname(name);
 	error = PTR_ERR(filename);
 	if (IS_ERR(filename))
 		return error;
-	error = do_execve(filename, argv, envp, regs);
+	error = do_execve(filename->name, argv, envp, regs);
 	putname(filename);
 	return error;
 }

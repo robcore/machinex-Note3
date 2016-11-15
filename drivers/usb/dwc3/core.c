@@ -116,7 +116,7 @@ void dwc3_put_device_id(int id)
 
 	ret = test_bit(id, dwc3_devs);
 	WARN(!ret, "dwc3: ID %d not in use\n", id);
-	smp_mb__before_clear_bit();
+	smp_mb__before_atomic();
 	clear_bit(id, dwc3_devs);
 }
 EXPORT_SYMBOL_GPL(dwc3_put_device_id);
@@ -374,7 +374,7 @@ static void dwc3_cache_hwparams(struct dwc3 *dwc)
  *
  * Returns 0 on success otherwise negative errno.
  */
-static int dwc3_core_init(struct dwc3 *dwc)
+static int __ref dwc3_core_init(struct dwc3 *dwc)
 {
 	unsigned long		timeout;
 	u32			reg;
@@ -528,10 +528,16 @@ void dwc3_set_notifier(void (*notify)(struct dwc3 *, unsigned))
 }
 EXPORT_SYMBOL(dwc3_set_notifier);
 
-void dwc3_notify_event(struct dwc3 *dwc, unsigned event)
+int dwc3_notify_event(struct dwc3 *dwc, unsigned event)
 {
+	int ret = 0;
+
 	if (dwc->notify_event)
 		dwc->notify_event(dwc, event);
+	else
+		ret = -ENODEV;
+
+	return ret;
 }
 EXPORT_SYMBOL(dwc3_notify_event);
 
@@ -552,6 +558,7 @@ static int __devinit dwc3_probe(struct platform_device *pdev)
 
 	u8			mode;
 	bool			host_only_mode;
+	const char		*str = NULL;
 
 	mem = devm_kzalloc(dev, sizeof(*dwc) + DWC3_ALIGN_MASK, GFP_KERNEL);
 	if (!mem) {
@@ -613,6 +620,10 @@ static int __devinit dwc3_probe(struct platform_device *pdev)
 	dwc->regs	= regs;
 	dwc->regs_size	= resource_size(res);
 	dwc->dev	= dev;
+
+	if (!of_property_read_string(node, "maximum-speed", &str))
+		maximum_speed = (char *)str;
+	dev_info(dev, "maximum speed: %s\n", maximum_speed);
 
 	if (!strncmp("super", maximum_speed, 5))
 		dwc->maximum_speed = DWC3_DCFG_SUPERSPEED;

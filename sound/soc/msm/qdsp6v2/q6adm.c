@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2013, 2016 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -41,6 +41,7 @@
 /* 2 is to account for module & param ID in payload */
 #define ADM_GET_PARAMETER_LENGTH  (4096 - APR_HDR_SIZE - 2 * sizeof(uint32_t))
 
+#define ULL_SUPPORTED_BITS_PER_SAMPLE 16
 #define ULL_SUPPORTED_SAMPLE_RATE 48000
 #define ULL_MAX_SUPPORTED_CHANNEL 2
 enum {
@@ -81,9 +82,16 @@ struct adm_multi_ch_map {
 	char channel_mapping[PCM_FORMAT_MAX_NUM_CHANNEL];
 };
 
-static struct adm_multi_ch_map multi_ch_map = { false,
-						{0, 0, 0, 0, 0, 0, 0, 0}
-					      };
+#define ADM_MCH_MAP_IDX_PLAYBACK 0
+#define ADM_MCH_MAP_IDX_REC 1
+static struct adm_multi_ch_map multi_ch_maps[2] = {
+							{ false,
+							{0, 0, 0, 0, 0, 0, 0, 0}
+							},
+							{ false,
+							{0, 0, 0, 0, 0, 0, 0, 0}
+							}
+};
 
 static int adm_get_parameters[ADM_GET_PARAMETER_LENGTH];
 
@@ -437,6 +445,14 @@ int adm_get_params(int port_id, uint32_t module_id, uint32_t param_id,
 		rc = -EINVAL;
 		goto adm_get_param_return;
 	}
+
+	if (adm_get_parameters[0] < 0) {
+		pr_err("%s: Size is invalid %d\n", __func__,
+			adm_get_parameters[0]);
+		rc = -EINVAL;
+		goto adm_get_param_return;
+	}
+
 	if ((params_data) && (ARRAY_SIZE(adm_get_parameters) >=
 		(1+adm_get_parameters[0])) &&
 		(params_length/sizeof(int) >=
@@ -476,19 +492,45 @@ static void adm_callback_debug_print(struct apr_client_data *data)
 			__func__, data->opcode, data->payload_size);
 }
 
-void adm_set_multi_ch_map(char *channel_map)
+int adm_set_multi_ch_map(char *channel_map, int path)
 {
-	memcpy(multi_ch_map.channel_mapping, channel_map,
+	int idx;
+
+	if (path == ADM_PATH_PLAYBACK) {
+		idx = ADM_MCH_MAP_IDX_PLAYBACK;
+	} else if (path == ADM_PATH_LIVE_REC) {
+		idx = ADM_MCH_MAP_IDX_REC;
+	} else {
+		pr_err("%s: invalid attempt to set path %d\n", __func__, path);
+		return -EINVAL;
+	}
+
+	memcpy(multi_ch_maps[idx].channel_mapping, channel_map,
 		PCM_FORMAT_MAX_NUM_CHANNEL);
-	multi_ch_map.set_channel_map = true;
+	multi_ch_maps[idx].set_channel_map = true;
+
+	return 0;
 }
 
-void adm_get_multi_ch_map(char *channel_map)
+int adm_get_multi_ch_map(char *channel_map, int path)
 {
-	if (multi_ch_map.set_channel_map) {
-		memcpy(channel_map, multi_ch_map.channel_mapping,
-			PCM_FORMAT_MAX_NUM_CHANNEL);
+	int idx;
+
+	if (path == ADM_PATH_PLAYBACK) {
+		idx = ADM_MCH_MAP_IDX_PLAYBACK;
+	} else if (path == ADM_PATH_LIVE_REC) {
+		idx = ADM_MCH_MAP_IDX_REC;
+	} else {
+		pr_err("%s: invalid attempt to get path %d\n", __func__, path);
+		return -EINVAL;
 	}
+
+	if (multi_ch_maps[idx].set_channel_map) {
+		memcpy(channel_map, multi_ch_maps[idx].channel_mapping,
+		       PCM_FORMAT_MAX_NUM_CHANNEL);
+	}
+
+	return 0;
 }
 
 static int32_t adm_callback(struct apr_client_data *data, void *priv)
@@ -504,9 +546,9 @@ static int32_t adm_callback(struct apr_client_data *data, void *priv)
 	payload = data->payload;
 
 	if (data->opcode == RESET_EVENTS) {
-		pr_debug("adm_callback: Reset event is received: %d %d apr[%p]\n",
-				data->reset_event, data->reset_proc,
-				this_adm.apr);
+		pr_debug("%s: Reset event is received: %d %d apr[%pK]\n",
+			__func__,
+			data->reset_event, data->reset_proc, this_adm.apr);
 		if (this_adm.apr) {
 			apr_reset(this_adm.apr);
 			for (i = 0; i < AFE_MAX_PORTS; i++) {
@@ -699,8 +741,8 @@ void send_adm_custom_topology(int port_id)
 
 	get_adm_custom_topology(&cal_block);
 	if (cal_block.cal_size == 0) {
-		pr_debug("%s: no cal to send addr= 0x%x\n",
-				__func__, cal_block.cal_paddr);
+		pr_debug("%s: no cal to send addr= 0x%pK\n",
+				__func__, &cal_block.cal_paddr);
 		goto done;
 	}
 
@@ -721,8 +763,8 @@ void send_adm_custom_topology(int port_id)
 		result = adm_memory_map_regions(port_id,
 				&cal_block.cal_paddr, 0, &size, 1);
 		if (result < 0) {
-			pr_err("%s: mmap did not work! addr = 0x%x, size = %d\n",
-				__func__, cal_block.cal_paddr,
+			pr_err("%s: mmap did not work! addr = 0x%pK, size = %d\n",
+				__func__, &cal_block.cal_paddr,
 			       cal_block.cal_size);
 			goto done;
 		}
@@ -753,8 +795,8 @@ void send_adm_custom_topology(int port_id)
 		adm_top.payload_size);
 	result = apr_send_pkt(this_adm.apr, (uint32_t *)&adm_top);
 	if (result < 0) {
-		pr_err("%s: Set topologies failed port = 0x%x payload = 0x%x\n",
-			__func__, port_id, cal_block.cal_paddr);
+		pr_err("%s: Set topologies failed port = 0x%d payload = 0x%pK\n",
+			__func__, port_id, &cal_block.cal_paddr);
 		goto done;
 	}
 	/* Wait for the callback */
@@ -762,8 +804,8 @@ void send_adm_custom_topology(int port_id)
 		atomic_read(&this_adm.copp_stat[index]),
 		msecs_to_jiffies(TIMEOUT_MS));
 	if (!result) {
-		pr_err("%s: Set topologies timed out port = 0x%x, payload = 0x%x\n",
-			__func__, port_id, cal_block.cal_paddr);
+		pr_err("%s: Set topologies timed out port = 0x%x, payload = 0x%pK\n",
+			__func__, port_id, &cal_block.cal_paddr);
 		goto done;
 	}
 
@@ -823,8 +865,8 @@ static int send_adm_cal_block(int port_id, struct acdb_cal_block *aud_cal,
 		adm_params.payload_size);
 	result = apr_send_pkt(this_adm.apr, (uint32_t *)&adm_params);
 	if (result < 0) {
-		pr_err("%s: Set params failed port = %#x payload = 0x%x\n",
-			__func__, port_id, aud_cal->cal_paddr);
+		pr_err("%s: Set params failed port = %#x payload = 0x%pK\n",
+			__func__, port_id, &aud_cal->cal_paddr);
 		result = -EINVAL;
 		goto done;
 	}
@@ -833,8 +875,8 @@ static int send_adm_cal_block(int port_id, struct acdb_cal_block *aud_cal,
 		atomic_read(&this_adm.copp_stat[index]),
 		msecs_to_jiffies(TIMEOUT_MS));
 	if (!result) {
-		pr_err("%s: Set params timed out port = %#x, payload = 0x%x\n",
-			__func__, port_id, aud_cal->cal_paddr);
+		pr_err("%s: Set params timed out port = %#x, payload = 0x%pK\n",
+			__func__, port_id, &aud_cal->cal_paddr);
 		result = -EINVAL;
 		goto done;
 	}
@@ -1123,6 +1165,79 @@ int adm_connect_afe_port(int mode, int session_id, int port_id)
 fail_cmd:
 
 	return ret;
+}
+
+int adm_arrange_mch_map(struct adm_cmd_device_open_v5 *open, int path,
+			 int channel_mode)
+{
+	int rc = 0, idx;
+
+	memset(open->dev_channel_mapping, 0,
+	       PCM_FORMAT_MAX_NUM_CHANNEL);
+
+	if (channel_mode == 1)	{
+		open->dev_channel_mapping[0] = PCM_CHANNEL_FC;
+	} else if (channel_mode == 2) {
+		open->dev_channel_mapping[0] = PCM_CHANNEL_FL;
+		open->dev_channel_mapping[1] = PCM_CHANNEL_FR;
+	} else if (channel_mode == 3)	{
+		open->dev_channel_mapping[0] = PCM_CHANNEL_FL;
+		open->dev_channel_mapping[1] = PCM_CHANNEL_FR;
+		open->dev_channel_mapping[2] = PCM_CHANNEL_FC;
+	} else if (channel_mode == 4) {
+		open->dev_channel_mapping[0] = PCM_CHANNEL_FL;
+		open->dev_channel_mapping[1] = PCM_CHANNEL_FR;
+		open->dev_channel_mapping[2] = PCM_CHANNEL_LS;
+		open->dev_channel_mapping[3] = PCM_CHANNEL_RS;
+	} else if (channel_mode == 5) {
+		open->dev_channel_mapping[0] = PCM_CHANNEL_FL;
+		open->dev_channel_mapping[1] = PCM_CHANNEL_FR;
+		open->dev_channel_mapping[2] = PCM_CHANNEL_FC;
+		open->dev_channel_mapping[3] = PCM_CHANNEL_LS;
+		open->dev_channel_mapping[4] = PCM_CHANNEL_RS;
+	} else if (channel_mode == 6) {
+		open->dev_channel_mapping[0] = PCM_CHANNEL_FL;
+		open->dev_channel_mapping[1] = PCM_CHANNEL_FR;
+		open->dev_channel_mapping[2] = PCM_CHANNEL_LFE;
+		open->dev_channel_mapping[3] = PCM_CHANNEL_FC;
+		open->dev_channel_mapping[4] = PCM_CHANNEL_LS;
+		open->dev_channel_mapping[5] = PCM_CHANNEL_RS;
+	} else if (channel_mode == 8) {
+		open->dev_channel_mapping[0] = PCM_CHANNEL_FL;
+		open->dev_channel_mapping[1] = PCM_CHANNEL_FR;
+		open->dev_channel_mapping[2] = PCM_CHANNEL_LFE;
+		open->dev_channel_mapping[3] = PCM_CHANNEL_FC;
+		open->dev_channel_mapping[4] = PCM_CHANNEL_LS;
+		open->dev_channel_mapping[5] = PCM_CHANNEL_RS;
+		open->dev_channel_mapping[6] = PCM_CHANNEL_LB;
+		open->dev_channel_mapping[7] = PCM_CHANNEL_RB;
+	} else {
+		pr_err("%s: invalid num_chan %d\n", __func__,
+			channel_mode);
+		rc = -EINVAL;
+		goto inval_ch_mod;
+	}
+
+	switch (path) {
+	case ADM_PATH_PLAYBACK:
+		idx = ADM_MCH_MAP_IDX_PLAYBACK;
+		break;
+	case ADM_PATH_LIVE_REC:
+		idx = ADM_MCH_MAP_IDX_REC;
+		break;
+	default:
+		goto non_mch_path;
+		break;
+	};
+
+	if ((open->dev_num_channel > 2) && multi_ch_maps[idx].set_channel_map)
+		memcpy(open->dev_channel_mapping,
+		       multi_ch_maps[idx].channel_mapping,
+		       PCM_FORMAT_MAX_NUM_CHANNEL);
+
+non_mch_path:
+inval_ch_mod:
+	return rc;
 }
 
 int adm_open(int port_id, int path, int rate, int channel_mode, int topology,

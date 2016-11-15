@@ -406,6 +406,10 @@ EXPORT_SYMBOL_GPL(tty_ldisc_flush);
  *	they are not on hot paths so a little discipline won't do
  *	any harm.
  *
+ *	The line discipline-related tty_struct fields are reset to
+ *	prevent the ldisc driver from re-using stale information for
+ *	the new ldisc instance.
+ *
  *	Locking: takes termios_mutex
  */
 
@@ -414,6 +418,9 @@ static void tty_set_termios_ldisc(struct tty_struct *tty, int num)
 	mutex_lock(&tty->termios_mutex);
 	tty->termios->c_line = num;
 	mutex_unlock(&tty->termios_mutex);
+
+	tty->disc_data = NULL;
+	tty->receive_room = 0;
 }
 
 /**
@@ -522,9 +529,9 @@ static int tty_ldisc_halt(struct tty_struct *tty)
  */
 static void tty_ldisc_flush_works(struct tty_struct *tty)
 {
-	flush_work_sync(&tty->hangup_work);
-	flush_work_sync(&tty->SAK_work);
-	flush_work_sync(&tty->buf.work);
+	flush_work(&tty->hangup_work);
+	flush_work(&tty->SAK_work);
+	flush_work(&tty->buf.work);
 }
 
 /**

@@ -36,7 +36,6 @@
 #include "peripheral-loader.h"
 #include "pil-q6v5.h"
 #include "pil-msa.h"
-#include "sysmon.h"
 
 #define MAX_VDD_MSS_UV		1150000
 #define PROXY_TIMEOUT_MS	10000
@@ -48,7 +47,6 @@ struct modem_data {
 	struct q6v5_data *q6;
 	struct subsys_device *subsys;
 	struct subsys_desc subsys_desc;
-	void *adsp_state_notifier;
 	void *ramdump_dev;
 	bool crash_shutdown;
 	bool ignore_errors;
@@ -108,7 +106,7 @@ static irqreturn_t modem_stop_ack_intr_handler(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-static int modem_shutdown(const struct subsys_desc *subsys)
+static int modem_shutdown(const struct subsys_desc *subsys, bool force_stop)
 {
 	struct modem_data *drv = subsys_to_drv(subsys);
 	unsigned long ret;
@@ -116,7 +114,7 @@ static int modem_shutdown(const struct subsys_desc *subsys)
 	if (subsys->is_not_loadable)
 		return 0;
 
-	if (!subsys_get_crash_status(drv->subsys)) {
+	if (!subsys_get_crash_status(drv->subsys) && force_stop) {
 		gpio_set_value(subsys->force_stop_gpio, 1);
 		ret = wait_for_completion_timeout(&drv->stop_ack,
 				msecs_to_jiffies(STOP_ACK_TIMEOUT_MS));
@@ -127,6 +125,7 @@ static int modem_shutdown(const struct subsys_desc *subsys)
 
 	pil_shutdown(&drv->mba->desc);
 	pil_shutdown(&drv->q6->desc);
+
 	return 0;
 }
 
@@ -139,8 +138,8 @@ static int modem_powerup(const struct subsys_desc *subsys)
 		return 0;
 	/*
 	 * At this time, the modem is shutdown. Therefore this function cannot
-	 * run concurrently with either the watchdog bite error handler or the
-	 * SMSM callback, making it safe to unset the flag below.
+	 * run concurrently with the watchdog bite error handler, making it safe
+	 * to unset the flag below.
 	 */
 	INIT_COMPLETION(drv->stop_ack);
 	drv->ignore_errors = false;
@@ -150,6 +149,7 @@ static int modem_powerup(const struct subsys_desc *subsys)
 	ret = pil_boot(&drv->mba->desc);
 	if (ret)
 		pil_shutdown(&drv->q6->desc);
+
 	return ret;
 }
 
@@ -183,58 +183,40 @@ static int modem_ramdump(int enable, const struct subsys_desc *subsys)
 	return ret;
 }
 
-static int adsp_state_notifier_fn(struct notifier_block *this,
-				unsigned long code, void *ss_handle)
-{
-	int ret;
-	ret = sysmon_send_event(SYSMON_SS_MODEM, "adsp", code);
-	if (ret < 0)
-		pr_err("%s: sysmon_send_event failed (%d).", __func__, ret);
-	return NOTIFY_DONE;
-}
-
-static struct notifier_block adsp_state_notifier_block = {
-	.notifier_call = adsp_state_notifier_fn,
-};
-
 static irqreturn_t modem_wdog_bite_intr_handler(int irq, void *dev_id)
 {
 	struct modem_data *drv = subsys_to_drv(dev_id);
+#ifdef CONFIG_MACH_MSM8974_G2_SPR
+	struct lge_hw_smem_id2_type *smem_id2;
+
+	/* [START] hanwool.lee@lge.com, subsys_modem_restart */
+	u32 size;
+	int ret = -EPERM;
+
+	smem_id2 = smem_get_entry(SMEM_ID_VENDOR2, &size);
+
+	if (smem_id2 == NULL){
+		pr_err("%s:smem_id2 is NULL.\n", __func__);
+		return ret;
+	}
+
+	if( smem_id2 -> modem_reset == 1){
+		pr_err("Ignore watchdog bite received from modem software!\n");
+		ret = subsys_modem_restart();
+		smem_id2->modem_reset = 0;
+		wmb();
+		return ret;
+	}
+	/* [END] hanwool.lee@lge.com, subsys_modem_restart */
+#endif
+
 	if (drv->ignore_errors)
 		return IRQ_HANDLED;
+
 	pr_err("Watchdog bite received from modem software!\n");
 	subsys_set_crash_status(drv->subsys, true);
 	restart_modem(drv);
 	return IRQ_HANDLED;
-}
-
-static int mss_start(const struct subsys_desc *desc)
-{
-	int ret;
-	struct modem_data *drv = subsys_to_drv(desc);
-
-	if (desc->is_not_loadable)
-		return 0;
-
-	INIT_COMPLETION(drv->stop_ack);
-	ret = pil_boot(&drv->q6->desc);
-	if (ret)
-		return ret;
-	ret = pil_boot(&drv->mba->desc);
-	if (ret)
-		pil_shutdown(&drv->q6->desc);
-	return ret;
-}
-
-static void mss_stop(const struct subsys_desc *desc)
-{
-	struct modem_data *drv = subsys_to_drv(desc);
-
-	if (desc->is_not_loadable)
-		return;
-
-	pil_shutdown(&drv->mba->desc);
-	pil_shutdown(&drv->q6->desc);
 }
 
 static int __devinit pil_subsys_init(struct modem_data *drv,
@@ -249,8 +231,6 @@ static int __devinit pil_subsys_init(struct modem_data *drv,
 	drv->subsys_desc.powerup = modem_powerup;
 	drv->subsys_desc.ramdump = modem_ramdump;
 	drv->subsys_desc.crash_shutdown = modem_crash_shutdown;
-	drv->subsys_desc.start = mss_start;
-	drv->subsys_desc.stop = mss_stop;
 	drv->subsys_desc.err_fatal_handler = modem_err_fatal_intr_handler;
 	drv->subsys_desc.stop_ack_handler = modem_stop_ack_intr_handler;
 	drv->subsys_desc.wdog_bite_handler = modem_wdog_bite_intr_handler;
@@ -269,19 +249,8 @@ static int __devinit pil_subsys_init(struct modem_data *drv,
 		goto err_ramdump;
 	}
 
-	drv->adsp_state_notifier = subsys_notif_register_notifier("adsp",
-						&adsp_state_notifier_block);
-	if (IS_ERR(drv->adsp_state_notifier)) {
-		ret = PTR_ERR(drv->adsp_state_notifier);
-		dev_err(&pdev->dev, "%s: Registration with the SSR notification driver failed (%d)",
-			__func__, ret);
-		goto err_irq;
-	}
-
 	return 0;
 
-err_irq:
-	destroy_ramdump_device(drv->ramdump_dev);
 err_ramdump:
 	subsys_unregister(drv->subsys);
 err_subsys:
@@ -422,8 +391,6 @@ static int __devexit pil_mss_driver_exit(struct platform_device *pdev)
 {
 	struct modem_data *drv = platform_get_drvdata(pdev);
 
-	subsys_notif_unregister_notifier(drv->adsp_state_notifier,
-						&adsp_state_notifier_block);
 	subsys_unregister(drv->subsys);
 	destroy_ramdump_device(drv->ramdump_dev);
 	pil_desc_release(&drv->mba->desc);

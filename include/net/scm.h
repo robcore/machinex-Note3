@@ -13,9 +13,9 @@
 #define SCM_MAX_FD	253
 
 struct scm_fp_list {
-	struct list_head	list;
 	short			count;
 	short			max;
+	struct user_struct	*user;
 	struct file		*fp[SCM_MAX_FD];
 };
 

@@ -353,6 +353,11 @@ static int snd_emu10k1_init(struct snd_emu10k1 *emu, int enable_ir, int resume)
 		outl(inl(emu->port + HCFG) | HCFG_EXPANDED_MEM, emu->port + HCFG);
 	}
 
+	if (emu->address_mode == 0) {
+		/* use 16M in 4G */
+		outl(inl(emu->port + HCFG) | HCFG_EXPANDED_MEM, emu->port + HCFG);
+	}
+
 	return 0;
 }
 

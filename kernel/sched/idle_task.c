@@ -13,6 +13,12 @@ select_task_rq_idle(struct task_struct *p, int sd_flag, int flags)
 {
 	return task_cpu(p); /* IDLE tasks as never migrated */
 }
+
+static void pre_schedule_idle(struct rq *rq, struct task_struct *prev)
+{
+	idle_exit_fair(rq);
+	rq_last_tick_reset(rq);
+}
 #endif /* CONFIG_SMP */
 /*
  * Idle tasks are unconditionally rescheduled:
@@ -22,9 +28,16 @@ static void check_preempt_curr_idle(struct rq *rq, struct task_struct *p, int fl
 	resched_task(rq->idle);
 }
 
-static struct task_struct *pick_next_task_idle(struct rq *rq)
+static struct task_struct *
+pick_next_task_idle(struct rq *rq, struct task_struct *prev)
 {
+	if (prev)
+		prev->sched_class->put_prev_task(rq, prev);
+
 	schedstat_inc(rq, sched_goidle);
+#ifdef CONFIG_SMP
+	idle_enter_fair(rq);
+#endif
 	return rq->idle;
 }
 
@@ -69,6 +82,20 @@ static unsigned int get_rr_interval_idle(struct rq *rq, struct task_struct *task
 	return 0;
 }
 
+#ifdef CONFIG_SCHED_HMP
+
+static void
+inc_hmp_sched_stats_idle(struct rq *rq, struct task_struct *p)
+{
+}
+
+static void
+dec_hmp_sched_stats_idle(struct rq *rq, struct task_struct *p)
+{
+}
+
+#endif
+
 /*
  * Simple, special scheduling class for the per-CPU idle tasks:
  */
@@ -86,6 +113,7 @@ const struct sched_class idle_sched_class = {
 
 #ifdef CONFIG_SMP
 	.select_task_rq		= select_task_rq_idle,
+	.pre_schedule		= pre_schedule_idle,
 #endif
 
 	.set_curr_task          = set_curr_task_idle,
@@ -95,4 +123,8 @@ const struct sched_class idle_sched_class = {
 
 	.prio_changed		= prio_changed_idle,
 	.switched_to		= switched_to_idle,
+#ifdef CONFIG_SCHED_HMP
+	.inc_hmp_sched_stats	= inc_hmp_sched_stats_idle,
+	.dec_hmp_sched_stats	= dec_hmp_sched_stats_idle,
+#endif
 };

@@ -176,6 +176,9 @@ static int pty_signal(struct tty_struct *tty, int sig)
 	if (sig != SIGINT && sig != SIGQUIT && sig != SIGTSTP)
 		return -EINVAL;
 
+	if (sig != SIGINT && sig != SIGQUIT && sig != SIGTSTP)
+		return -EINVAL;
+
 	if (tty->link) {
 		spin_lock_irqsave(&tty->link->ctrl_lock, flags);
 		pgrp = get_pid(tty->link->pgrp);

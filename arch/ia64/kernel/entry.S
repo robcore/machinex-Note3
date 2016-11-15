@@ -118,13 +118,12 @@ GLOBAL_ENTRY(sys_clone2)
 	mov loc1=r16				// save ar.pfs across do_fork
 	.body
 	mov out1=in1
-	mov out3=in2
+	mov out2=in2
 	tbit.nz p6,p0=in0,CLONE_SETTLS_BIT
-	mov out4=in3	// parent_tidptr: valid only w/CLONE_PARENT_SETTID
+	mov out3=in3	// parent_tidptr: valid only w/CLONE_PARENT_SETTID
 	;;
 (p6)	st8 [r2]=in5				// store TLS in r16 for copy_thread()
-	mov out5=in4	// child_tidptr:  valid only w/CLONE_CHILD_SETTID or CLONE_CHILD_CLEARTID
-	adds out2=IA64_SWITCH_STACK_SIZE+16,sp	// out2 = &regs
+	mov out4=in4	// child_tidptr:  valid only w/CLONE_CHILD_SETTID or CLONE_CHILD_CLEARTID
 	mov out0=in0				// out0 = clone_flags
 	br.call.sptk.many rp=do_fork
 .ret1:	.restore sp
@@ -150,13 +149,12 @@ GLOBAL_ENTRY(sys_clone)
 	mov loc1=r16				// save ar.pfs across do_fork
 	.body
 	mov out1=in1
-	mov out3=16				// stacksize (compensates for 16-byte scratch area)
+	mov out2=16				// stacksize (compensates for 16-byte scratch area)
 	tbit.nz p6,p0=in0,CLONE_SETTLS_BIT
-	mov out4=in2	// parent_tidptr: valid only w/CLONE_PARENT_SETTID
+	mov out3=in2	// parent_tidptr: valid only w/CLONE_PARENT_SETTID
 	;;
 (p6)	st8 [r2]=in4				// store TLS in r13 (tp)
-	mov out5=in3	// child_tidptr:  valid only w/CLONE_CHILD_SETTID or CLONE_CHILD_CLEARTID
-	adds out2=IA64_SWITCH_STACK_SIZE+16,sp	// out2 = &regs
+	mov out4=in3	// child_tidptr:  valid only w/CLONE_CHILD_SETTID or CLONE_CHILD_CLEARTID
 	mov out0=in0				// out0 = clone_flags
 	br.call.sptk.many rp=do_fork
 .ret2:	.restore sp
@@ -719,7 +717,7 @@ GLOBAL_ENTRY(__paravirt_leave_syscall)
 #endif
 .global __paravirt_work_processed_syscall;
 __paravirt_work_processed_syscall:
-#ifdef CONFIG_VIRT_CPU_ACCOUNTING
+#ifdef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
 	adds r2=PT(LOADRS)+16,r12
 	MOV_FROM_ITC(pUStk, p9, r22, r19)	// fetch time at leave
 	adds r18=TI_FLAGS+IA64_TASK_SIZE,r13
@@ -757,7 +755,7 @@ __paravirt_work_processed_syscall:
 
 	ld8 r29=[r2],16		// M0|1 load cr.ipsr
 	ld8 r28=[r3],16		// M0|1 load cr.iip
-#ifdef CONFIG_VIRT_CPU_ACCOUNTING
+#ifdef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
 (pUStk) add r14=TI_AC_LEAVE+IA64_TASK_SIZE,r13
 	;;
 	ld8 r30=[r2],16		// M0|1 load cr.ifs
@@ -788,7 +786,7 @@ __paravirt_work_processed_syscall:
 	ld8.fill r1=[r3],16			// M0|1 load r1
 (pUStk) mov r17=1				// A
 	;;
-#ifdef CONFIG_VIRT_CPU_ACCOUNTING
+#ifdef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
 (pUStk) st1 [r15]=r17				// M2|3
 #else
 (pUStk) st1 [r14]=r17				// M2|3
@@ -808,7 +806,7 @@ __paravirt_work_processed_syscall:
 	shr.u r18=r19,16		// I0|1 get byte size of existing "dirty" partition
 	COVER				// B    add current frame into dirty partition & set cr.ifs
 	;;
-#ifdef CONFIG_VIRT_CPU_ACCOUNTING
+#ifdef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
 	mov r19=ar.bsp			// M2   get new backing store pointer
 	st8 [r14]=r22			// M	save time at leave
 	mov f10=f0			// F    clear f10
@@ -943,7 +941,7 @@ GLOBAL_ENTRY(__paravirt_leave_kernel)
 	adds r16=PT(CR_IPSR)+16,r12
 	adds r17=PT(CR_IIP)+16,r12
 
-#ifdef CONFIG_VIRT_CPU_ACCOUNTING
+#ifdef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
 	.pred.rel.mutex pUStk,pKStk
 	MOV_FROM_PSR(pKStk, r22, r29)	// M2 read PSR now that interrupts are disabled
 	MOV_FROM_ITC(pUStk, p9, r22, r29)	// M  fetch time at leave
@@ -976,7 +974,7 @@ GLOBAL_ENTRY(__paravirt_leave_kernel)
 	;;
 	ld8.fill r12=[r16],16
 	ld8.fill r13=[r17],16
-#ifdef CONFIG_VIRT_CPU_ACCOUNTING
+#ifdef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
 (pUStk)	adds r3=TI_AC_LEAVE+IA64_TASK_SIZE,r18
 #else
 (pUStk)	adds r18=IA64_TASK_THREAD_ON_USTACK_OFFSET,r18
@@ -984,7 +982,7 @@ GLOBAL_ENTRY(__paravirt_leave_kernel)
 	;;
 	ld8 r20=[r16],16	// ar.fpsr
 	ld8.fill r15=[r17],16
-#ifdef CONFIG_VIRT_CPU_ACCOUNTING
+#ifdef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
 (pUStk)	adds r18=IA64_TASK_THREAD_ON_USTACK_OFFSET,r18	// deferred
 #endif
 	;;
@@ -992,7 +990,7 @@ GLOBAL_ENTRY(__paravirt_leave_kernel)
 	ld8.fill r2=[r17]
 (pUStk)	mov r17=1
 	;;
-#ifdef CONFIG_VIRT_CPU_ACCOUNTING
+#ifdef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
 	//  mmi_ :  ld8 st1 shr;;         mmi_ : st8 st1 shr;;
 	//  mib  :  mov add br        ->  mib  : ld8 add br
 	//  bbb_ :  br  nop cover;;       mbb_ : mov br  cover;;

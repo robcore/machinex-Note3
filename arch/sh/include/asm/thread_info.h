@@ -31,8 +31,6 @@ struct thread_info {
 
 #endif
 
-#define PREEMPT_ACTIVE		0x10000000
-
 #if defined(CONFIG_4KSTACKS)
 #define THREAD_SHIFT	12
 #else
@@ -98,7 +96,6 @@ static inline struct thread_info *current_thread_info(void)
 extern struct thread_info *alloc_thread_info_node(struct task_struct *tsk, int node);
 extern void free_thread_info(struct thread_info *ti);
 extern void arch_task_cache_init(void);
-#define arch_task_cache_init arch_task_cache_init
 extern int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src);
 extern void init_thread_xstate(void);
 
@@ -170,8 +167,9 @@ static inline void set_restore_sigmask(void)
 {
 	struct thread_info *ti = current_thread_info();
 	ti->status |= TS_RESTORE_SIGMASK;
-	set_bit(TIF_SIGPENDING, (unsigned long *)&ti->flags);
+	WARN_ON(!test_bit(TIF_SIGPENDING, (unsigned long *)&ti->flags));
 }
+
 #endif	/* !__ASSEMBLY__ */
 
 #endif /* __KERNEL__ */

@@ -40,7 +40,7 @@
 	android_usb@fe8050c8 {
 		compatible = "qcom,android-usb";
 		reg = <0xfe8050c8 0xc8>;
-		qcom,android-usb-swfi-latency = <1>;
+		qcom,pm-qos-latency = <2 1001 30001>;
 		qcom,android-usb-uicc-nluns = /bits/ 8 <1>;
 	};
 
@@ -52,6 +52,7 @@
 
 &usb3 {
 	qcom,usbin-vadc = <&pm8941_vadc>;
+	qcom,utmi-clk-rate = <24000000>;
 };
 
 /* GPU overrides */
@@ -104,7 +105,7 @@
 
 &msm_vidc {
 	qcom,vidc-ns-map = <0x40000000 0x40000000>;
-	qcom,load-freq-tbl = <979200 465000000>,
+	qcom,load-freq-tbl = <1036800 465000000>,
 		<783360 465000000>,
 		<489600 266670000>,
 		<244800 133330000>;

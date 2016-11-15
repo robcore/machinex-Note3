@@ -175,12 +175,11 @@ static struct hlist_head *dn_find_list(struct sock *sk)
 static int check_port(__le16 port)
 {
 	struct sock *sk;
-	struct hlist_node *node;
 
 	if (port == 0)
 		return -1;
 
-	sk_for_each(sk, node, &dn_sk_hash[le16_to_cpu(port) & DN_SK_HASH_MASK]) {
+	sk_for_each(sk, &dn_sk_hash[le16_to_cpu(port) & DN_SK_HASH_MASK]) {
 		struct dn_scp *scp = DN_SK(sk);
 		if (scp->addrloc == port)
 			return -1;
@@ -250,7 +249,7 @@ static void dn_unhash_sock_bh(struct sock *sk)
 static struct hlist_head *listen_hash(struct sockaddr_dn *addr)
 {
 	int i;
-	unsigned hash = addr->sdn_objnum;
+	unsigned int hash = addr->sdn_objnum;
 
 	if (hash == 0) {
 		hash = addr->sdn_objnamel;
@@ -374,11 +373,10 @@ int dn_username2sockaddr(unsigned char *data, int len, struct sockaddr_dn *sdn, 
 struct sock *dn_sklist_find_listener(struct sockaddr_dn *addr)
 {
 	struct hlist_head *list = listen_hash(addr);
-	struct hlist_node *node;
 	struct sock *sk;
 
 	read_lock(&dn_hash_lock);
-	sk_for_each(sk, node, list) {
+	sk_for_each(sk, list) {
 		struct dn_scp *scp = DN_SK(sk);
 		if (sk->sk_state != TCP_LISTEN)
 			continue;
@@ -414,11 +412,10 @@ struct sock *dn_find_by_skb(struct sk_buff *skb)
 {
 	struct dn_skb_cb *cb = DN_SKB_CB(skb);
 	struct sock *sk;
-	struct hlist_node *node;
 	struct dn_scp *scp;
 
 	read_lock(&dn_hash_lock);
-	sk_for_each(sk, node, &dn_sk_hash[le16_to_cpu(cb->dst_port) & DN_SK_HASH_MASK]) {
+	sk_for_each(sk, &dn_sk_hash[le16_to_cpu(cb->dst_port) & DN_SK_HASH_MASK]) {
 		scp = DN_SK(sk);
 		if (cb->src != dn_saddr2dn(&scp->peer))
 			continue;
@@ -679,6 +676,9 @@ static int dn_create(struct net *net, struct socket *sock, int protocol,
 		     int kern)
 {
 	struct sock *sk;
+
+	if (protocol < 0 || protocol > SK_PROTOCOL_MAX)
+		return -EINVAL;
 
 	if (protocol < 0 || protocol > SK_PROTOCOL_MAX)
 		return -EINVAL;
@@ -1847,9 +1847,9 @@ static inline int dn_queue_too_long(struct dn_scp *scp, struct sk_buff_head *que
  * inclusion (or not) of the two 16 bit acknowledgement fields so it doesn't
  * make much practical difference.
  */
-unsigned dn_mss_from_pmtu(struct net_device *dev, int mtu)
+unsigned int dn_mss_from_pmtu(struct net_device *dev, int mtu)
 {
-	unsigned mss = 230 - DN_MAX_NSP_DATA_HEADER;
+	unsigned int mss = 230 - DN_MAX_NSP_DATA_HEADER;
 	if (dev) {
 		struct dn_dev *dn_db = rcu_dereference_raw(dev->dn_ptr);
 		mtu -= LL_RESERVED_SPACE(dev);
@@ -2414,7 +2414,7 @@ static void __exit decnet_exit(void)
 	dn_neigh_cleanup();
 	dn_fib_cleanup();
 
-	proc_net_remove(&init_net, "decnet");
+	remove_proc_entry("decnet", init_net.proc_net);
 
 	proto_unregister(&dn_proto);
 

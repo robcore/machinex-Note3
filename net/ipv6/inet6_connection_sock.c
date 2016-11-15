@@ -31,14 +31,13 @@ int inet6_csk_bind_conflict(const struct sock *sk,
 			    const struct inet_bind_bucket *tb)
 {
 	const struct sock *sk2;
-	const struct hlist_node *node;
 
 	/* We must walk the whole port owner list in this case. -DaveM */
 	/*
 	 * See comment in inet_csk_bind_conflict about sock lookup
 	 * vs net namespaces issues.
 	 */
-	sk_for_each_bound(sk2, node, &tb->owners) {
+	sk_for_each_bound(sk2, &tb->owners) {
 		if (sk != sk2 &&
 		    (!sk->sk_bound_dev_if ||
 		     !sk2->sk_bound_dev_if ||
@@ -49,7 +48,7 @@ int inet6_csk_bind_conflict(const struct sock *sk,
 			break;
 	}
 
-	return node != NULL;
+	return sk2 != NULL;
 }
 
 EXPORT_SYMBOL_GPL(inet6_csk_bind_conflict);
@@ -66,7 +65,9 @@ struct dst_entry *inet6_csk_route_req(struct sock *sk,
 	memset(&fl6, 0, sizeof(fl6));
 	fl6.flowi6_proto = IPPROTO_TCP;
 	fl6.daddr = treq->rmt_addr;
-	final_p = fl6_update_dst(&fl6, np->opt, &final);
+        rcu_read_lock();
+	final_p = fl6_update_dst(&fl6, rcu_dereference(np->opt), &final);
+        rcu_read_unlock();
 	fl6.saddr = treq->loc_addr;
 	fl6.flowi6_oif = sk->sk_bound_dev_if;
 	fl6.flowi6_mark = inet_rsk(req)->ir_mark;
@@ -227,7 +228,9 @@ int inet6_csk_xmit(struct sk_buff *skb, struct flowi *fl_unused)
 	fl6.flowi6_uid = sock_i_uid(sk);
 	security_sk_classify_flow(sk, flowi6_to_flowi(&fl6));
 
-	final_p = fl6_update_dst(&fl6, np->opt, &final);
+        rcu_read_lock();
+        final_p = fl6_update_dst(&fl6, rcu_dereference(np->opt), &final);
+        rcu_read_unlock();
 
 	dst = __inet6_csk_dst_check(sk, np->dst_cookie);
 
@@ -250,7 +253,8 @@ int inet6_csk_xmit(struct sk_buff *skb, struct flowi *fl_unused)
 	/* Restore final destination back after routing done */
 	fl6.daddr = np->daddr;
 
-	res = ip6_xmit(sk, skb, &fl6, np->opt, np->tclass);
+	res = ip6_xmit(sk, skb, &fl6, rcu_dereference(np->opt),
+		       np->tclass);
 	rcu_read_unlock();
 	return res;
 }

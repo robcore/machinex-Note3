@@ -36,9 +36,7 @@
 
 #include <asm/arch_timer.h>
 
-#include "smd_private.h"
 #include "smd_rpc_sym.h"
-#include "modem_notifier.h"
 #include "smem_private.h"
 
 #define DEBUG
@@ -1740,7 +1738,7 @@ static int debug_dump(char *buf, int max, uint32_t cont)
 		r = wait_event_interruptible_timeout(inst[GEN].read_wait,
 						     inst[GEN].last_read_avail,
 						     smem_log_timeout_ms *
-						     HZ / 1000);
+						     msecs_to_jiffies(1));
 		DBG("%s: read available %d\n", __func__,
 		    inst[GEN].last_read_avail);
 		if (r < 0)
@@ -1764,7 +1762,7 @@ static int debug_dump_sym(char *buf, int max, uint32_t cont)
 		r = wait_event_interruptible_timeout(inst[GEN].read_wait,
 						     inst[GEN].last_read_avail,
 						     smem_log_timeout_ms *
-						     HZ / 1000);
+						     msecs_to_jiffies(1));
 		DBG("%s: readavailable %d\n", __func__,
 		    inst[GEN].last_read_avail);
 		if (r < 0)

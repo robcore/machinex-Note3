@@ -759,6 +759,13 @@ UNUSUAL_DEV(  0x059f, 0x0651, 0x0000, 0x0000,
 		USB_SC_DEVICE, USB_PR_DEVICE, NULL,
 		US_FL_NO_WP_DETECT ),
 
+/* Reported by Christian Schaller <cschalle@redhat.com> */
+UNUSUAL_DEV(  0x059f, 0x0651, 0x0000, 0x0000,
+		"LaCie",
+		"External HDD",
+		USB_SC_DEVICE, USB_PR_DEVICE, NULL,
+		US_FL_NO_WP_DETECT ),
+
 /* Submitted by Joel Bourquard <numlock@freesurf.ch>
  * Some versions of this device need the SubClass and Protocol overrides
  * while others don't.
@@ -1999,6 +2006,13 @@ UNUSUAL_DEV(  0x1822, 0x0001, 0x0000, 0x9999,
 		USB_SC_DEVICE, USB_PR_DEVICE, usb_stor_euscsi_init,
 		US_FL_SCM_MULT_TARG ),
 
+/* Reported by Jesse Feddema <jdfeddema@gmail.com> */
+UNUSUAL_DEV(  0x177f, 0x0400, 0x0000, 0x0000,
+		"Yarvik",
+		"PMP400",
+		USB_SC_DEVICE, USB_PR_DEVICE, NULL,
+		US_FL_BULK_IGNORE_TAG | US_FL_MAX_SECTORS_64 ),
+
 /* Reported by Hans de Goede <hdegoede@redhat.com>
  * These Appotech controllers are found in Picture Frames, they provide a
  * (buggy) emulation of a cdrom drive which contains the windows software
@@ -2018,6 +2032,18 @@ UNUSUAL_DEV( 0x1908, 0x3335, 0x0200, 0x0200,
 		"Photo Frame",
 		USB_SC_DEVICE, USB_PR_DEVICE, NULL,
 		US_FL_NO_READ_DISC_INFO ),
+
+/* Reported by Oliver Neukum <oneukum@suse.com>
+ * This device morphes spontaneously into another device if the access
+ * pattern of Windows isn't followed. Thus writable media would be dirty
+ * if the initial instance is used. So the device is limited to its
+ * virtual CD.
+ * And yes, the concept that BCD goes up to 9 is not heeded */
+UNUSUAL_DEV( 0x19d2, 0x1225, 0x0000, 0xffff,
+		"ZTE,Incorporated",
+		"ZTE WCDMA Technologies MSM",
+		USB_SC_DEVICE, USB_PR_DEVICE, NULL,
+		US_FL_SINGLE_LUN ),
 
 /* Reported by Oliver Neukum <oneukum@suse.com>
  * This device morphes spontaneously into another device if the access
@@ -2144,26 +2170,32 @@ UNUSUAL_DEV( 0xed10, 0x7636, 0x0001, 0x0001,
 		"Digital MP3 Audio Player",
 		USB_SC_DEVICE, USB_PR_DEVICE, NULL, US_FL_NOT_LOCKABLE ),
 
+/* Reported by Pavankumar Kondeti <pkondeti@codeaurora.org> */
+UNUSUAL_DEV(0x0925, 0x9011, 0x0100, 0x0100,
+		"TMC",
+		"USB DISK",
+		USB_SC_DEVICE, USB_PR_DEVICE, NULL, US_FL_TUR_AFTER_WRITE),
+
 /* Control/Bulk transport for all SubClass values */
-USUAL_DEV(USB_SC_RBC, USB_PR_CB, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_8020, USB_PR_CB, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_QIC, USB_PR_CB, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_UFI, USB_PR_CB, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_8070, USB_PR_CB, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_SCSI, USB_PR_CB, USB_US_TYPE_STOR),
+USUAL_DEV(USB_SC_RBC, USB_PR_CB),
+USUAL_DEV(USB_SC_8020, USB_PR_CB),
+USUAL_DEV(USB_SC_QIC, USB_PR_CB),
+USUAL_DEV(USB_SC_UFI, USB_PR_CB),
+USUAL_DEV(USB_SC_8070, USB_PR_CB),
+USUAL_DEV(USB_SC_SCSI, USB_PR_CB),
 
 /* Control/Bulk/Interrupt transport for all SubClass values */
-USUAL_DEV(USB_SC_RBC, USB_PR_CBI, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_8020, USB_PR_CBI, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_QIC, USB_PR_CBI, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_UFI, USB_PR_CBI, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_8070, USB_PR_CBI, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_SCSI, USB_PR_CBI, USB_US_TYPE_STOR),
+USUAL_DEV(USB_SC_RBC, USB_PR_CBI),
+USUAL_DEV(USB_SC_8020, USB_PR_CBI),
+USUAL_DEV(USB_SC_QIC, USB_PR_CBI),
+USUAL_DEV(USB_SC_UFI, USB_PR_CBI),
+USUAL_DEV(USB_SC_8070, USB_PR_CBI),
+USUAL_DEV(USB_SC_SCSI, USB_PR_CBI),
 
 /* Bulk-only transport for all SubClass values */
-USUAL_DEV(USB_SC_RBC, USB_PR_BULK, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_8020, USB_PR_BULK, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_QIC, USB_PR_BULK, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_UFI, USB_PR_BULK, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_8070, USB_PR_BULK, USB_US_TYPE_STOR),
-USUAL_DEV(USB_SC_SCSI, USB_PR_BULK, 0),
+USUAL_DEV(USB_SC_RBC, USB_PR_BULK),
+USUAL_DEV(USB_SC_8020, USB_PR_BULK),
+USUAL_DEV(USB_SC_QIC, USB_PR_BULK),
+USUAL_DEV(USB_SC_UFI, USB_PR_BULK),
+USUAL_DEV(USB_SC_8070, USB_PR_BULK),
+USUAL_DEV(USB_SC_SCSI, USB_PR_BULK),

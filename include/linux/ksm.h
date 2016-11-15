@@ -16,27 +16,9 @@
 struct stable_node;
 struct mem_cgroup;
 
-struct page *ksm_does_need_to_copy(struct page *page,
-			struct vm_area_struct *vma, unsigned long address);
-
 #ifdef CONFIG_KSM
 int ksm_madvise(struct vm_area_struct *vma, unsigned long start,
 		unsigned long end, int advice, unsigned long *vm_flags);
-int __ksm_enter(struct mm_struct *mm);
-void __ksm_exit(struct mm_struct *mm);
-
-static inline int ksm_fork(struct mm_struct *mm, struct mm_struct *oldmm)
-{
-	if (test_bit(MMF_VM_MERGEABLE, &oldmm->flags))
-		return __ksm_enter(mm);
-	return 0;
-}
-
-static inline void ksm_exit(struct mm_struct *mm)
-{
-	if (test_bit(MMF_VM_MERGEABLE, &mm->flags))
-		__ksm_exit(mm);
-}
 
 /*
  * A KSM page is one of those write-protected "shared pages" or "merged pages"
@@ -73,22 +55,43 @@ static inline void set_page_stable_node(struct page *page,
  * We'd like to make this conditional on vma->vm_flags & VM_MERGEABLE,
  * but what if the vma was unmerged while the page was swapped out?
  */
-static inline int ksm_might_need_to_copy(struct page *page,
-			struct vm_area_struct *vma, unsigned long address)
-{
-	struct anon_vma *anon_vma = page_anon_vma(page);
-
-	return anon_vma &&
-		(anon_vma->root != vma->anon_vma->root ||
-		 page->index != linear_page_index(vma, address));
-}
+struct page *ksm_might_need_to_copy(struct page *page,
+			struct vm_area_struct *vma, unsigned long address);
 
 int page_referenced_ksm(struct page *page,
 			struct mem_cgroup *memcg, unsigned long *vm_flags);
-int try_to_unmap_ksm(struct page *page, enum ttu_flags flags);
+int try_to_unmap_ksm(struct page *page,
+			enum ttu_flags flags, struct vm_area_struct *vma);
 int rmap_walk_ksm(struct page *page, int (*rmap_one)(struct page *,
 		  struct vm_area_struct *, unsigned long, void *), void *arg);
 void ksm_migrate_page(struct page *newpage, struct page *oldpage);
+
+#ifdef CONFIG_KSM_LEGACY
+int __ksm_enter(struct mm_struct *mm);
+void __ksm_exit(struct mm_struct *mm);
+static inline int ksm_fork(struct mm_struct *mm, struct mm_struct *oldmm)
+{
+	if (test_bit(MMF_VM_MERGEABLE, &oldmm->flags))
+		return __ksm_enter(mm);
+	return 0;
+}
+
+static inline void ksm_exit(struct mm_struct *mm)
+{
+	if (test_bit(MMF_VM_MERGEABLE, &mm->flags))
+		__ksm_exit(mm);
+}
+
+#elif defined(CONFIG_UKSM)
+static inline int ksm_fork(struct mm_struct *mm, struct mm_struct *oldmm)
+{
+	return 0;
+}
+
+static inline void ksm_exit(struct mm_struct *mm)
+{
+}
+#endif /* !CONFIG_UKSM */
 
 #else  /* !CONFIG_KSM */
 
@@ -113,10 +116,10 @@ static inline int ksm_madvise(struct vm_area_struct *vma, unsigned long start,
 	return 0;
 }
 
-static inline int ksm_might_need_to_copy(struct page *page,
+static inline struct page *ksm_might_need_to_copy(struct page *page,
 			struct vm_area_struct *vma, unsigned long address)
 {
-	return 0;
+	return page;
 }
 
 static inline int page_referenced_ksm(struct page *page,
@@ -125,7 +128,8 @@ static inline int page_referenced_ksm(struct page *page,
 	return 0;
 }
 
-static inline int try_to_unmap_ksm(struct page *page, enum ttu_flags flags)
+static inline int try_to_unmap_ksm(struct page *page,
+			enum ttu_flags flags, struct vm_area_struct *target_vma)
 {
 	return 0;
 }
@@ -141,5 +145,7 @@ static inline void ksm_migrate_page(struct page *newpage, struct page *oldpage)
 }
 #endif /* CONFIG_MMU */
 #endif /* !CONFIG_KSM */
+
+#include <linux/uksm.h>
 
 #endif /* __LINUX_KSM_H */

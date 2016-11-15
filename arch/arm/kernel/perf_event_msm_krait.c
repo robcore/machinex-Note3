@@ -229,8 +229,6 @@ static unsigned int get_krait_evtinfo(unsigned int krait_evt_type,
 			reg += VENUM_BASE_OFFSET;
 	}
 
-	if ((group > 3) || (reg > krait_max_l1_reg))
-		return -EINVAL;
 
 	evtinfo->group_setval = 0x80000000 | (code << (group * 8));
 	evtinfo->groupcode = reg;

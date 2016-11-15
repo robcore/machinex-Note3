@@ -445,8 +445,9 @@ give_sigsegv:
 
 static long
 handle_signal(unsigned long sig, siginfo_t *info, struct k_sigaction *ka,
-		sigset_t *oldset, struct pt_regs *regs, int in_syscall)
+		struct pt_regs *regs, int in_syscall)
 {
+	sigset_t *oldset = sigmask_to_save();
 	DBG(1,"handle_signal: sig=%ld, ka=%p, info=%p, oldset=%p, regs=%p\n",
 	       sig, ka, info, oldset, regs);
 	
@@ -465,7 +466,59 @@ handle_signal(unsigned long sig, siginfo_t *info, struct k_sigaction *ka,
 		test_thread_flag(TIF_SINGLESTEP) ||
 		test_thread_flag(TIF_BLOCKSTEP));
 
+	DBG(1,KERN_DEBUG "do_signal: Exit (success), regs->gr[28] = %ld\n",
+		regs->gr[28]);
+
 	return 1;
+}
+
+/*
+ * Check how the syscall number gets loaded into %r20 within
+ * the delay branch in userspace and adjust as needed.
+ */
+
+static void check_syscallno_in_delay_branch(struct pt_regs *regs)
+{
+	u32 opcode, source_reg;
+	u32 __user *uaddr;
+	int err;
+
+	/* Usually we don't have to restore %r20 (the system call number)
+	 * because it gets loaded in the delay slot of the branch external
+	 * instruction via the ldi instruction.
+	 * In some cases a register-to-register copy instruction might have
+	 * been used instead, in which case we need to copy the syscall
+	 * number into the source register before returning to userspace.
+	 */
+
+	/* A syscall is just a branch, so all we have to do is fiddle the
+	 * return pointer so that the ble instruction gets executed again.
+	 */
+	regs->gr[31] -= 8; /* delayed branching */
+
+	/* Get assembler opcode of code in delay branch */
+	uaddr = (unsigned int *) ((regs->gr[31] & ~3) + 4);
+	err = get_user(opcode, uaddr);
+	if (err)
+		return;
+
+	/* Check if delay branch uses "ldi int,%r20" */
+	if ((opcode & 0xffff0000) == 0x34140000)
+		return;	/* everything ok, just return */
+
+	/* Check if delay branch uses "nop" */
+	if (opcode == INSN_NOP)
+		return;
+
+	/* Check if delay branch uses "copy %rX,%r20" */
+	if ((opcode & 0xffe0ffff) == 0x08000254) {
+		source_reg = (opcode >> 16) & 31;
+		regs->gr[source_reg] = regs->gr[20];
+		return;
+	}
+
+	pr_warn("syscall restart: %s (pid %d): unexpected opcode 0x%08x\n",
+		current->comm, task_pid_nr(current), opcode);
 }
 
 /*
@@ -614,28 +667,17 @@ do_signal(struct pt_regs *regs, long in_syscall)
 	siginfo_t info;
 	struct k_sigaction ka;
 	int signr;
-	sigset_t *oldset;
 
-	DBG(1,"\ndo_signal: oldset=0x%p, regs=0x%p, sr7 %#lx, in_syscall=%d\n",
-	       oldset, regs, regs->sr[7], in_syscall);
+	DBG(1,"\ndo_signal: regs=0x%p, sr7 %#lx, in_syscall=%d\n",
+	       regs, regs->sr[7], in_syscall);
 
 	/* Everyone else checks to see if they are in kernel mode at
 	   this point and exits if that's the case.  I'm not sure why
 	   we would be called in that case, but for some reason we
 	   are. */
 
-	if (test_thread_flag(TIF_RESTORE_SIGMASK))
-		oldset = &current->saved_sigmask;
-	else
-		oldset = &current->blocked;
-
-	DBG(1,"do_signal: oldset %08lx / %08lx\n", 
-		oldset->sig[0], oldset->sig[1]);
-
-
 	/* May need to force signal if handle_signal failed to deliver */
 	while (1) {
-	  
 		signr = get_signal_to_deliver(&info, &ka, regs, NULL);
 		DBG(3,"do_signal: signr = %d, regs->gr[28] = %ld\n", signr, regs->gr[28]); 
 	
@@ -649,14 +691,8 @@ do_signal(struct pt_regs *regs, long in_syscall)
 		/* Whee!  Actually deliver the signal.  If the
 		   delivery failed, we need to continue to iterate in
 		   this loop so we can deliver the SIGSEGV... */
-		if (handle_signal(signr, &info, &ka, oldset,
-				  regs, in_syscall)) {
-			DBG(1,KERN_DEBUG "do_signal: Exit (success), regs->gr[28] = %ld\n",
-				regs->gr[28]);
-			if (test_thread_flag(TIF_RESTORE_SIGMASK))
-				clear_thread_flag(TIF_RESTORE_SIGMASK);
+		if (handle_signal(signr, &info, &ka, regs, in_syscall))
 			return;
-		}
 	}
 	/* end of while(1) looping forever if we can't force a signal */
 
@@ -667,12 +703,7 @@ do_signal(struct pt_regs *regs, long in_syscall)
 	DBG(1,"do_signal: Exit (not delivered), regs->gr[28] = %ld\n", 
 		regs->gr[28]);
 
-	if (test_thread_flag(TIF_RESTORE_SIGMASK)) {
-		clear_thread_flag(TIF_RESTORE_SIGMASK);
-		sigprocmask(SIG_SETMASK, &current->saved_sigmask, NULL);
-	}
-
-	return;
+	restore_saved_sigmask();
 }
 
 void do_notify_resume(struct pt_regs *regs, long in_syscall)
@@ -684,7 +715,5 @@ void do_notify_resume(struct pt_regs *regs, long in_syscall)
 	if (test_thread_flag(TIF_NOTIFY_RESUME)) {
 		clear_thread_flag(TIF_NOTIFY_RESUME);
 		tracehook_notify_resume(regs);
-		if (current->replacement_session_keyring)
-			key_replace_session_keyring();
 	}
 }

@@ -33,6 +33,7 @@
 #include <linux/pagemap.h>
 #include <linux/idr.h>
 #include <linux/sched.h>
+#include <linux/aio.h>
 #include <net/9p/9p.h>
 #include <net/9p/client.h>
 
@@ -147,13 +148,14 @@ static int v9fs_release_page(struct page *page, gfp_t gfp)
  * @offset: offset in the page
  */
 
-static void v9fs_invalidate_page(struct page *page, unsigned long offset)
+static void v9fs_invalidate_page(struct page *page, unsigned int offset,
+				 unsigned int length)
 {
 	/*
 	 * If called with zero offset, we should release
 	 * the private state assocated with the page
 	 */
-	if (offset == 0)
+	if (offset == 0 && length == PAGE_CACHE_SIZE)
 		v9fs_fscache_invalidate_page(page);
 }
 
@@ -250,8 +252,8 @@ static int v9fs_launder_page(struct page *page)
  * the VFS gets them, so this method should never be called.
  *
  * Direct IO is not 'yet' supported in the cached mode. Hence when
- * this routine is called through generic_file_read_iter(), the read/write
- * fails with an error.
+ * this routine is called through generic_file_aio_read(), the read/write fails
+ * with an error.
  *
  */
 static ssize_t

@@ -138,6 +138,8 @@ __setup("idle=", idle_setup);
 void show_regs(struct pt_regs * regs)
 {
 	printk("\n");
+	show_regs_print_info(KERN_DEFAULT);
+
 	printk("BPC[%08lx]:PSW[%08lx]:LR [%08lx]:FP [%08lx]\n", \
 	  regs->bpc, regs->psw, regs->lr, regs->fp);
 	printk("BBPC[%08lx]:BBPSW[%08lx]:SPU[%08lx]:SPI[%08lx]\n", \
@@ -296,14 +298,14 @@ asmlinkage int sys_execve(const char __user *ufilename,
 			  unsigned long r6, struct pt_regs regs)
 {
 	int error;
-	char *filename;
+	struct filename *filename;
 
 	filename = getname(ufilename);
 	error = PTR_ERR(filename);
 	if (IS_ERR(filename))
 		goto out;
 
-	error = do_execve(filename, uargv, uenvp, &regs);
+	error = do_execve(filename->name, uargv, uenvp, &regs);
 	putname(filename);
 out:
 	return error;

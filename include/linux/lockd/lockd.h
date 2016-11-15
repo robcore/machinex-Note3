@@ -235,7 +235,8 @@ void		  nlm_rebind_host(struct nlm_host *);
 struct nlm_host * nlm_get_host(struct nlm_host *);
 void		  nlm_shutdown_hosts(void);
 void		  nlm_shutdown_hosts_net(struct net *net);
-void		  nlm_host_rebooted(const struct nlm_reboot *);
+void		  nlm_host_rebooted(const struct net *net,
+					const struct nlm_reboot *);
 
 /*
  * Host monitoring
@@ -243,11 +244,13 @@ void		  nlm_host_rebooted(const struct nlm_reboot *);
 int		  nsm_monitor(const struct nlm_host *host);
 void		  nsm_unmonitor(const struct nlm_host *host);
 
-struct nsm_handle *nsm_get_handle(const struct sockaddr *sap,
+struct nsm_handle *nsm_get_handle(const struct net *net,
+					const struct sockaddr *sap,
 					const size_t salen,
 					const char *hostname,
 					const size_t hostname_len);
-struct nsm_handle *nsm_reboot_lookup(const struct nlm_reboot *info);
+struct nsm_handle *nsm_reboot_lookup(const struct net *net,
+					const struct nlm_reboot *info);
 void		  nsm_release(struct nsm_handle *nsm);
 
 /*
@@ -291,7 +294,7 @@ int           nlmsvc_unlock_all_by_ip(struct sockaddr *server_addr);
 
 static inline struct inode *nlmsvc_file_inode(struct nlm_file *file)
 {
-	return file->f_file->f_path.dentry->d_inode;
+	return file_inode(file->f_file);
 }
 
 static inline int __nlm_privileged_request4(const struct sockaddr *sap)

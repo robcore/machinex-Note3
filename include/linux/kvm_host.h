@@ -21,6 +21,9 @@
 #include <linux/slab.h>
 #include <linux/rcupdate.h>
 #include <linux/ratelimit.h>
+#include <linux/err.h>
+#include <linux/irqflags.h>
+#include <linux/context_tracking.h>
 #include <asm/signal.h>
 
 #include <linux/kvm.h>
@@ -640,9 +643,14 @@ static inline int kvm_deassign_device(struct kvm *kvm,
 
 static inline void kvm_guest_enter(void)
 {
+	unsigned long flags;
+
 	BUG_ON(preemptible());
-	account_system_vtime(current);
-	current->flags |= PF_VCPU;
+
+	local_irq_save(flags);
+	guest_enter();
+	local_irq_restore(flags);
+
 	/* KVM does not hold any references to rcu protected data when it
 	 * switches CPU into a guest mode. In fact switching to a guest mode
 	 * is very similar to exiting to userspase from rcu point of view. In
@@ -655,8 +663,11 @@ static inline void kvm_guest_enter(void)
 
 static inline void kvm_guest_exit(void)
 {
-	account_system_vtime(current);
-	current->flags &= ~PF_VCPU;
+	unsigned long flags;
+
+	local_irq_save(flags);
+	guest_exit();
+	local_irq_restore(flags);
 }
 
 /*

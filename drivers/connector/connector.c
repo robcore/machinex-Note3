@@ -252,15 +252,19 @@ static const struct file_operations cn_file_ops = {
 	.release = single_release
 };
 
+static struct cn_dev cdev = {
+	.input   = cn_rx_skb,
+};
+
 static int __devinit cn_init(void)
 {
 	struct cn_dev *dev = &cdev;
+	struct netlink_kernel_cfg cfg = {
+		.groups	= CN_NETLINK_USERS + 0xf,
+		.input	= dev->input,
+	};
 
-	dev->input = cn_rx_skb;
-
-	dev->nls = netlink_kernel_create(&init_net, NETLINK_CONNECTOR,
-					 CN_NETLINK_USERS + 0xf,
-					 dev->input, NULL, THIS_MODULE);
+	dev->nls = netlink_kernel_create(&init_net, NETLINK_CONNECTOR, &cfg);
 	if (!dev->nls)
 		return -EIO;
 
@@ -283,7 +287,7 @@ static void __devexit cn_fini(void)
 
 	cn_already_initialized = 0;
 
-	proc_net_remove(&init_net, "connector");
+	remove_proc_entry("connector", init_net.proc_net);
 
 	cn_queue_free_dev(dev->cbdev);
 	netlink_kernel_release(dev->nls);

@@ -18,6 +18,9 @@ struct dma_map_ops {
 	int (*mmap)(struct device *, struct vm_area_struct *,
 			  void *, dma_addr_t, size_t, struct dma_attrs *attrs);
 
+	int (*get_sgtable)(struct device *dev, struct sg_table *sgt, void *,
+			   dma_addr_t, size_t, struct dma_attrs *attrs);
+
 	dma_addr_t (*map_page)(struct device *dev, struct page *page,
 			       unsigned long offset, size_t size,
 			       enum dma_data_direction dir,
@@ -47,6 +50,11 @@ struct dma_map_ops {
 	int (*mapping_error)(struct device *dev, dma_addr_t dma_addr);
 	int (*dma_supported)(struct device *dev, u64 mask);
 	int (*set_dma_mask)(struct device *dev, u64 mask);
+	void *(*remap)(struct device *dev, void *cpu_addr,
+			dma_addr_t dma_handle, size_t size,
+			struct dma_attrs *attrs);
+	void (*unremap)(struct device *dev, void *remapped_address,
+			size_t size);
 #ifdef ARCH_HAS_DMA_GET_REQUIRED_MASK
 	u64 (*get_required_mask)(struct device *dev);
 #endif
@@ -74,6 +82,37 @@ static inline int is_device_dma_capable(struct device *dev)
 #else
 #include <asm-generic/dma-mapping-broken.h>
 #endif
+
+static inline void *dma_remap(struct device *dev, void *cpu_addr,
+		dma_addr_t dma_handle, size_t size, struct dma_attrs *attrs)
+{
+	const struct dma_map_ops *ops = get_dma_ops(dev);
+	BUG_ON(!ops);
+
+	if (!ops->remap) {
+		WARN_ONCE(1, "Remap function not implemented for %pS\n",
+				ops->remap);
+		return NULL;
+	}
+
+	return ops->remap(dev, cpu_addr, dma_handle, size, attrs);
+}
+
+
+static inline void dma_unremap(struct device *dev, void *remapped_addr,
+				size_t size)
+{
+	const struct dma_map_ops *ops = get_dma_ops(dev);
+	BUG_ON(!ops);
+
+	if (!ops->unremap) {
+		WARN_ONCE(1, "unremap function not implemented for %pS\n",
+				ops->unremap);
+		return;
+	}
+
+	return ops->unremap(dev, remapped_addr, size);
+}
 
 static inline u64 dma_get_mask(struct device *dev)
 {

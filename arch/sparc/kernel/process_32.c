@@ -265,6 +265,8 @@ void show_regs(struct pt_regs *r)
 {
 	struct reg_window32 *rw = (struct reg_window32 *) r->u_regs[14];
 
+	show_regs_print_info(KERN_DEFAULT);
+
         printk("PSR: %08lx PC: %08lx NPC: %08lx Y: %08lx    %s\n",
 	       r->psr, r->pc, r->npc, r->y, print_tainted());
 	printk("PC: <%pS>\n", (void *) r->pc);
@@ -314,17 +316,6 @@ void show_stack(struct task_struct *tsk, unsigned long *_ksp)
 	} while (++count < 16);
 	printk("\n");
 }
-
-void dump_stack(void)
-{
-	unsigned long *ksp;
-
-	__asm__ __volatile__("mov	%%fp, %0"
-			     : "=r" (ksp));
-	show_stack(current, ksp);
-}
-
-EXPORT_SYMBOL(dump_stack);
 
 /*
  * Note: sparc64 has a pretty intricated thread_saved_pc, check it out.
@@ -427,8 +418,7 @@ asmlinkage int sparc_do_fork(unsigned long clone_flags,
 	parent_tid_ptr = regs->u_regs[UREG_I2];
 	child_tid_ptr = regs->u_regs[UREG_I4];
 
-	ret = do_fork(clone_flags, stack_start,
-		      regs, stack_size,
+	ret = do_fork(clone_flags, stack_start, stack_size,
 		      (int __user *) parent_tid_ptr,
 		      (int __user *) child_tid_ptr);
 
@@ -625,7 +615,7 @@ int dump_fpu (struct pt_regs * regs, elf_fpregset_t * fpregs)
 asmlinkage int sparc_execve(struct pt_regs *regs)
 {
 	int error, base = 0;
-	char *filename;
+	struct filename *filename;
 
 	/* Check for indirect call. */
 	if(regs->u_regs[UREG_G1] == 0)
@@ -635,7 +625,7 @@ asmlinkage int sparc_execve(struct pt_regs *regs)
 	error = PTR_ERR(filename);
 	if(IS_ERR(filename))
 		goto out;
-	error = do_execve(filename,
+	error = do_execve(filename->name,
 			  (const char __user *const  __user *)
 			  regs->u_regs[base + UREG_I1],
 			  (const char __user *const  __user *)

@@ -73,6 +73,15 @@ struct key;
 
 #define KEY_PERM_UNDEF	0xffffffff
 
+/* New permission defines for backport */
+#define	KEY_NEED_VIEW	0x01	/* Require permission to view attributes */
+#define	KEY_NEED_READ	0x02	/* Require permission to read content */
+#define	KEY_NEED_WRITE	0x04	/* Require permission to update / modify */
+#define	KEY_NEED_SEARCH	0x08	/* Require permission to search (keyring) or find (key) */
+#define	KEY_NEED_LINK	0x10	/* Require permission to link */
+#define	KEY_NEED_SETATTR 0x20	/* Require permission to change attributes */
+#define	KEY_NEED_ALL	0x3f	/* All the above permissions */
+
 struct seq_file;
 struct user_struct;
 struct signal_struct;
@@ -138,6 +147,7 @@ struct key {
 		time_t		expiry;		/* time at which key expires (or 0) */
 		time_t		revoked_at;	/* time at which key was revoked */
 	};
+	time_t			last_used_at;	/* last time used for LRU keyring discard */
 	uid_t			uid;
 	gid_t			gid;
 	key_perm_t		perm;		/* access permissions */
@@ -243,7 +253,7 @@ extern struct key *request_key_async_with_auxdata(struct key_type *type,
 
 extern int wait_for_key_construction(struct key *key, bool intr);
 
-extern int key_validate(struct key *key);
+extern int key_validate(const struct key *key);
 
 extern key_ref_t key_create_or_update(key_ref_t keyring,
 				      const char *type,
@@ -265,6 +275,7 @@ extern int key_unlink(struct key *keyring,
 
 extern struct key *keyring_alloc(const char *description, uid_t uid, gid_t gid,
 				 const struct cred *cred,
+				 key_perm_t perm,
 				 unsigned long flags,
 				 struct key *dest);
 
@@ -304,7 +315,9 @@ static inline bool key_is_instantiated(const struct key *key)
 				   rwsem_is_locked(&((struct key *)(KEY))->sem)))
 
 #define rcu_assign_keypointer(KEY, PAYLOAD)				\
-	(rcu_assign_pointer((KEY)->payload.rcudata, PAYLOAD))
+do {									\
+	rcu_assign_pointer((KEY)->payload.rcudata, (PAYLOAD));		\
+} while (0)
 
 #ifdef CONFIG_SYSCTL
 extern ctl_table key_sysctls[];

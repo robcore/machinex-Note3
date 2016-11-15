@@ -61,7 +61,7 @@ static int proc_parse_options(char *options, struct pid_namespace *pid)
 		if (!*p)
 			continue;
 
-		args[0].to = args[0].from = 0;
+		args[0].to = args[0].from = NULL;
 		token = match_token(p, tokens, args);
 		switch (token) {
 		case Opt_gid:
@@ -91,6 +91,8 @@ static int proc_parse_options(char *options, struct pid_namespace *pid)
 int proc_remount(struct super_block *sb, int *flags, char *data)
 {
 	struct pid_namespace *pid = sb->s_fs_info;
+
+	sync_filesystem(sb);
 	return !proc_parse_options(data, pid);
 }
 
@@ -100,14 +102,13 @@ static struct dentry *proc_mount(struct file_system_type *fs_type,
 	int err;
 	struct super_block *sb;
 	struct pid_namespace *ns;
-	struct proc_inode *ei;
 	char *options;
 
 	if (flags & MS_KERNMOUNT) {
 		ns = (struct pid_namespace *)data;
 		options = NULL;
 	} else {
-		ns = current->nsproxy->pid_ns;
+		ns = task_active_pid_ns(current);
 		options = data;
 	}
 
@@ -130,13 +131,6 @@ static struct dentry *proc_mount(struct file_system_type *fs_type,
 		sb->s_flags |= MS_ACTIVE;
 	}
 
-	ei = PROC_I(sb->s_root->d_inode);
-	if (!ei->pid) {
-		rcu_read_lock();
-		ei->pid = get_pid(find_pid_ns(1, ns));
-		rcu_read_unlock();
-	}
-
 	return dget(sb->s_root);
 }
 
@@ -145,6 +139,8 @@ static void proc_kill_sb(struct super_block *sb)
 	struct pid_namespace *ns;
 
 	ns = (struct pid_namespace *)sb->s_fs_info;
+	if (ns->proc_self)
+		dput(ns->proc_self);
 	kill_anon_super(sb);
 	put_pid_ns(ns);
 }
@@ -153,6 +149,7 @@ static struct file_system_type proc_fs_type = {
 	.name		= "proc",
 	.mount		= proc_mount,
 	.kill_sb	= proc_kill_sb,
+	.fs_flags	= FS_USERNS_MOUNT,
 };
 
 #ifdef CONFIG_DEFERRED_INITCALLS
@@ -234,13 +231,12 @@ static int proc_root_getattr(struct vfsmount *mnt, struct dentry *dentry, struct
 	return 0;
 }
 
-static struct dentry *proc_root_lookup(struct inode * dir, struct dentry * dentry, struct nameidata *nd)
+static struct dentry *proc_root_lookup(struct inode * dir, struct dentry * dentry, unsigned int flags)
 {
-	if (!proc_lookup(dir, dentry, nd)) {
+	if (!proc_lookup(dir, dentry, flags))
 		return NULL;
-	}
 	
-	return proc_pid_lookup(dir, dentry, nd);
+	return proc_pid_lookup(dir, dentry, flags);
 }
 
 static int proc_root_readdir(struct file * filp,

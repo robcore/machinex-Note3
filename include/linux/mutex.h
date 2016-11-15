@@ -15,8 +15,9 @@
 #include <linux/spinlock_types.h>
 #include <linux/linkage.h>
 #include <linux/lockdep.h>
-
 #include <linux/atomic.h>
+#include <asm/processor.h>
+#include <linux/osq_lock.h>
 
 /*
  * Simple, straightforward mutexes with strict semantics:
@@ -51,11 +52,11 @@ struct mutex {
 	atomic_t		count;
 	spinlock_t		wait_lock;
 	struct list_head	wait_list;
-#if defined(CONFIG_DEBUG_MUTEXES) || defined(CONFIG_SMP)
+#if defined(CONFIG_DEBUG_MUTEXES) || defined(CONFIG_MUTEX_SPIN_ON_OWNER)
 	struct task_struct	*owner;
 #endif
 #ifdef CONFIG_MUTEX_SPIN_ON_OWNER
-	void			*spin_mlock;	/* Spinner MCS lock */
+	struct optimistic_spin_queue osq; /* Spinner MCS lock */
 #endif
 #ifdef CONFIG_DEBUG_MUTEXES
 	const char 		*name;
@@ -175,8 +176,4 @@ extern void mutex_unlock(struct mutex *lock);
 
 extern int atomic_dec_and_mutex_lock(atomic_t *cnt, struct mutex *lock);
 
-#ifndef CONFIG_HAVE_ARCH_MUTEX_CPU_RELAX
-#define arch_mutex_cpu_relax()	cpu_relax()
-#endif
-
-#endif
+#endif /* __LINUX_MUTEX_H */

@@ -43,6 +43,7 @@
 #include <linux/workqueue.h>
 #include <linux/sysfs.h>
 #include <net/net_namespace.h>
+#include <net/sock.h>
 
 struct idletimer_tg_attr {
 	struct attribute attr;
@@ -61,6 +62,7 @@ struct idletimer_tg {
 	unsigned int refcnt;
 	bool send_nl_msg;
 	bool active;
+	uid_t uid;
 };
 
 static LIST_HEAD(idletimer_tg_list);

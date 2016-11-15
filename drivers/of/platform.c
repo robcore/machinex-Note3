@@ -76,7 +76,7 @@ void of_device_make_bus_id(struct device *dev)
 {
 	static atomic_t bus_no_reg_magic;
 	struct device_node *node = dev->of_node;
-	const u32 *reg;
+	const __be32 *reg;
 	u64 addr;
 	const __be32 *addrp;
 	int magic;
@@ -471,4 +471,5 @@ int of_platform_populate(struct device_node *root,
 	of_node_put(root);
 	return rc;
 }
+EXPORT_SYMBOL_GPL(of_platform_populate);
 #endif /* CONFIG_OF_ADDRESS */

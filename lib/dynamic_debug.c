@@ -519,25 +519,25 @@ static char *dynamic_emit_prefix(const struct _ddebug *desc, char *buf)
 	int pos_after_tid;
 	int pos = 0;
 
-	pos += snprintf(buf + pos, remaining(pos), "%s", KERN_DEBUG);
+	*buf = '\0';
+
 	if (desc->flags & _DPRINTK_FLAGS_INCL_TID) {
 		if (in_interrupt())
-			pos += snprintf(buf + pos, remaining(pos), "%s ",
-						"<intr>");
+			pos += snprintf(buf + pos, remaining(pos), "<intr> ");
 		else
 			pos += snprintf(buf + pos, remaining(pos), "[%d] ",
-						task_pid_vnr(current));
+					task_pid_vnr(current));
 	}
 	pos_after_tid = pos;
 	if (desc->flags & _DPRINTK_FLAGS_INCL_MODNAME)
 		pos += snprintf(buf + pos, remaining(pos), "%s:",
-					desc->modname);
+				desc->modname);
 	if (desc->flags & _DPRINTK_FLAGS_INCL_FUNCNAME)
 		pos += snprintf(buf + pos, remaining(pos), "%s:",
-					desc->function);
+				desc->function);
 	if (desc->flags & _DPRINTK_FLAGS_INCL_LINENO)
 		pos += snprintf(buf + pos, remaining(pos), "%d:",
-					desc->lineno);
+				desc->lineno);
 	if (pos - pos_after_tid)
 		pos += snprintf(buf + pos, remaining(pos), " ");
 	if (pos >= PREFIX_SIZE)
@@ -557,9 +557,13 @@ int __dynamic_pr_debug(struct _ddebug *descriptor, const char *fmt, ...)
 	BUG_ON(!fmt);
 
 	va_start(args, fmt);
+
 	vaf.fmt = fmt;
 	vaf.va = &args;
-	res = printk("%s%pV", dynamic_emit_prefix(descriptor, buf), &vaf);
+
+	res = printk(KERN_DEBUG "%s%pV",
+		     dynamic_emit_prefix(descriptor, buf), &vaf);
+
 	va_end(args);
 
 	return res;
@@ -572,15 +576,26 @@ int __dynamic_dev_dbg(struct _ddebug *descriptor,
 	struct va_format vaf;
 	va_list args;
 	int res;
-	char buf[PREFIX_SIZE];
 
 	BUG_ON(!descriptor);
 	BUG_ON(!fmt);
 
 	va_start(args, fmt);
+
 	vaf.fmt = fmt;
 	vaf.va = &args;
-	res = __dev_printk(dynamic_emit_prefix(descriptor, buf), dev, &vaf);
+
+	if (!dev) {
+		res = printk(KERN_DEBUG "(NULL device *): %pV", &vaf);
+	} else {
+		char buf[PREFIX_SIZE];
+
+		res = dev_printk_emit(7, dev, "%s%s %s: %pV",
+				      dynamic_emit_prefix(descriptor, buf),
+				      dev_driver_string(dev), dev_name(dev),
+				      &vaf);
+	}
+
 	va_end(args);
 
 	return res;
@@ -590,20 +605,35 @@ EXPORT_SYMBOL(__dynamic_dev_dbg);
 #ifdef CONFIG_NET
 
 int __dynamic_netdev_dbg(struct _ddebug *descriptor,
-		      const struct net_device *dev, const char *fmt, ...)
+			 const struct net_device *dev, const char *fmt, ...)
 {
 	struct va_format vaf;
 	va_list args;
 	int res;
-	char buf[PREFIX_SIZE];
 
 	BUG_ON(!descriptor);
 	BUG_ON(!fmt);
 
 	va_start(args, fmt);
+
 	vaf.fmt = fmt;
 	vaf.va = &args;
-	res = __netdev_printk(dynamic_emit_prefix(descriptor, buf), dev, &vaf);
+
+	if (dev && dev->dev.parent) {
+		char buf[PREFIX_SIZE];
+
+		res = dev_printk_emit(7, dev->dev.parent,
+				      "%s%s %s %s: %pV",
+				      dynamic_emit_prefix(descriptor, buf),
+				      dev_driver_string(dev->dev.parent),
+				      dev_name(dev->dev.parent),
+				      netdev_name(dev), &vaf);
+	} else if (dev) {
+		res = printk(KERN_DEBUG "%s: %pV", netdev_name(dev), &vaf);
+	} else {
+		res = printk(KERN_DEBUG "(NULL net_device): %pV", &vaf);
+	}
+
 	va_end(args);
 
 	return res;
@@ -871,6 +901,41 @@ int ddebug_add_module(struct _ddebug *tab, unsigned int n,
 }
 EXPORT_SYMBOL_GPL(ddebug_add_module);
 
+/* handle both dyndbg=".." and $module.dyndbg=".." params at boot */
+static int ddebug_dyndbg_boot_param_cb(char *param, char *val,
+				const char *unused)
+{
+	const char *modname = NULL;
+	char *sep;
+
+	sep = strchr(param, '.');
+	if (sep) {
+		*sep = '\0';
+		modname = param;
+		param = sep + 1;
+	}
+	if (strcmp(param, "dyndbg"))
+		return 0; /* skip all other params w/o error */
+
+	vpr_info("module: %s %s=\"%s\"\n", modname, param, val);
+
+	ddebug_exec_queries(val ? val : "+p");
+	return 0; /* query failure shouldnt stop module load */
+}
+
+/* handle dyndbg args to modprobe */
+int ddebug_dyndbg_module_param_cb(char *param, char *val, const char *doing)
+{
+	if (strcmp(param, "dyndbg"))
+		return -ENOENT;
+
+	vpr_info("module: %s %s=\"%s\"\n", doing, param, val);
+
+	ddebug_exec_queries((val ? val : "+p"));
+
+	return 0; /* query failure shouldnt stop module load */
+}
+
 static void ddebug_table_free(struct ddebug_table *dt)
 {
 	list_del_init(&dt->link);
@@ -939,6 +1004,7 @@ static int __init dynamic_debug_init(void)
 {
 	struct _ddebug *iter, *iter_start;
 	const char *modname = NULL;
+	char *cmdline;
 	int ret = 0;
 	int n = 0;
 
@@ -977,6 +1043,18 @@ static int __init dynamic_debug_init(void)
 		/* keep tables even on ddebug_query parse error */
 		ret = 0;
 	}
+	/* now that ddebug tables are loaded, process all boot args
+	 * again to find and activate queries given in dyndbg params.
+	 * While this has already been done for known boot params, it
+	 * ignored the unknown ones (dyndbg in particular).  Reusing
+	 * parse_args avoids ad-hoc parsing.  This will also attempt
+	 * to activate queries for not-yet-loaded modules, which is
+	 * slightly noisy if verbose, but harmless.
+	 */
+	cmdline = kstrdup(saved_command_line, GFP_KERNEL);
+	parse_args("dyndbg params", cmdline, NULL,
+		   0, 0, 0, &ddebug_dyndbg_boot_param_cb);
+	kfree(cmdline);
 
 out_free:
 	if (ret)
@@ -987,5 +1065,6 @@ out_free:
 }
 /* Allow early initialization for boot messages via boot param */
 arch_initcall(dynamic_debug_init);
+
 /* Debugfs setup must be done later */
 module_init(dynamic_debug_init_debugfs);

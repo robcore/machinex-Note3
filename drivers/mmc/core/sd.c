@@ -221,7 +221,7 @@ static int mmc_decode_scr(struct mmc_card *card)
  */
 static int mmc_read_ssr(struct mmc_card *card)
 {
-	unsigned int au, es, et, eo;
+	unsigned int au, es, et, eo, spd;
 	int err, i;
 	u32 *ssr;
 
@@ -251,7 +251,7 @@ static int mmc_read_ssr(struct mmc_card *card)
 	 * bitfield positions accordingly.
 	 */
 	au = UNSTUFF_BITS(ssr, 428 - 384, 4);
-	if (au > 0 || au <= 9) {
+	if (au > 0 && au <= 9) {
 		card->ssr.au = 1 << (au + 4);
 		es = UNSTUFF_BITS(ssr, 408 - 384, 16);
 		et = UNSTUFF_BITS(ssr, 402 - 384, 6);
@@ -264,6 +264,14 @@ static int mmc_read_ssr(struct mmc_card *card)
 		pr_warning("%s: SD Status: Invalid Allocation Unit "
 			"size.\n", mmc_hostname(card->host));
 	}
+
+	spd = UNSTUFF_BITS(ssr, 440 - 384, 8);
+	if (spd < 4)
+		card->ssr.speed_class = spd * 2;
+	else if (spd == 4)
+		card->ssr.speed_class = 10;
+
+	card->ssr.uhs_speed_grade = UNSTUFF_BITS(ssr, 396 - 384, 4);
 out:
 	kfree(ssr);
 	return err;
@@ -297,8 +305,12 @@ static int mmc_read_switch(struct mmc_card *card)
 		return -ENOMEM;
 	}
 
-	/* Find out the supported Bus Speed Modes. */
-	err = mmc_sd_switch(card, 0, 0, 1, status);
+	/*
+	 * Find out the card's support bits with a mode 0 operation.
+	 * The argument does not matter, as the support bits do not
+	 * change with the arguments.
+	 */
+	err = mmc_sd_switch(card, 0, 0, 0, status);
 	if (err) {
 		/*
 		 * If the host or the card can't do the switch,
@@ -319,46 +331,8 @@ static int mmc_read_switch(struct mmc_card *card)
 
 	if (card->scr.sda_spec3) {
 		card->sw_caps.sd3_bus_mode = status[13];
-
-		/* Find out Driver Strengths supported by the card */
-		err = mmc_sd_switch(card, 0, 2, 1, status);
-		if (err) {
-			/*
-			 * If the host or the card can't do the switch,
-			 * fail more gracefully.
-			 */
-			if (err != -EINVAL && err != -ENOSYS && err != -EFAULT)
-				goto out;
-
-			pr_warning("%s: problem reading "
-				"Driver Strength.\n",
-				mmc_hostname(card->host));
-			err = 0;
-
-			goto out;
-		}
-
+		/* Driver Strengths supported by the card */
 		card->sw_caps.sd3_drv_type = status[9];
-
-		/* Find out Current Limits supported by the card */
-		err = mmc_sd_switch(card, 0, 3, 1, status);
-		if (err) {
-			/*
-			 * If the host or the card can't do the switch,
-			 * fail more gracefully.
-			 */
-			if (err != -EINVAL && err != -ENOSYS && err != -EFAULT)
-				goto out;
-
-			pr_warning("%s: problem reading "
-				"Current Limit.\n",
-				mmc_hostname(card->host));
-			err = 0;
-
-			goto out;
-		}
-
-		card->sw_caps.sd3_curr_limit = status[7];
 	}
 
 out:
@@ -459,9 +433,9 @@ static int sd_select_driver_type(struct mmc_card *card, u8 *status)
 	 * return what is possible given the options
 	 */
 	mmc_host_clk_hold(card->host);
-	drive_strength = card->host->ops->select_drive_strength(
-		card->sw_caps.uhs_max_dtr,
-		host_drv_type, card_drv_type);
+	drive_strength = card->host->ops->select_drive_strength(card->host,
+								host_drv_type,
+								card_drv_type);
 	mmc_host_clk_release(card->host);
 
 	err = mmc_sd_switch(card, 1, 2, drive_strength, status);
@@ -567,58 +541,43 @@ static int sd_set_bus_speed_mode(struct mmc_card *card, u8 *status)
 
 static int sd_set_current_limit(struct mmc_card *card, u8 *status)
 {
-	int current_limit = 0;
+	int current_limit = SD_SET_CURRENT_NO_CHANGE;
 	int err;
 
 	/*
 	 * Current limit switch is only defined for SDR50, SDR104, and DDR50
-	 * bus speed modes. For other bus speed modes, we set the default
-	 * current limit of 200mA.
+	 * bus speed modes. For other bus speed modes, we do not change the
+	 * current limit.
+	 * We only check host's capability here, if we set a limit that is
+	 * higher than the card's maximum current, the card will be using its
+	 * maximum current, e.g. if the card's maximum current is 300ma, and
+	 * when we set current limit to 200ma, the card will draw 200ma, and
+	 * when we set current limit to 400/600/800ma, the card will draw its
+	 * maximum 300ma from the host.
 	 */
 	if ((card->sd_bus_speed == UHS_SDR50_BUS_SPEED) ||
 	    (card->sd_bus_speed == UHS_SDR104_BUS_SPEED) ||
 	    (card->sd_bus_speed == UHS_DDR50_BUS_SPEED)) {
-		if (card->host->caps & MMC_CAP_MAX_CURRENT_800) {
-			if (card->sw_caps.sd3_curr_limit & SD_MAX_CURRENT_800)
-				current_limit = SD_SET_CURRENT_LIMIT_800;
-			else if (card->sw_caps.sd3_curr_limit &
-					SD_MAX_CURRENT_600)
-				current_limit = SD_SET_CURRENT_LIMIT_600;
-			else if (card->sw_caps.sd3_curr_limit &
-					SD_MAX_CURRENT_400)
-				current_limit = SD_SET_CURRENT_LIMIT_400;
-			else if (card->sw_caps.sd3_curr_limit &
-					SD_MAX_CURRENT_200)
-				current_limit = SD_SET_CURRENT_LIMIT_200;
-		} else if (card->host->caps & MMC_CAP_MAX_CURRENT_600) {
-			if (card->sw_caps.sd3_curr_limit & SD_MAX_CURRENT_600)
-				current_limit = SD_SET_CURRENT_LIMIT_600;
-			else if (card->sw_caps.sd3_curr_limit &
-					SD_MAX_CURRENT_400)
-				current_limit = SD_SET_CURRENT_LIMIT_400;
-			else if (card->sw_caps.sd3_curr_limit &
-					SD_MAX_CURRENT_200)
-				current_limit = SD_SET_CURRENT_LIMIT_200;
-		} else if (card->host->caps & MMC_CAP_MAX_CURRENT_400) {
-			if (card->sw_caps.sd3_curr_limit & SD_MAX_CURRENT_400)
-				current_limit = SD_SET_CURRENT_LIMIT_400;
-			else if (card->sw_caps.sd3_curr_limit &
-					SD_MAX_CURRENT_200)
-				current_limit = SD_SET_CURRENT_LIMIT_200;
-		} else if (card->host->caps & MMC_CAP_MAX_CURRENT_200) {
-			if (card->sw_caps.sd3_curr_limit & SD_MAX_CURRENT_200)
-				current_limit = SD_SET_CURRENT_LIMIT_200;
-		}
-	} else
-		current_limit = SD_SET_CURRENT_LIMIT_200;
+		if (card->host->caps & MMC_CAP_MAX_CURRENT_800)
+			current_limit = SD_SET_CURRENT_LIMIT_800;
+		else if (card->host->caps & MMC_CAP_MAX_CURRENT_600)
+			current_limit = SD_SET_CURRENT_LIMIT_600;
+		else if (card->host->caps & MMC_CAP_MAX_CURRENT_400)
+			current_limit = SD_SET_CURRENT_LIMIT_400;
+		else if (card->host->caps & MMC_CAP_MAX_CURRENT_200)
+			current_limit = SD_SET_CURRENT_LIMIT_200;
+	}
 
-	err = mmc_sd_switch(card, 1, 3, current_limit, status);
-	if (err)
-		return err;
+	if (current_limit != SD_SET_CURRENT_NO_CHANGE) {
+		err = mmc_sd_switch(card, 1, 3, current_limit, status);
+		if (err)
+			return err;
 
-	if (((status[15] >> 4) & 0x0F) != current_limit)
-		pr_warning("%s: Problem setting current limit!\n",
-			mmc_hostname(card->host));
+		if (((status[15] >> 4) & 0x0F) != current_limit)
+			pr_warning("%s: Problem setting current limit!\n",
+				mmc_hostname(card->host));
+
+	}
 
 	return 0;
 }
@@ -819,6 +778,7 @@ int mmc_sd_get_cid(struct mmc_host *host, u32 ocr, u32 *cid, u32 *rocr)
 	 * state.  We wait 1ms to give cards time to
 	 * respond.
 	 */
+try_again:
 	mmc_go_idle(host);
 
 	/*
@@ -844,7 +804,6 @@ int mmc_sd_get_cid(struct mmc_host *host, u32 ocr, u32 *cid, u32 *rocr)
 	    MMC_CAP_SET_XPC_180))
 		ocr |= SD_OCR_XPC;
 
-try_again:
 	err = mmc_send_app_op_cond(host, ocr, rocr);
 	if (err)
 		return err;
@@ -1052,6 +1011,7 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 		err = mmc_send_relative_addr(host, &card->rca);
 		if (err)
 			return err;
+		host->card = card;
 	}
 
 	if (!oldcard) {
@@ -1221,6 +1181,8 @@ static void mmc_sd_detect(struct mmc_host *host)
  */
 static int mmc_sd_suspend(struct mmc_host *host)
 {
+	int err = 0;
+
 	BUG_ON(!host);
 	BUG_ON(!host->card);
 
@@ -1232,11 +1194,11 @@ static int mmc_sd_suspend(struct mmc_host *host)
 
 	mmc_claim_host(host);
 	if (!mmc_host_is_spi(host))
-		mmc_deselect_cards(host);
+		err = mmc_deselect_cards(host);
 	host->card->state &= ~MMC_STATE_HIGHSPEED;
 	mmc_release_host(host);
 
-	return 0;
+	return err;
 }
 
 /*
@@ -1250,6 +1212,7 @@ static int mmc_sd_resume(struct mmc_host *host)
 	int err;
 #ifdef CONFIG_MMC_PARANOID_SD_INIT
 	int retries;
+	unsigned long delay = 5000, settle = 0;
 #endif
 
 	BUG_ON(!host);
@@ -1262,13 +1225,19 @@ static int mmc_sd_resume(struct mmc_host *host)
 		err = mmc_sd_init_card(host, host->ocr, host->card);
 
 		if (err) {
-			printk(KERN_ERR "%s: Re-init card rc = %d (retries = %d)\n",
-			       mmc_hostname(host), err, retries);
+			printk(KERN_ERR "%s: Re-init card rc = %d "
+				"(retries = %d, delay = %lu)\n",
+				mmc_hostname(host), err, retries, delay);
 			retries--;
 			mmc_power_off(host);
-			usleep_range(5000, 5500);
+			usleep_range(delay, delay + 500);
 			mmc_power_up(host);
 			mmc_select_voltage(host, host->ocr);
+			if (settle)
+				usleep_range(settle, settle + 500);
+			/* Increase settle times on each attempt */
+			delay += 10000;
+			settle += 10000;
 			continue;
 		}
 		break;

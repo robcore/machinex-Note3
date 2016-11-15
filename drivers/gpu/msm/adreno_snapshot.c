@@ -18,6 +18,7 @@
 #include "adreno_pm4types.h"
 #include "a2xx_reg.h"
 #include "a3xx_reg.h"
+#include "adreno_cp_parser.h"
 
 /* Number of dwords of ringbuffer history to record */
 #define NUM_DWORDS_OF_RINGBUFFER_HISTORY 100
@@ -648,24 +649,37 @@ static inline int parse_ib(struct kgsl_device *device, phys_addr_t ptbase,
 		unsigned int gpuaddr, unsigned int dwords)
 {
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
-	unsigned int ib1base, ib2base;
+	unsigned int ib1base;
 	int ret = 0;
+	struct adreno_ib_object_list *ib_obj_list;
 
 	/*
-	 * Check the IB address - if it is either the last executed IB1 or the
-	 * last executed IB2 then push it into the static blob otherwise put
-	 * it in the dynamic list
+	 * Check the IB address - if it is either the last executed IB1
+	 * then push it into the static blob otherwise put it in the dynamic
+	 * list
 	 */
 
 	adreno_readreg(adreno_dev, ADRENO_REG_CP_IB1_BASE, &ib1base);
-	adreno_readreg(adreno_dev, ADRENO_REG_CP_IB2_BASE, &ib2base);
 
-	if (gpuaddr == ib1base || gpuaddr == ib2base)
+	if (gpuaddr == ib1base) {
 		push_object(device, SNAPSHOT_OBJ_TYPE_IB, ptbase,
 			gpuaddr, dwords);
-	else
-		ret = ib_add_gpu_object(device, ptbase, gpuaddr, dwords);
+		goto done;
+	}
 
+	if (kgsl_snapshot_have_object(device, ptbase, gpuaddr, dwords << 2))
+		goto done;
+
+	ret = adreno_ib_create_object_list(device, ptbase,
+				gpuaddr, dwords, &ib_obj_list);
+	if (ret)
+		goto done;
+
+	ret = kgsl_snapshot_add_ib_obj_list(device, ptbase, ib_obj_list);
+
+	if (ret)
+		adreno_ib_destroy_obj_list(ib_obj_list);
+done:
 	return ret;
 }
 
@@ -906,9 +920,13 @@ static int snapshot_ib(struct kgsl_device *device, void *snapshot,
 {
 	struct kgsl_snapshot_ib *header = snapshot;
 	struct kgsl_snapshot_obj *obj = priv;
+	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
 	unsigned int *src = obj->ptr;
 	unsigned int *dst = snapshot + sizeof(*header);
-	int i, ret;
+	struct adreno_ib_object_list *ib_obj_list;
+	unsigned int ib1base;
+
+	adreno_readreg(adreno_dev, ADRENO_REG_CP_IB1_BASE, &ib1base);
 
 	if (remain < (obj->dwords << 2) + sizeof(*header)) {
 		KGSL_DRV_ERR(device,
@@ -920,6 +938,11 @@ static int snapshot_ib(struct kgsl_device *device, void *snapshot,
 	header->gpuaddr = obj->gpuaddr;
 	header->ptbase = (__u32)obj->ptbase;
 	header->size = obj->dwords;
+
+	/* Make sure memory is mapped */
+	if (obj->entry)
+		src = (unsigned int *)
+		kgsl_gpuaddr_to_vaddr(&obj->entry->memdesc, obj->gpuaddr);
 
 	/* Write the contents of the ib */
 	for (i = 0; i < obj->dwords; i++, src++, dst++) {
@@ -991,15 +1014,6 @@ void *adreno_snapshot(struct kgsl_device *device, void *snapshot, int *remain,
 
 	snapshot_frozen_objsize = 0;
 
-	/* Clear the caches for the visibilty stream and VBO parsing */
-
-	vfd_control_0 = 0;
-	vfd_index_max = 0;
-	vsc_size_address = 0;
-
-	memset(vsc_pipe, 0, sizeof(vsc_pipe));
-	memset(vbo, 0, sizeof(vbo));
-
 	/* Get the physical address of the MMU pagetable */
 	ptbase = kgsl_mmu_get_current_ptbase(&device->mmu);
 
@@ -1070,6 +1084,13 @@ void *adreno_snapshot(struct kgsl_device *device, void *snapshot, int *remain,
 	if (snapshot_frozen_objsize)
 		KGSL_DRV_ERR(device, "GPU snapshot froze %dKb of GPU buffers\n",
 			snapshot_frozen_objsize / 1024);
+
+	/*
+	 * Queue a work item that will save the IB data in snapshot into
+	 * static memory to prevent loss of data due to overwriting of
+	 * memory
+	 */
+	queue_work(device->work_queue, &device->snapshot_obj_ws);
 
 	return snapshot;
 }

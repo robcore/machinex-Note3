@@ -15,7 +15,7 @@
 #include <linux/err.h>
 #include <linux/slab.h>
 #include <linux/user_namespace.h>
-#include <linux/proc_fs.h>
+#include <linux/proc_ns.h>
 
 static struct uts_namespace *create_uts_ns(void)
 {
@@ -36,14 +36,21 @@ static struct uts_namespace *clone_uts_ns(struct task_struct *tsk,
 					  struct uts_namespace *old_ns)
 {
 	struct uts_namespace *ns;
+	int err;
 
 	ns = create_uts_ns();
 	if (!ns)
 		return ERR_PTR(-ENOMEM);
 
+	err = proc_alloc_inum(&ns->proc_inum);
+	if (err) {
+		kfree(ns);
+		return ERR_PTR(err);
+	}
+
 	down_read(&uts_sem);
 	memcpy(&ns->name, &old_ns->name, sizeof(ns->name));
-	ns->user_ns = get_user_ns(task_cred_xxx(tsk, user)->user_ns);
+	ns->user_ns = get_user_ns(task_cred_xxx(tsk, user_ns));
 	up_read(&uts_sem);
 	return ns;
 }
@@ -78,6 +85,7 @@ void free_uts_ns(struct kref *kref)
 
 	ns = container_of(kref, struct uts_namespace, kref);
 	put_user_ns(ns->user_ns);
+	proc_free_inum(ns->proc_inum);
 	kfree(ns);
 }
 
@@ -86,13 +94,13 @@ static void *utsns_get(struct task_struct *task)
 	struct uts_namespace *ns = NULL;
 	struct nsproxy *nsproxy;
 
-	rcu_read_lock();
-	nsproxy = task_nsproxy(task);
+	task_lock(task);
+	nsproxy = task->nsproxy;
 	if (nsproxy) {
 		ns = nsproxy->uts_ns;
 		get_uts_ns(ns);
 	}
-	rcu_read_unlock();
+	task_unlock(task);
 
 	return ns;
 }
@@ -110,11 +118,18 @@ static int utsns_install(struct nsproxy *nsproxy, void *ns)
 	return 0;
 }
 
+static unsigned int utsns_inum(void *vp)
+{
+	struct uts_namespace *ns = vp;
+
+	return ns->proc_inum;
+}
+
 const struct proc_ns_operations utsns_operations = {
 	.name		= "uts",
 	.type		= CLONE_NEWUTS,
 	.get		= utsns_get,
 	.put		= utsns_put,
 	.install	= utsns_install,
+	.inum		= utsns_inum,
 };
-

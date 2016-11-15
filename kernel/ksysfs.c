@@ -26,7 +26,10 @@ static struct kobj_attribute _name##_attr = __ATTR_RO(_name)
 static struct kobj_attribute _name##_attr = \
 	__ATTR(_name, 0644, _name##_show, _name##_store)
 
-#if defined(CONFIG_HOTPLUG)
+#define KERNEL_ATTR_READ_ONLY(_name) \
+static struct kobj_attribute _name##_attr = \
+	__ATTR(_name, 0444, _name##_show, _name##_store)
+
 /* current uevent sequence number */
 static ssize_t uevent_seqnum_show(struct kobject *kobj,
 				  struct kobj_attribute *attr, char *buf)
@@ -54,7 +57,7 @@ static ssize_t uevent_helper_store(struct kobject *kobj,
 	return count;
 }
 KERNEL_ATTR_RW(uevent_helper);
-#endif
+
 
 #ifdef CONFIG_PROFILING
 static ssize_t profiling_show(struct kobject *kobj,
@@ -186,10 +189,8 @@ EXPORT_SYMBOL_GPL(kernel_kobj);
 
 static struct attribute * kernel_attrs[] = {
 	&fscaps_attr.attr,
-#if defined(CONFIG_HOTPLUG)
 	&uevent_seqnum_attr.attr,
 	&uevent_helper_attr.attr,
-#endif
 #ifdef CONFIG_PROFILING
 	&profiling_attr.attr,
 #endif
@@ -207,8 +208,9 @@ static struct attribute_group kernel_attr_group = {
 	.attrs = kernel_attrs,
 };
 
-static unsigned int Lgentle_fair_sleepers = 1;
-static unsigned int Larch_power = 1;
+static unsigned int Lgentle_fair_sleepers = 0;
+static unsigned int Larch_power = 0;
+
 extern void relay_gfs(unsigned int gfs);
 extern void relay_ap(unsigned int ap);
 
@@ -229,7 +231,7 @@ static ssize_t gentle_fair_sleepers_store(struct kobject *kobj, struct kobj_attr
 	relay_gfs(Lgentle_fair_sleepers);
 	return count;
 }
-KERNEL_ATTR_RW(gentle_fair_sleepers);
+KERNEL_ATTR_READ_ONLY(gentle_fair_sleepers);
 
 static ssize_t arch_power_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
@@ -248,7 +250,7 @@ static ssize_t arch_power_store(struct kobject *kobj, struct kobj_attribute *att
 	relay_ap(Larch_power);
 	return count;
 }
-KERNEL_ATTR_RW(arch_power);
+KERNEL_ATTR_READ_ONLY(arch_power);
 
 static struct attribute * sched_features_attrs[] = {
 	&gentle_fair_sleepers_attr.attr,
@@ -257,7 +259,7 @@ static struct attribute * sched_features_attrs[] = {
 };
 
 static struct attribute_group sched_features_attr_group = {
-.attrs = sched_features_attrs,
+	.attrs = sched_features_attrs,
 };
 
 /* Initialize fast charge sysfs folder */
@@ -277,7 +279,7 @@ static int __init ksysfs_init(void)
 		goto kset_exit;
 
 	sched_features_kobj = kobject_create_and_add("sched", kernel_kobj);
-		error = sysfs_create_group(sched_features_kobj, &sched_features_attr_group);
+	error = sysfs_create_group(sched_features_kobj, &sched_features_attr_group);
 
 	if (error)
 		kobject_put(sched_features_kobj);

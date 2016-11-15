@@ -5809,15 +5809,9 @@ static struct mmc_platform_data *msmsdcc_populate_pdata(struct device *dev)
 		goto err;
 	}
 
-	/*
-	 * Some devices might not use vdd. if qcom,not-use-vdd exists
-	 * skip the parse the vdd
-	 */
-	if (of_property_read_bool(np, "qcom,not-use-vdd") != true) {
-		if (msmsdcc_dt_parse_vreg_info(dev,
-				&pdata->vreg_data->vdd_data, "vdd"))
-			goto err;
-	}
+	if (msmsdcc_dt_parse_vreg_info(dev,
+			&pdata->vreg_data->vdd_data, "vdd"))
+		goto err;
 
 	if (msmsdcc_dt_parse_vreg_info(dev,
 			&pdata->vreg_data->vdd_io_data, "vdd-io"))
@@ -6286,7 +6280,7 @@ msmsdcc_probe(struct platform_device *pdev)
 	if (plat->status_irq) {
 		ret = request_threaded_irq(plat->status_irq, NULL,
 				  msmsdcc_platform_status_irq,
-				  plat->irq_flags,
+				  plat->irq_flags | IRQF_ONESHOT,
 				  DRIVER_NAME " (slot)",
 				  host);
 		if (ret) {

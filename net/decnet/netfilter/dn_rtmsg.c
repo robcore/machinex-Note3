@@ -57,8 +57,7 @@ nlmsg_failure:
 	if (skb)
 		kfree_skb(skb);
 	*errp = -ENOMEM;
-	if (net_ratelimit())
-		printk(KERN_ERR "dn_rtmsg: error creating netlink message\n");
+	net_err_ratelimited("dn_rtmsg: error creating netlink message\n");
 	return NULL;
 }
 
@@ -126,11 +125,12 @@ static struct nf_hook_ops dnrmg_ops __read_mostly = {
 static int __init dn_rtmsg_init(void)
 {
 	int rv = 0;
+	struct netlink_kernel_cfg cfg = {
+		.groups	= DNRNG_NLGRP_MAX,
+		.input	= dnrmg_receive_user_skb,
+	};
 
-	dnrmg = netlink_kernel_create(&init_net,
-				      NETLINK_DNRTMSG, DNRNG_NLGRP_MAX,
-				      dnrmg_receive_user_skb,
-				      NULL, THIS_MODULE);
+	dnrmg = netlink_kernel_create(&init_net, NETLINK_DNRTMSG, &cfg);
 	if (dnrmg == NULL) {
 		printk(KERN_ERR "dn_rtmsg: Cannot create netlink socket");
 		return -ENOMEM;

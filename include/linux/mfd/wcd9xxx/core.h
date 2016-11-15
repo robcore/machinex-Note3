@@ -44,6 +44,10 @@
 #define TAPAN_IS_1_0(ver) \
 	((ver == TAPAN_VERSION_1_0) ? 1 : 0)
 
+#define TOMTOM_VERSION_1_0	1
+#define TOMTOM_IS_1_0(ver) \
+	((ver == TOMTOM_VERSION_1_0) ? 1 : 0)
+
 enum wcd9xxx_slim_slave_addr_type {
 	WCD9XXX_SLIM_SLAVE_ADDR_TYPE_TABLA,
 	WCD9XXX_SLIM_SLAVE_ADDR_TYPE_TAIKO,
@@ -81,23 +85,37 @@ enum {
 	WCD9310_NUM_IRQS,
 	WCD9XXX_IRQ_RESERVED_0 = WCD9310_NUM_IRQS,
 	WCD9XXX_IRQ_RESERVED_1,
+	WCD9330_IRQ_SVASS_ERR_EXCEPTION = WCD9310_NUM_IRQS,
+	WCD9330_IRQ_MBHC_JACK_SWITCH,
 	/* INTR_REG 3 */
 	WCD9XXX_IRQ_MAD_AUDIO,
-	WCD9XXX_IRQ_MAD_BEACON,
 	WCD9XXX_IRQ_MAD_ULTRASOUND,
+	WCD9XXX_IRQ_MAD_BEACON,
 	WCD9XXX_IRQ_SPEAKER_CLIPPING,
 	WCD9320_IRQ_MBHC_JACK_SWITCH,
-	WCD9XXX_IRQ_VBAT_MONITOR_ATTACK,
+	WCD9306_NUM_IRQS,
+	WCD9XXX_IRQ_VBAT_MONITOR_ATTACK = WCD9306_NUM_IRQS,
 	WCD9XXX_IRQ_VBAT_MONITOR_RELEASE,
 	WCD9XXX_NUM_IRQS,
-	WCD9XXX_IRQ_RESERVED_2 = WCD9XXX_NUM_IRQS,
+	/* WCD9330 INTR1_REG 3*/
+	WCD9330_IRQ_SVASS_ENGINE = WCD9XXX_IRQ_MAD_AUDIO,
+	WCD9330_IRQ_MAD_AUDIO,
+	WCD9330_IRQ_MAD_ULTRASOUND,
+	WCD9330_IRQ_MAD_BEACON,
+	WCD9330_IRQ_SPEAKER1_CLIPPING,
+	WCD9330_IRQ_SPEAKER2_CLIPPING,
+	WCD9330_IRQ_VBAT_MONITOR_ATTACK,
+	WCD9330_IRQ_VBAT_MONITOR_RELEASE,
+	WCD9330_NUM_IRQS,
+	WCD9XXX_IRQ_RESERVED_2 = WCD9330_NUM_IRQS,
 };
 
 enum {
 	TABLA_NUM_IRQS = WCD9310_NUM_IRQS,
 	SITAR_NUM_IRQS = WCD9310_NUM_IRQS,
 	TAIKO_NUM_IRQS = WCD9XXX_NUM_IRQS,
-	TAPAN_NUM_IRQS = WCD9XXX_NUM_IRQS,
+	TAPAN_NUM_IRQS = WCD9306_NUM_IRQS,
+	TOMTOM_NUM_IRQS = WCD9330_NUM_IRQS,
 };
 
 /*
@@ -144,6 +162,7 @@ enum wcd9xxx_chipid_major {
 	SITAR_MAJOR = cpu_to_le16(0x101),
 	TAIKO_MAJOR = cpu_to_le16(0x102),
 	TAPAN_MAJOR = cpu_to_le16(0x103),
+	TOMTOM_MAJOR = cpu_to_le16(0x105),
 };
 
 struct wcd9xxx_codec_type {
@@ -195,10 +214,20 @@ struct wcd9xxx {
 	const struct wcd9xxx_codec_type *codec_type;
 };
 
+#ifdef CONFIG_SOUND_CONTROL_HAX_3_GPL
+int wcd9xxx_reg_read_safe(struct wcd9xxx_core_resource *core_res,
+			  unsigned short reg);
+#ifdef CONFIG_MACH_LGE
+extern int lge_snd_pa_ctrl_locked;
+#endif
+#endif
+
 int wcd9xxx_interface_reg_read(struct wcd9xxx *wcd9xxx, unsigned short reg);
 int wcd9xxx_interface_reg_write(struct wcd9xxx *wcd9xxx, unsigned short reg,
 		u8 val);
 int wcd9xxx_get_logical_addresses(u8 *pgd_la, u8 *inf_la);
+int wcd9xxx_slim_write_repeat(struct wcd9xxx *wcd9xxx, unsigned short reg,
+			     int bytes, void *src);
 
 #if defined(CONFIG_WCD9310_CODEC) || \
 	defined(CONFIG_WCD9304_CODEC) || \

@@ -4,7 +4,7 @@
  *  Copyright (C) 2003 Russell King, All Rights Reserved.
  *  Copyright (C) 2007-2008 Pierre Ossman
  *  Copyright (C) 2010 Linus Walleij
- *  Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+ *  Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -38,6 +38,7 @@ static void mmc_host_classdev_release(struct device *dev)
 	kfree(host);
 }
 
+#ifdef CONFIG_PM_RUNTIME
 static int mmc_host_runtime_suspend(struct device *dev)
 {
 	struct mmc_host *host = cls_dev_to_mmc_host(dev);
@@ -47,9 +48,28 @@ static int mmc_host_runtime_suspend(struct device *dev)
 		return 0;
 
 	ret = mmc_suspend_host(host);
-	if (ret < 0)
+	if (ret < 0 && ret != -ENOMEDIUM)
 		pr_err("%s: %s: suspend host failed: %d\n", mmc_hostname(host),
 		       __func__, ret);
+
+	/*
+	 * During card detection within mmc_rescan(), mmc_rpm_hold() will
+	 * be called on host->class_dev before initializing the card and
+	 * shall be released after card detection.
+	 *
+	 * During card detection, once the card device is added, MMC block
+	 * driver probe gets called and in case that probe fails due to some
+	 * block read/write cmd error, then the block driver marks that card
+	 * as removed. Later when mmc_rpm_release() is called within
+	 * mmc_rescan(), the runtime suspend of host->class_dev will be invoked
+	 * immediately. The commands that are sent during runtime would fail
+	 * with -ENOMEDIUM and if we propagate the same to rpm framework, the
+	 * runtime suspend/resume for this device will never be invoked even
+	 * if the card is detected fine later on when it is removed and
+	 * inserted again. Hence, do not report this error to upper layers.
+	 */
+	if (ret == -ENOMEDIUM)
+		ret = 0;
 
 	return ret;
 }
@@ -72,7 +92,9 @@ static int mmc_host_runtime_resume(struct device *dev)
 
 	return ret;
 }
+#endif
 
+#ifdef CONFIG_PM_SLEEP
 static int mmc_host_suspend(struct device *dev)
 {
 	struct mmc_host *host = cls_dev_to_mmc_host(dev);
@@ -131,6 +153,7 @@ static int mmc_host_resume(struct device *dev)
 	host->dev_status = DEV_RESUMED;
 	return ret;
 }
+#endif
 
 static const struct dev_pm_ops mmc_host_pm_ops = {
 	SET_SYSTEM_SLEEP_PM_OPS(mmc_host_suspend, mmc_host_resume)
@@ -420,17 +443,20 @@ struct mmc_host *mmc_alloc_host(int extra, struct device *dev)
 	int err;
 	struct mmc_host *host;
 
-	if (!idr_pre_get(&mmc_host_idr, GFP_KERNEL))
-		return NULL;
-
 	host = kzalloc(sizeof(struct mmc_host) + extra, GFP_KERNEL);
 	if (!host)
 		return NULL;
 
+	/* scanning will be enabled when we're ready */
+	host->rescan_disable = 1;
+	idr_preload(GFP_KERNEL);
 	spin_lock(&mmc_host_lock);
-	err = idr_get_new(&mmc_host_idr, host, &host->index);
+	err = idr_alloc(&mmc_host_idr, host, 0, 0, GFP_NOWAIT);
+	if (err >= 0)
+		host->index = err;
 	spin_unlock(&mmc_host_lock);
-	if (err)
+	idr_preload_end();
+	if (err < 0)
 		goto free;
 
 	dev_set_name(&host->class_dev, "mmc%d", host->index);
@@ -494,6 +520,10 @@ static ssize_t store_enable(struct device *dev,
 	if (!host)
 		goto out;
 
+	/* Not safe against removal of the card */
+	if (host->card)
+		mmc_rpm_hold(host, &host->card->dev);
+
 	mmc_claim_host(host);
 	if (!host->card || kstrtoul(buf, 0, &value))
 		goto err;
@@ -511,7 +541,8 @@ static ssize_t store_enable(struct device *dev,
 		mmc_disable_clk_scaling(host);
 
 		/* Set to max. frequency, since we are disabling */
-		if (host->bus_ops && host->bus_ops->change_bus_speed) {
+		if (host->bus_ops && host->bus_ops->change_bus_speed &&
+				host->clk_scaling.state == MMC_LOAD_LOW) {
 			freq = mmc_get_max_frequency(host);
 			if (host->bus_ops->change_bus_speed(host, &freq))
 				goto err;
@@ -525,8 +556,41 @@ static ssize_t store_enable(struct device *dev,
 	retval = count;
 err:
 	mmc_release_host(host);
+
+	/* Not safe against removal of the card */
+	if (host->card)
+		mmc_rpm_release(host, &host->card->dev);
 out:
 	return retval;
+}
+
+static ssize_t show_scale_down_in_low_wr_load(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct mmc_host *host = cls_dev_to_mmc_host(dev);
+
+	if (!host)
+		return -EINVAL;
+
+	return snprintf(buf, PAGE_SIZE, "%d\n",
+		host->clk_scaling.scale_down_in_low_wr_load);
+}
+
+static ssize_t store_scale_down_in_low_wr_load(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct mmc_host *host = cls_dev_to_mmc_host(dev);
+	unsigned long value;
+
+	if (!host)
+		return -EINVAL;
+
+	if (!host->card || kstrtoul(buf, 0, &value))
+		return -EINVAL;
+
+	host->clk_scaling.scale_down_in_low_wr_load = value;
+
+	return count;
 }
 
 static ssize_t show_up_threshold(struct device *dev,
@@ -621,12 +685,16 @@ DEVICE_ATTR(up_threshold, S_IRUGO | S_IWUSR,
 		show_up_threshold, store_up_threshold);
 DEVICE_ATTR(down_threshold, S_IRUGO | S_IWUSR,
 		show_down_threshold, store_down_threshold);
+DEVICE_ATTR(scale_down_in_low_wr_load, S_IRUGO | S_IWUSR,
+		show_scale_down_in_low_wr_load,
+		store_scale_down_in_low_wr_load);
 
 static struct attribute *clk_scaling_attrs[] = {
 	&dev_attr_enable.attr,
 	&dev_attr_up_threshold.attr,
 	&dev_attr_down_threshold.attr,
 	&dev_attr_polling_interval.attr,
+	&dev_attr_scale_down_in_low_wr_load.attr,
 	NULL,
 };
 
@@ -733,6 +801,7 @@ int mmc_add_host(struct mmc_host *host)
 	host->clk_scaling.up_threshold = 35;
 	host->clk_scaling.down_threshold = 5;
 	host->clk_scaling.polling_delay_ms = 100;
+	host->clk_scaling.scale_down_in_low_wr_load = true;
 
 	err = sysfs_create_group(&host->class_dev.kobj, &clk_scaling_attr_grp);
 	if (err)

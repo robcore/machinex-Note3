@@ -33,6 +33,7 @@ static struct file_system_type efs_fs_type = {
 	.kill_sb	= kill_block_super,
 	.fs_flags	= FS_REQUIRES_DEV,
 };
+MODULE_ALIAS_FS("efs");
 
 static struct pt_types sgi_pt_types[] = {
 	{0x00,		"SGI vh"},
@@ -107,6 +108,7 @@ static void efs_put_super(struct super_block *s)
 
 static int efs_remount(struct super_block *sb, int *flags, char *data)
 {
+	sync_filesystem(sb);
 	*flags |= MS_RDONLY;
 	return 0;
 }

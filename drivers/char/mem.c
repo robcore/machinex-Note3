@@ -27,6 +27,7 @@
 #include <linux/splice.h>
 #include <linux/pfn.h>
 #include <linux/export.h>
+#include <linux/aio.h>
 
 #include <asm/uaccess.h>
 #include <asm/io.h>
@@ -46,7 +47,7 @@ static inline unsigned long size_inside_page(unsigned long start,
 }
 
 #ifndef ARCH_HAS_VALID_PHYS_ADDR_RANGE
-static inline int valid_phys_addr_range(unsigned long addr, size_t count)
+static inline int valid_phys_addr_range(phys_addr_t addr, size_t count)
 {
 	return addr + count <= __pa(high_memory);
 }
@@ -97,7 +98,7 @@ void __weak unxlate_dev_mem_ptr(unsigned long phys, void *addr)
 static ssize_t read_mem(struct file *file, char __user *buf,
 			size_t count, loff_t *ppos)
 {
-	unsigned long p = *ppos;
+	phys_addr_t p = *ppos;
 	ssize_t read, sz;
 	char *ptr;
 
@@ -154,7 +155,7 @@ static ssize_t read_mem(struct file *file, char __user *buf,
 static ssize_t write_mem(struct file *file, const char __user *buf,
 			 size_t count, loff_t *ppos)
 {
-	unsigned long p = *ppos;
+	phys_addr_t p = *ppos;
 	ssize_t written, sz;
 	unsigned long copied;
 	void *ptr;
@@ -230,7 +231,7 @@ int __weak phys_mem_access_prot_allowed(struct file *file,
  *
  */
 #ifdef pgprot_noncached
-static int uncached_access(struct file *file, unsigned long addr)
+static int uncached_access(struct file *file, phys_addr_t addr)
 {
 #if defined(CONFIG_IA64)
 	/*
@@ -262,7 +263,7 @@ static pgprot_t phys_mem_access_prot(struct file *file, unsigned long pfn,
 				     unsigned long size, pgprot_t vma_prot)
 {
 #ifdef pgprot_noncached
-	unsigned long offset = pfn << PAGE_SHIFT;
+	phys_addr_t offset = pfn << PAGE_SHIFT;
 
 	if (uncached_access(file, offset))
 		return pgprot_noncached(vma_prot);
@@ -326,7 +327,7 @@ static int mmap_mem(struct file *file, struct vm_area_struct *vma)
 
 	vma->vm_ops = &mmap_mem_ops;
 
-	/* Remap-pfn-range will mark the range VM_IO and VM_RESERVED */
+	/* Remap-pfn-range will mark the range VM_IO */
 	if (remap_pfn_range(vma,
 			    vma->vm_start,
 			    vma->vm_pgoff,
@@ -715,7 +716,7 @@ static loff_t memory_lseek(struct file *file, loff_t offset, int orig)
 {
 	loff_t ret;
 
-	mutex_lock(&file->f_path.dentry->d_inode->i_mutex);
+	mutex_lock(&file_inode(file)->i_mutex);
 	switch (orig) {
 	case SEEK_CUR:
 		offset += file->f_pos;
@@ -732,7 +733,7 @@ static loff_t memory_lseek(struct file *file, loff_t offset, int orig)
 	default:
 		ret = -EINVAL;
 	}
-	mutex_unlock(&file->f_path.dentry->d_inode->i_mutex);
+	mutex_unlock(&file_inode(file)->i_mutex);
 	return ret;
 }
 
@@ -822,44 +823,6 @@ static const struct file_operations oldmem_fops = {
 };
 #endif
 
-static ssize_t kmsg_writev(struct kiocb *iocb, const struct iovec *iv,
-			   unsigned long count, loff_t pos)
-{
-	char *line, *p;
-	int i;
-	ssize_t ret = -EFAULT;
-	size_t len = iov_length(iv, count);
-
-	line = kmalloc(len + 1, GFP_KERNEL);
-	if (line == NULL)
-		return -ENOMEM;
-
-	/*
-	 * copy all vectors into a single string, to ensure we do
-	 * not interleave our log line with other printk calls
-	 */
-	p = line;
-	for (i = 0; i < count; i++) {
-		if (copy_from_user(p, iv[i].iov_base, iv[i].iov_len))
-			goto out;
-		p += iv[i].iov_len;
-	}
-	p[0] = '\0';
-
-	ret = printk("%s", line);
-	/* printk can add a prefix */
-	if (ret > len)
-		ret = len;
-out:
-	kfree(line);
-	return ret;
-}
-
-static const struct file_operations kmsg_fops = {
-	.aio_write = kmsg_writev,
-	.llseek = noop_llseek,
-};
-
 static const struct memdev {
 	const char *name;
 	umode_t mode;
@@ -880,7 +843,9 @@ static const struct memdev {
 	 [7] = { "full", 0666, &full_fops, NULL },
 	 [8] = { "random", 0666, &random_fops, NULL },
 	 [9] = { "urandom", 0666, &urandom_fops, NULL },
-	[11] = { "kmsg", 0, &kmsg_fops, NULL },
+#ifdef CONFIG_PRINTK
+	[11] = { "kmsg", 0644, &kmsg_fops, NULL },
+#endif
 #ifdef CONFIG_CRASH_DUMP
 	[12] = { "oldmem", 0, &oldmem_fops, NULL },
 #endif

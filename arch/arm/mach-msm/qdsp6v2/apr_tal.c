@@ -183,7 +183,8 @@ struct apr_svc_ch_dev *apr_tal_open(uint32_t svc, uint32_t dest,
 		return NULL;
 	}
 	rc = wait_event_timeout(apr_svc_ch[dl][dest][svc].wait,
-		(apr_svc_ch[dl][dest][svc].smd_state == 1), 5 * HZ);
+		(apr_svc_ch[dl][dest][svc].smd_state == 1),
+			msecs_to_jiffies(5000));
 	if (rc == 0) {
 		pr_err("apr_tal:TIMEOUT for OPEN event\n");
 		mutex_unlock(&apr_svc_ch[dl][dest][svc].m_lock);
@@ -232,7 +233,10 @@ static int apr_smd_probe(struct platform_device *pdev)
 	if (pdev->id == APR_DEST_MODEM) {
 		pr_info("apr_tal:Modem Is Up\n");
 		dest = APR_DEST_MODEM;
-		clnt = APR_CLIENT_VOICE;
+		if (!strcmp(pdev->name, "apr_audio_svc"))
+			clnt = APR_CLIENT_AUDIO;
+		else
+			clnt = APR_CLIENT_VOICE;
 		apr_svc_ch[APR_DL_SMD][dest][clnt].dest_state = 1;
 		wake_up(&apr_svc_ch[APR_DL_SMD][dest][clnt].dest);
 	} else if (pdev->id == APR_DEST_QDSP6) {

@@ -242,7 +242,7 @@ rx_submit(struct eth_dev *dev, struct usb_request *req, gfp_t gfp_flags)
 	if (dev->port_usb->is_fixed)
 		size = max_t(size_t, size, dev->port_usb->fixed_out_len);
 
-	pr_debug("%s: size: %d", __func__, size);
+	pr_debug("%s: size: %zu", __func__, size);
 	skb = alloc_skb(size + NET_IP_ALIGN, gfp_flags);
 	if (skb == NULL) {
 		DBG(dev, "no rx skb\n");
@@ -544,6 +544,15 @@ static void tx_complete(struct usb_ep *ep, struct usb_request *req)
 	case -ESHUTDOWN:		/* disconnect etc */
 		break;
 	case 0:
+		/*
+		 * Remove the header length, before updating tx_bytes in
+		 * net->stats, since when packet is received from network layer
+		 * this header is not added. So this will now give the exact
+		 * number of bytes sent to the host.
+		 */
+		if (req->num_sgs)
+			req->actual -= (req->num_sgs/2) * dev->header_len;
+
 		if (!req->zero)
 			dev->net->stats.tx_bytes += req->length-1;
 		else
@@ -588,6 +597,7 @@ static void tx_complete(struct usb_ep *ep, struct usb_request *req)
 				}
 
 				new_req->length = length;
+				new_req->complete = tx_complete;
 				retval = usb_ep_queue(in, new_req, GFP_ATOMIC);
 				switch (retval) {
 				default:
@@ -1126,7 +1136,7 @@ void gether_cleanup(void)
 		return;
 
 	unregister_netdev(the_dev->net);
-	flush_work_sync(&the_dev->work);
+	flush_work(&the_dev->work);
 	free_netdev(the_dev->net);
 
 	the_dev = NULL;

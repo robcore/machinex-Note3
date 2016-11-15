@@ -1187,6 +1187,9 @@ static int __devinit qpnp_rtc_probe(struct spmi_device *spmi)
 	/* Init power_on_alarm after adding rtc device */
 	power_on_alarm_init();
 
+	/* Init power_on_alarm after adding rtc device */
+	power_on_alarm_init();
+
 	/* Request the alarm IRQ */
 	rc = request_any_context_irq(rtc_dd->rtc_alarm_irq,
 				 qpnp_alarm_trigger, IRQF_TRIGGER_RISING,
@@ -1403,9 +1406,19 @@ static void qpnp_rtc_shutdown(struct spmi_device *spmi)
 	u8 reg;
 	int rc;
 	unsigned long irq_flags;
-	struct qpnp_rtc *rtc_dd = dev_get_drvdata(&spmi->dev);
-	bool rtc_alarm_powerup = rtc_dd->rtc_alarm_powerup;
+	struct qpnp_rtc *rtc_dd;
+	bool rtc_alarm_powerup;
 
+	if (!spmi) {
+		pr_err("qpnp-rtc: spmi device not found\n");
+		return;
+	}
+	rtc_dd = dev_get_drvdata(&spmi->dev);
+	if (!rtc_dd) {
+		pr_err("qpnp-rtc: rtc driver data not found\n");
+		return;
+	}
+	rtc_alarm_powerup = rtc_dd->rtc_alarm_powerup;
 	if (!rtc_alarm_powerup && !poweron_alarm) {
 		spin_lock_irqsave(&rtc_dd->alarm_ctrl_lock, irq_flags);
 		dev_dbg(&spmi->dev, "Disabling alarm interrupts\n");

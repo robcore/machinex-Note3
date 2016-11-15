@@ -20,10 +20,6 @@ struct seq_file;
 extern void init_FIQ(int);
 extern int show_fiq_list(struct seq_file *, int);
 
-#ifdef CONFIG_MULTI_IRQ_HANDLER
-extern void (*handle_arch_irq)(struct pt_regs *);
-#endif
-
 /*
  * This is for easy migration, but should be changed in the source
  */

@@ -78,11 +78,10 @@ static struct nfqnl_instance *
 instance_lookup(u_int16_t queue_num)
 {
 	struct hlist_head *head;
-	struct hlist_node *pos;
 	struct nfqnl_instance *inst;
 
 	head = &instance_table[instance_hashfn(queue_num)];
-	hlist_for_each_entry_rcu(inst, pos, head, hlist) {
+	hlist_for_each_entry_rcu(inst, head, hlist) {
 		if (inst->queue_num == queue_num)
 			return inst;
 	}
@@ -384,8 +383,7 @@ nlmsg_failure:
 nla_put_failure:
 	if (skb)
 		kfree_skb(skb);
-	if (net_ratelimit())
-		printk(KERN_ERR "nf_queue: error creating packet message\n");
+	net_err_ratelimited("nf_queue: error creating packet message\n");
 	return NULL;
 }
 
@@ -422,10 +420,8 @@ nfqnl_enqueue_packet(struct nf_queue_entry *entry, unsigned int queuenum)
 	}
 	if (queue->queue_total >= queue->queue_maxlen) {
 		queue->queue_dropped++;
-		if (net_ratelimit())
-			  printk(KERN_WARNING "nf_queue: full at %d entries, "
-				 "dropping packets(s).\n",
-				 queue->queue_total);
+		net_warn_ratelimited("nf_queue: full at %d entries, dropping packets(s)\n",
+				     queue->queue_total);
 		goto err_out_free_nskb;
 	}
 	entry->id = ++queue->id_sequence;
@@ -548,11 +544,10 @@ nfqnl_dev_drop(int ifindex)
 	rcu_read_lock();
 
 	for (i = 0; i < INSTANCE_BUCKETS; i++) {
-		struct hlist_node *tmp;
 		struct nfqnl_instance *inst;
 		struct hlist_head *head = &instance_table[i];
 
-		hlist_for_each_entry_rcu(inst, tmp, head, hlist)
+		hlist_for_each_entry_rcu(inst, head, hlist)
 			nfqnl_flush(inst, dev_cmp, ifindex);
 	}
 
@@ -592,11 +587,11 @@ nfqnl_rcv_nl_event(struct notifier_block *this,
 		/* destroy all instances for this pid */
 		spin_lock(&instances_lock);
 		for (i = 0; i < INSTANCE_BUCKETS; i++) {
-			struct hlist_node *tmp, *t2;
+			struct hlist_node *t2;
 			struct nfqnl_instance *inst;
 			struct hlist_head *head = &instance_table[i];
 
-			hlist_for_each_entry_safe(inst, tmp, t2, head, hlist) {
+			hlist_for_each_entry_safe(inst, t2, head, hlist) {
 				if ((n->net == &init_net) &&
 				    (n->pid == inst->peer_pid))
 					__instance_destroy(inst);

@@ -98,21 +98,13 @@ show_stack (struct task_struct *task, unsigned long *sp)
 }
 
 void
-dump_stack (void)
-{
-	show_stack(NULL, NULL);
-}
-
-EXPORT_SYMBOL(dump_stack);
-
-void
 show_regs (struct pt_regs *regs)
 {
 	unsigned long ip = regs->cr_iip + ia64_psr(regs)->ri;
 
 	print_modules();
-	printk("\nPid: %d, CPU %d, comm: %20s\n", task_pid_nr(current),
-			smp_processor_id(), current->comm);
+	printk("\n");
+	show_regs_print_info(KERN_DEFAULT);
 	printk("psr : %016lx ifs : %016lx ip  : [<%016lx>]    %s (%s)\n",
 	       regs->cr_ipsr, regs->cr_ifs, ip, print_tainted(),
 	       init_utsname()->release);
@@ -200,8 +192,6 @@ do_notify_resume_user(sigset_t *unused, struct sigscratch *scr, long in_syscall)
 	if (test_thread_flag(TIF_NOTIFY_RESUME)) {
 		clear_thread_flag(TIF_NOTIFY_RESUME);
 		tracehook_notify_resume(&scr->pt);
-		if (current->replacement_session_keyring)
-			key_replace_session_keyring();
 	}
 
 	/* copy user rbs to kernel rbs */
@@ -415,12 +405,13 @@ ia64_load_extra (struct task_struct *task)
 int
 copy_thread(unsigned long clone_flags,
 	     unsigned long user_stack_base, unsigned long user_stack_size,
-	     struct task_struct *p, struct pt_regs *regs)
+	     struct task_struct *p)
 {
 	extern char ia64_ret_from_clone;
 	struct switch_stack *child_stack, *stack;
 	unsigned long rbs, child_rbs, rbs_size;
 	struct pt_regs *child_ptregs;
+	struct pt_regs *regs = current_pt_regs();
 	int retval = 0;
 
 #ifdef CONFIG_SMP
@@ -636,14 +627,14 @@ sys_execve (const char __user *filename,
 	    const char __user *const __user *envp,
 	    struct pt_regs *regs)
 {
-	char *fname;
+	struct filename *fname;
 	int error;
 
 	fname = getname(filename);
 	error = PTR_ERR(fname);
 	if (IS_ERR(fname))
 		goto out;
-	error = do_execve(fname, argv, envp, regs);
+	error = do_execve(fname->name, argv, envp, regs);
 	putname(fname);
 out:
 	return error;

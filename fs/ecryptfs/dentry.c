@@ -32,7 +32,7 @@
 /**
  * ecryptfs_d_revalidate - revalidate an ecryptfs dentry
  * @dentry: The ecryptfs dentry
- * @nd: The associated nameidata
+ * @flags: lookup flags
  *
  * Called when the VFS needs to revalidate a dentry. This
  * is called whenever a name lookup finds a dentry in the

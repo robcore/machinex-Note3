@@ -524,6 +524,9 @@ struct vss_imemory_cmd_unmap_t {
 #define VSS_IRECORD_PORT_ID_DEFAULT			0x0000FFFF
 /* Default AFE port ID. */
 
+#define VSS_IRECORD_PORT_ID_TX_RX			0x00008003
+/* Port explicitly identifying TX and RX streams */
+
 #define VSS_IRECORD_TAP_POINT_NONE			0x00010F78
 /* Indicates no tapping for specified path. */
 
@@ -828,7 +831,7 @@ struct oem_dha_parm_send_cmd {
  * structure.
  */
 
-#define VSS_ISTREAM_EVT_RX_DTMF_DETECTED (0x0001101A)
+#define VSS_ISTREAM_EVT_RX_DTMF_DETECTED 0x0001101A
 
 struct vss_istream_cmd_set_rx_dtmf_detection {
 	/*
@@ -842,7 +845,7 @@ struct vss_istream_cmd_set_rx_dtmf_detection {
 	uint32_t enable;
 };
 
-#define VSS_ISTREAM_CMD_SET_RX_DTMF_DETECTION (0x00011027)
+#define VSS_ISTREAM_CMD_SET_RX_DTMF_DETECTION 0x00011027
 
 struct vss_istream_evt_rx_dtmf_detected {
 	uint16_t low_freq;
@@ -1220,6 +1223,111 @@ struct vss_ivocproc_cmd_register_volume_cal_data_t {
 	 */
 } __packed;
 
+/* Starts a vocoder PCM session */
+#define VSS_IVPCM_CMD_START_V2	0x00011339
+
+/* Default tap point location on the TX path. */
+#define VSS_IVPCM_TAP_POINT_TX_DEFAULT	0x00011289
+
+/* Default tap point location on the RX path. */
+#define VSS_IVPCM_TAP_POINT_RX_DEFAULT	0x0001128A
+
+/* Indicates tap point direction is output. */
+#define VSS_IVPCM_TAP_POINT_DIR_OUT	0
+
+/* Indicates tap point direction is input. */
+#define VSS_IVPCM_TAP_POINT_DIR_IN	1
+
+/* Indicates tap point direction is output and input. */
+#define VSS_IVPCM_TAP_POINT_DIR_OUT_IN	2
+
+
+#define VSS_IVPCM_SAMPLING_RATE_AUTO	0
+
+/* Indicates 8 KHz vocoder PCM sampling rate. */
+#define VSS_IVPCM_SAMPLING_RATE_8K	8000
+
+/* Indicates 16 KHz vocoder PCM sampling rate. */
+#define VSS_IVPCM_SAMPLING_RATE_16K	16000
+
+/* RX and TX */
+#define MAX_TAP_POINTS_SUPPORTED	1
+
+struct vss_ivpcm_tap_point {
+	uint32_t tap_point;
+	uint16_t direction;
+	uint16_t sampling_rate;
+	uint16_t duration;
+} __packed;
+
+
+struct vss_ivpcm_cmd_start_v2_t {
+	uint32_t mem_handle;
+	uint32_t num_tap_points;
+	struct vss_ivpcm_tap_point tap_points[MAX_TAP_POINTS_SUPPORTED];
+} __packed;
+
+#define VSS_IVPCM_EVT_PUSH_BUFFER_V2	0x0001133A
+
+/* Push buffer event mask indicating output buffer is filled. */
+#define VSS_IVPCM_PUSH_BUFFER_MASK_OUTPUT_BUFFER 1
+
+/* Push buffer event mask indicating input buffer is consumed. */
+#define VSS_IVPCM_PUSH_BUFFER_MASK_INPUT_BUFFER 2
+
+
+struct vss_ivpcm_evt_push_buffer_v2_t {
+	uint32_t tap_point;
+	uint32_t push_buf_mask;
+	uint64_t out_buf_mem_address;
+	uint16_t out_buf_mem_size;
+	uint64_t in_buf_mem_address;
+	uint16_t in_buf_mem_size;
+	uint16_t sampling_rate;
+	uint16_t num_in_channels;
+} __packed;
+
+#define VSS_IVPCM_EVT_NOTIFY_V2 0x0001133B
+
+/* Notify event mask indicates output buffer is filled. */
+#define VSS_IVPCM_NOTIFY_MASK_OUTPUT_BUFFER 1
+
+/* Notify event mask indicates input buffer is consumed. */
+#define VSS_IVPCM_NOTIFY_MASK_INPUT_BUFFER 2
+
+/* Notify event mask indicates a timetick */
+#define VSS_IVPCM_NOTIFY_MASK_TIMETICK 4
+
+/* Notify event mask indicates an error occured in output buffer operation */
+#define VSS_IVPCM_NOTIFY_MASK_OUTPUT_ERROR 8
+
+/* Notify event mask indicates an error occured in input buffer operation */
+#define VSS_IVPCM_NOTIFY_MASK_INPUT_ERROR 16
+
+
+struct vss_ivpcm_evt_notify_v2_t {
+	uint32_t tap_point;
+	uint32_t notify_mask;
+	uint64_t out_buff_addr;
+	uint64_t in_buff_addr;
+	uint16_t filled_out_size;
+	uint16_t request_buf_size;
+	uint16_t sampling_rate;
+	uint16_t num_out_channels;
+} __packed;
+
+struct cvp_start_cmd {
+	struct apr_hdr hdr;
+	struct vss_ivpcm_cmd_start_v2_t vpcm_start_cmd;
+} __packed;
+
+struct cvp_push_buf_cmd {
+	struct apr_hdr hdr;
+	struct vss_ivpcm_evt_push_buffer_v2_t vpcm_evt_push_buffer;
+} __packed;
+
+#define VSS_IVPCM_CMD_STOP 0x0001100B
+
 struct cvp_create_full_ctl_session_cmd {
 	struct apr_hdr hdr;
 	struct vss_ivocproc_cmd_create_full_control_session_v2_t cvp_session;
@@ -1298,6 +1406,10 @@ typedef void (*dtmf_rx_det_cb_fn)(uint8_t *pkt,
 typedef void (*voip_ssr_cb) (uint32_t opcode,
 				void *private_data);
 
+typedef void (*hostpcm_cb_fn)(uint8_t *data,
+			   char *session,
+			   void *private_data);
+
 struct mvs_driver_info {
 	uint32_t media_type;
 	uint32_t rate;
@@ -1313,6 +1425,11 @@ struct mvs_driver_info {
 
 struct dtmf_driver_info {
 	dtmf_rx_det_cb_fn dtmf_rx_ul_cb;
+	void *private_data;
+};
+
+struct hostpcm_driver_info {
+	hostpcm_cb_fn hostpcm_evt_cb;
 	void *private_data;
 };
 
@@ -1420,6 +1537,8 @@ struct common_data {
 	struct mem_map_table rtac_mem_map_table;
 	uint32_t rtac_mem_handle;
 
+	uint32_t voice_host_pcm_mem_handle;
+
 	struct cal_mem cvp_cal;
 	struct cal_mem cvs_cal;
 
@@ -1428,6 +1547,8 @@ struct common_data {
 	struct mvs_driver_info mvs_info;
 
 	struct dtmf_driver_info dtmf_info;
+
+	struct hostpcm_driver_info hostpcm_info;
 
 	struct voice_data voice[MAX_VOC_SESSIONS];
 
@@ -1473,11 +1594,11 @@ enum {
 #define VOC_PATH_VOWLAN_PASSIVE 5
 
 #define MAX_SESSION_NAME_LEN 32
-#define VOICE_SESSION_NAME   "Voice session"
-#define VOIP_SESSION_NAME    "VoIP session"
-#define VOLTE_SESSION_NAME   "VoLTE session"
-#define VOICE2_SESSION_NAME  "Voice2 session"
-#define QCHAT_SESSION_NAME   "QCHAT session"
+#define VOICE_SESSION_NAME  "Voice session"
+#define VOIP_SESSION_NAME   "VoIP session"
+#define VOLTE_SESSION_NAME  "VoLTE session"
+#define VOICE2_SESSION_NAME "Voice2 session"
+#define QCHAT_SESSION_NAME  "QCHAT session"
 #define VOWLAN_SESSION_NAME  "VoWLAN session"
 
 #define VOICE2_SESSION_VSID_STR "10DC1000"
@@ -1539,6 +1660,19 @@ int voc_alloc_voip_shared_memory(void);
 int is_voc_initialized(void);
 int voc_register_vocproc_vol_table(void);
 int voc_deregister_vocproc_vol_table(void);
+int voc_send_cvp_map_vocpcm_memory(uint32_t session_id,
+				   struct mem_map_table *tp_mem_table,
+				   uint32_t paddr, uint32_t bufsize);
+int voc_send_cvp_unmap_vocpcm_memory(uint32_t session_id);
+int voc_send_cvp_start_vocpcm(uint32_t session_id,
+			      struct vss_ivpcm_tap_point *vpcm_tp,
+			      uint32_t no_of_tp);
+int voc_send_cvp_vocpcm_push_buf_evt(uint32_t session_id,
+			struct vss_ivpcm_evt_push_buffer_v2_t *push_buff_evt);
+int voc_send_cvp_stop_vocpcm(uint32_t session_id);
+void voc_register_hpcm_evt_cb(hostpcm_cb_fn hostpcm_cb,
+			      void *private_data);
+void voc_deregister_hpcm_evt_cb(void);
 
 int voc_unmap_cal_blocks(void);
 int voc_map_rtac_block(struct rtac_cal_block_data *cal_block);

@@ -255,13 +255,13 @@ error_put:
 	return ret;
 }
 
-static int blktrans_release(struct gendisk *disk, fmode_t mode)
+static void blktrans_release(struct gendisk *disk, fmode_t mode)
 {
 	struct mtd_blktrans_dev *dev = blktrans_dev_get(disk);
 	int ret = 0;
 
 	if (!dev)
-		return ret;
+		return;
 
 	mutex_lock(&dev->lock);
 	mutex_lock(&mtd_table_mutex);
@@ -280,7 +280,6 @@ unlock:
 	mutex_unlock(&mtd_table_mutex);
 	mutex_unlock(&dev->lock);
 	blktrans_dev_put(dev);
-	return ret;
 }
 
 static int blktrans_getgeo(struct block_device *bdev, struct hd_geometry *geo)
@@ -292,6 +291,7 @@ static int blktrans_getgeo(struct block_device *bdev, struct hd_geometry *geo)
 		return ret;
 
 	mutex_lock(&dev->lock);
+	mutex_lock(&mtd_table_mutex);
 
 	if (!dev->mtd)
 		goto unlock;
@@ -313,6 +313,7 @@ static int blktrans_ioctl(struct block_device *bdev, fmode_t mode,
 		return ret;
 
 	mutex_lock(&dev->lock);
+	mutex_lock(&mtd_table_mutex);
 
 	if (!dev->mtd)
 		goto unlock;
@@ -325,6 +326,7 @@ static int blktrans_ioctl(struct block_device *bdev, fmode_t mode,
 		ret = -ENOTTY;
 	}
 unlock:
+	mutex_unlock(&mtd_table_mutex);
 	mutex_unlock(&dev->lock);
 	blktrans_dev_put(dev);
 	return ret;
@@ -441,6 +443,7 @@ int add_mtd_blktrans_dev(struct mtd_blktrans_dev *new)
 	blk_queue_logical_block_size(new->rq, tr->blksize);
 
 	queue_flag_set_unlocked(QUEUE_FLAG_NONROT, new->rq);
+	queue_flag_clear_unlocked(QUEUE_FLAG_ADD_RANDOM, new->rq);
 
 	if (tr->discard) {
 		queue_flag_set_unlocked(QUEUE_FLAG_DISCARD, new->rq);

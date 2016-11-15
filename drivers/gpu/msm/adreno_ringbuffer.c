@@ -1,4 +1,5 @@
-/* Copyright (c) 2002,2007-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2002,2007-2014,2016, The Linux Foundation. All rights
+ * reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -20,6 +21,7 @@
 #include "kgsl.h"
 #include "kgsl_sharedmem.h"
 #include "kgsl_cffdump.h"
+#include "kgsl_trace.h"
 
 #include "adreno.h"
 #include "adreno_pm4types.h"
@@ -212,7 +214,7 @@ err:
  *
  * Load the pm4 ucode from @start at @addr.
  */
-inline int adreno_ringbuffer_load_pm4_ucode(struct kgsl_device *device,
+static inline int adreno_ringbuffer_load_pm4_ucode(struct kgsl_device *device,
 			unsigned int start, unsigned int end, unsigned int addr)
 {
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
@@ -266,7 +268,7 @@ err:
  *
  * Load the pfp ucode from @start at @addr.
  */
-inline int adreno_ringbuffer_load_pfp_ucode(struct kgsl_device *device,
+static inline int adreno_ringbuffer_load_pfp_ucode(struct kgsl_device *device,
 			unsigned int start, unsigned int end, unsigned int addr)
 {
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
@@ -366,7 +368,7 @@ static int _ringbuffer_bootstrap_ucode(struct adreno_ringbuffer *rb,
  *
  * Setup ringbuffer for GPU.
  */
-void _ringbuffer_setup_common(struct adreno_ringbuffer *rb)
+static void _ringbuffer_setup_common(struct adreno_ringbuffer *rb)
 {
 	struct kgsl_device *device = rb->device;
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
@@ -418,7 +420,7 @@ void _ringbuffer_setup_common(struct adreno_ringbuffer *rb)
  *
  * Start ringbuffer for GPU.
  */
-int _ringbuffer_start_common(struct adreno_ringbuffer *rb)
+static int _ringbuffer_start_common(struct adreno_ringbuffer *rb)
 {
 	int status;
 	struct kgsl_device *device = rb->device;
@@ -435,9 +437,6 @@ int _ringbuffer_start_common(struct adreno_ringbuffer *rb)
 	/* idle device to validate ME INIT */
 	status = adreno_idle(device);
 
-	if (status == 0)
-		rb->flags |= KGSL_FLAGS_STARTED;
-
 	return status;
 }
 
@@ -453,9 +452,6 @@ int adreno_ringbuffer_warm_start(struct adreno_ringbuffer *rb)
 	int status;
 	struct kgsl_device *device = rb->device;
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
-
-	if (rb->flags & KGSL_FLAGS_STARTED)
-		return 0;
 
 	_ringbuffer_setup_common(rb);
 
@@ -498,8 +494,6 @@ int adreno_ringbuffer_cold_start(struct adreno_ringbuffer *rb)
 	struct kgsl_device *device = rb->device;
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
 
-	if (rb->flags & KGSL_FLAGS_STARTED)
-		return 0;
 
 	_ringbuffer_setup_common(rb);
 
@@ -549,19 +543,6 @@ int adreno_ringbuffer_cold_start(struct adreno_ringbuffer *rb)
 	return status;
 }
 
-void adreno_ringbuffer_stop(struct adreno_ringbuffer *rb)
-{
-	struct kgsl_device *device = rb->device;
-	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
-
-	if (rb->flags & KGSL_FLAGS_STARTED) {
-		if (adreno_is_a200(adreno_dev))
-			kgsl_regwrite(rb->device, REG_CP_ME_CNTL, 0x10000000);
-
-		rb->flags &= ~KGSL_FLAGS_STARTED;
-	}
-}
-
 int adreno_ringbuffer_init(struct kgsl_device *device)
 {
 	int status;
@@ -578,7 +559,7 @@ int adreno_ringbuffer_init(struct kgsl_device *device)
 
 	rb->buffer_desc.flags = KGSL_MEMFLAGS_GPUREADONLY;
 	/* allocate memory for ringbuffer */
-	status = kgsl_allocate_contiguous(&rb->buffer_desc,
+	status = kgsl_allocate_contiguous(device, &rb->buffer_desc,
 		(rb->sizedwords << 2));
 
 	if (status != 0) {
@@ -741,7 +722,7 @@ adreno_ringbuffer_addcmds(struct adreno_ringbuffer *rb,
 
 	/* Add any IB required for profiling if it is enabled */
 	if (profile_ready)
-		adreno_profile_preib_processing(rb->device, drawctxt->base.id,
+		adreno_profile_preib_processing(rb->device, context_id,
 				&flags, &ringcmds, &rcmd_gpu);
 
 	/* start-of-pipeline timestamp */
@@ -982,7 +963,7 @@ static bool _parse_ibs(struct kgsl_device_private *dev_priv,
 
 	level++;
 
-	KGSL_CMD_INFO(dev_priv->device, "ib: gpuaddr:0x%08x, wc:%d, hptr:%p\n",
+	KGSL_CMD_INFO(dev_priv->device, "ib: gpuaddr:0x%08x, wc:%d, hptr:%pK\n",
 		gpuaddr, sizedwords, hostaddr);
 
 	mb();
@@ -1004,7 +985,7 @@ static bool _parse_ibs(struct kgsl_device_private *dev_priv,
 			break;
 		default:
 			KGSL_CMD_ERR(dev_priv->device, "unexpected type: "
-				"type:%d, word:0x%08x @ 0x%p, gpu:0x%08x\n",
+				"type:%d, word:0x%08x @ 0x%pK, gpu:0x%08x\n",
 				*hostaddr >> 30, *hostaddr, hostaddr,
 				gpuaddr+4*(sizedwords-dwords_left));
 			cur_ret = false;
@@ -1015,7 +996,7 @@ static bool _parse_ibs(struct kgsl_device_private *dev_priv,
 		if (!cur_ret) {
 			KGSL_CMD_ERR(dev_priv->device,
 				"bad sub-type: #:%d/%d, v:0x%08x"
-				" @ 0x%p[gb:0x%08x], level:%d\n",
+				" @ 0x%pK[gb:0x%08x], level:%d\n",
 				sizedwords-dwords_left, sizedwords, *hostaddr,
 				hostaddr, gpuaddr+4*(sizedwords-dwords_left),
 				level);
@@ -1035,7 +1016,7 @@ static bool _parse_ibs(struct kgsl_device_private *dev_priv,
 		if (dwords_left < 0) {
 			KGSL_CMD_ERR(dev_priv->device,
 				"bad count: c:%d, #:%d/%d, "
-				"v:0x%08x @ 0x%p[gb:0x%08x], level:%d\n",
+				"v:0x%08x @ 0x%pK[gb:0x%08x], level:%d\n",
 				count, sizedwords-(dwords_left+count),
 				sizedwords, *(hostaddr-count), hostaddr-count,
 				gpuaddr+4*(sizedwords-(dwords_left+count)),
@@ -1055,7 +1036,7 @@ done:
 	if (!ret)
 		KGSL_DRV_ERR(dev_priv->device,
 			"parsing failed: gpuaddr:0x%08x, "
-			"host:0x%p, wc:%d\n", gpuaddr, hoststart, sizedwords);
+			"host:0x%pK, wc:%d\n", gpuaddr, hoststart, sizedwords);
 
 	level--;
 
@@ -1072,20 +1053,20 @@ done:
  * core does
  */
 static inline bool _ringbuffer_verify_ib(struct kgsl_device_private *dev_priv,
-		struct kgsl_ibdesc *ibdesc)
+		struct kgsl_memobj_node *ib)
 {
 	struct kgsl_device *device = dev_priv->device;
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
 
 	/* Check that the size of the IBs is under the allowable limit */
-	if (ibdesc->sizedwords == 0 || ibdesc->sizedwords > 0xFFFFF) {
-		KGSL_DRV_ERR(device, "Invalid IB size 0x%X\n",
-				ibdesc->sizedwords);
+	if (ib->sizedwords == 0 || ib->sizedwords > 0xFFFFF) {
+		KGSL_DRV_ERR(device, "Invalid IB size 0x%zX\n",
+				ib->sizedwords);
 		return false;
 	}
 
 	if (unlikely(adreno_dev->ib_check_level >= 1) &&
-		!_parse_ibs(dev_priv, ibdesc->gpuaddr, ibdesc->sizedwords)) {
+		!_parse_ibs(dev_priv, ib->gpuaddr, ib->sizedwords)) {
 		KGSL_DRV_ERR(device, "Could not verify the IBs\n");
 		return false;
 	}
@@ -1102,17 +1083,16 @@ adreno_ringbuffer_issueibcmds(struct kgsl_device_private *dev_priv,
 	struct kgsl_device *device = dev_priv->device;
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
 	struct adreno_context *drawctxt = ADRENO_CONTEXT(context);
-	int i, ret;
+	struct kgsl_memobj_node *ib;
+	int ret;
 
 	if (drawctxt->state == ADRENO_CONTEXT_STATE_INVALID)
 		return -EDEADLK;
 
 	/* Verify the IBs before they get queued */
-
-	for (i = 0; i < cmdbatch->ibcount; i++) {
-		if (!_ringbuffer_verify_ib(dev_priv, &cmdbatch->ibdesc[i]))
+	list_for_each_entry(ib, &cmdbatch->cmdlist, node)
+		if (!_ringbuffer_verify_ib(dev_priv, ib))
 			return -EINVAL;
-	}
 
 	/* wait for the suspend gate */
 	wait_for_completion(&device->cmdbatch_gate);
@@ -1178,7 +1158,7 @@ void adreno_ringbuffer_set_constraint(struct kgsl_device *device,
 	 */
 	if (context->pwr_constraint.type &&
 		((context->flags & KGSL_CONTEXT_PWR_CONSTRAINT) ||
-			(cmdbatch->flags & KGSL_CONTEXT_PWR_CONSTRAINT))) {
+			(cmdbatch->flags & KGSL_CMDBATCH_PWR_CONSTRAINT))) {
 
 		constraint = adreno_ringbuffer_get_constraint(device, context);
 
@@ -1208,22 +1188,22 @@ int adreno_ringbuffer_submitcmd(struct adreno_device *adreno_dev,
 		struct kgsl_cmdbatch *cmdbatch)
 {
 	struct kgsl_device *device = &adreno_dev->dev;
-	struct kgsl_ibdesc *ibdesc;
-	unsigned int numibs;
+	struct kgsl_memobj_node *ib;
+	unsigned int numibs = 0;
 	unsigned int *link;
 	unsigned int *cmds;
-	unsigned int i;
 	struct kgsl_context *context;
 	struct adreno_context *drawctxt;
-	unsigned int start_index = 0;
+	bool use_preamble = true;
 	int flags = KGSL_CMD_FLAGS_NONE;
 	int ret;
 
 	context = cmdbatch->context;
 	drawctxt = ADRENO_CONTEXT(context);
 
-	ibdesc = cmdbatch->ibdesc;
-	numibs = cmdbatch->ibcount;
+	/* Get the total IBs in the list */
+	list_for_each_entry(ib, &cmdbatch->cmdlist, node)
+		numibs++;
 
 	/* process any profiling results that are available into the log_buf */
 	adreno_profile_process_results(device);
@@ -1258,7 +1238,7 @@ int adreno_ringbuffer_submitcmd(struct adreno_device *adreno_dev,
 	if ((drawctxt->base.flags & KGSL_CONTEXT_PREAMBLE) &&
 		!test_bit(CMDBATCH_FLAG_FORCE_PREAMBLE, &cmdbatch->priv) &&
 		(adreno_dev->drawctxt_active == drawctxt))
-		start_index = 1;
+		use_preamble = false;
 
 	/*
 	 * In skip mode don't issue the draw IBs but keep all the other
@@ -1266,43 +1246,47 @@ int adreno_ringbuffer_submitcmd(struct adreno_device *adreno_dev,
 	 * the accounting sane. Set start_index and numibs to 0 to just
 	 * generate the start and end markers and skip everything else
 	 */
-
 	if (test_bit(CMDBATCH_FLAG_SKIP, &cmdbatch->priv)) {
-		start_index = 0;
+		use_preamble = false;
 		numibs = 0;
 	}
 
-	cmds = link = kzalloc(sizeof(unsigned int) * (numibs * 3 + 4),
+	/*
+	 * Worst case size:
+	 * 2 - start of IB identifier
+	 * 1 - skip preamble
+	 * 3 * numibs - 3 per IB
+	 * 2 - end of IB identifier
+	 */
+	cmds = link = kzalloc(sizeof(unsigned int) * (numibs * 3 + 5),
 				GFP_KERNEL);
 	if (!link) {
 		ret = -ENOMEM;
 		goto done;
 	}
 
-	if (!start_index) {
-		*cmds++ = cp_nop_packet(1);
-		*cmds++ = KGSL_START_OF_IB_IDENTIFIER;
-	} else {
-		*cmds++ = cp_nop_packet(4);
-		*cmds++ = KGSL_START_OF_IB_IDENTIFIER;
-		*cmds++ = CP_HDR_INDIRECT_BUFFER_PFD;
-		*cmds++ = ibdesc[0].gpuaddr;
-		*cmds++ = ibdesc[0].sizedwords;
-	}
-	for (i = start_index; i < numibs; i++) {
+	*cmds++ = cp_nop_packet(1);
+	*cmds++ = KGSL_START_OF_IB_IDENTIFIER;
 
-		/*
-		 * Skip 0 sized IBs - these are presumed to have been removed
-		 * from consideration by the FT policy
-		 */
+	if (numibs) {
+		list_for_each_entry(ib, &cmdbatch->cmdlist, node) {
+			/* use the preamble? */
+			if ((ib->priv & MEMOBJ_PREAMBLE) &&
+					(use_preamble == false))
+				*cmds++ = cp_nop_packet(3);
+			/*
+			 * Skip 0 sized IBs - these are presumed to have been
+			 * removed from consideration by the FT policy
+			 */
 
-		if (ibdesc[i].sizedwords == 0)
-			*cmds++ = cp_nop_packet(2);
-		else
-			*cmds++ = CP_HDR_INDIRECT_BUFFER_PFD;
+			if (ib->priv & MEMOBJ_SKIP)
+				*cmds++ = cp_nop_packet(2);
+			else
+				*cmds++ = CP_HDR_INDIRECT_BUFFER_PFD;
 
-		*cmds++ = ibdesc[i].gpuaddr;
-		*cmds++ = ibdesc[i].sizedwords;
+			*cmds++ = ib->gpuaddr;
+			*cmds++ = ib->sizedwords;
+		}
 	}
 
 	*cmds++ = cp_nop_packet(1);
@@ -1339,6 +1323,9 @@ int adreno_ringbuffer_submitcmd(struct adreno_device *adreno_dev,
 	/* Set the constraints before adding to ringbuffer */
 	adreno_ringbuffer_set_constraint(device, cmdbatch);
 
+	/* CFF stuff executed only if CFF is enabled */
+	kgsl_cffdump_capture_ib_desc(device, context, cmdbatch);
+
 	ret = adreno_ringbuffer_addcmds(&adreno_dev->ringbuffer,
 					drawctxt,
 					flags,
@@ -1357,9 +1344,8 @@ int adreno_ringbuffer_submitcmd(struct adreno_device *adreno_dev,
 #endif
 
 done:
-	device->pwrctrl.irq_last = 0;
-	kgsl_trace_issueibcmds(device, context->id, cmdbatch,
-		cmdbatch->timestamp, cmdbatch->flags, ret,
+	trace_kgsl_issueibcmds(device, context->id, cmdbatch,
+		numibs, cmdbatch->timestamp, cmdbatch->flags, ret,
 		drawctxt->type);
 
 	kfree(link);

@@ -705,9 +705,9 @@ static int ip6fl_seq_show(struct seq_file *seq, void *v)
 		struct ip6_flowlabel *fl = v;
 		seq_printf(seq,
 			   "%05X %-1d %-6d %-6d %-6ld %-8ld %pi6 %-4d\n",
-			   (unsigned)ntohl(fl->label),
+			   (unsigned int)ntohl(fl->label),
 			   fl->share,
-			   (unsigned)fl->owner,
+			   (int)fl->owner,
 			   atomic_read(&fl->users),
 			   fl->linger/HZ,
 			   (long)(fl->expires - jiffies)/HZ,
@@ -748,7 +748,7 @@ static int __net_init ip6_flowlabel_proc_init(struct net *net)
 
 static void __net_exit ip6_flowlabel_proc_fini(struct net *net)
 {
-	proc_net_remove(net, "ip6_flowlabel");
+	remove_proc_entry("ip6_flowlabel", net->proc_net);
 }
 #else
 static inline int ip6_flowlabel_proc_init(struct net *net)

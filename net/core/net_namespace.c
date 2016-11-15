@@ -10,7 +10,8 @@
 #include <linux/idr.h>
 #include <linux/rculist.h>
 #include <linux/nsproxy.h>
-#include <linux/proc_fs.h>
+#include <linux/fs.h>
+#include <linux/proc_ns.h>
 #include <linux/file.h>
 #include <linux/export.h>
 #include <net/net_namespace.h>
@@ -328,7 +329,7 @@ EXPORT_SYMBOL_GPL(__put_net);
 
 struct net *get_net_ns_by_fd(int fd)
 {
-	struct proc_inode *ei;
+	struct proc_ns *ei;
 	struct file *file;
 	struct net *net;
 
@@ -336,7 +337,7 @@ struct net *get_net_ns_by_fd(int fd)
 	if (IS_ERR(file))
 		return ERR_CAST(file);
 
-	ei = PROC_I(file->f_dentry->d_inode);
+	ei = get_proc_ns(file_inode(file));
 	if (ei->ns_ops == &netns_operations)
 		net = get_net(ei->ns);
 	else
@@ -371,14 +372,31 @@ struct net *get_net_ns_by_pid(pid_t pid)
 	tsk = find_task_by_vpid(pid);
 	if (tsk) {
 		struct nsproxy *nsproxy;
-		nsproxy = task_nsproxy(tsk);
+		task_lock(tsk);
+		nsproxy = tsk->nsproxy;
 		if (nsproxy)
 			net = get_net(nsproxy->net_ns);
+		task_unlock(tsk);
 	}
 	rcu_read_unlock();
 	return net;
 }
 EXPORT_SYMBOL_GPL(get_net_ns_by_pid);
+
+static __net_init int net_ns_net_init(struct net *net)
+{
+	return proc_alloc_inum(&net->proc_inum);
+}
+
+static __net_exit void net_ns_net_exit(struct net *net)
+{
+	proc_free_inum(net->proc_inum);
+}
+
+static struct pernet_operations __net_initdata net_ns_ops = {
+	.init = net_ns_net_init,
+	.exit = net_ns_net_exit,
+};
 
 static int __init net_ns_init(void)
 {
@@ -410,6 +428,8 @@ static int __init net_ns_init(void)
 	rtnl_unlock();
 
 	mutex_unlock(&net_mutex);
+
+	register_pernet_subsys(&net_ns_ops);
 
 	return 0;
 }
@@ -613,11 +633,11 @@ static void *netns_get(struct task_struct *task)
 	struct net *net = NULL;
 	struct nsproxy *nsproxy;
 
-	rcu_read_lock();
-	nsproxy = task_nsproxy(task);
+	task_lock(task);
+	nsproxy = task->nsproxy;
 	if (nsproxy)
 		net = get_net(nsproxy->net_ns);
-	rcu_read_unlock();
+	task_unlock(task);
 
 	return net;
 }
@@ -634,11 +654,18 @@ static int netns_install(struct nsproxy *nsproxy, void *ns)
 	return 0;
 }
 
+static unsigned int netns_inum(void *ns)
+{
+	struct net *net = ns;
+	return net->proc_inum;
+}
+
 const struct proc_ns_operations netns_operations = {
 	.name		= "net",
 	.type		= CLONE_NEWNET,
 	.get		= netns_get,
 	.put		= netns_put,
 	.install	= netns_install,
+	.inum		= netns_inum,
 };
 #endif

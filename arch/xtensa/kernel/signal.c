@@ -534,7 +534,7 @@ int do_signal(struct pt_regs *regs, sigset_t *oldset)
 		if (ret)
 			return ret;
 
-		block_sigmask(&ka, signr);
+		signal_delivered(signr, info, ka, regs, 0);
 		if (current->ptrace & PT_SINGLESTEP)
 			task_pt_regs(current)->icountlevel = 1;
 
@@ -563,3 +563,14 @@ no_signal:
 	return 0;
 }
 
+void do_notify_resume(struct pt_regs *regs)
+{
+	if (!user_mode(regs))
+		return;
+
+	if (test_thread_flag(TIF_SIGPENDING))
+		do_signal(regs);
+
+	if (test_and_clear_thread_flag(TIF_NOTIFY_RESUME))
+		tracehook_notify_resume(regs);
+}

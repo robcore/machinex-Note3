@@ -279,6 +279,9 @@ int notrace persistent_ram_write(struct persistent_ram_zone *prz,
 	int c = count;
 	size_t start;
 
+	if (unlikely(prz->buffer->sig != PERSISTENT_RAM_SIG))
+		return -EINVAL;
+
 	if (unlikely(c > prz->buffer_size)) {
 		s += c - prz->buffer_size;
 		c = prz->buffer_size;
@@ -393,8 +396,6 @@ struct persistent_ram_zone *__persistent_ram_init(struct device *dev, bool ecc)
 		pr_err("persistent_ram: failed to allocate persistent ram zone\n");
 		goto err;
 	}
-
-	INIT_LIST_HEAD(&prz->node);
 
 	ret = persistent_ram_buffer_init(dev_name(dev), prz, &ram);
 	if (ret) {

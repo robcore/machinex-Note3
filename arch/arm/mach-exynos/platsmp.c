@@ -22,7 +22,6 @@
 #include <linux/io.h>
 
 #include <asm/cacheflush.h>
-#include <asm/hardware/gic.h>
 #include <asm/smp_plat.h>
 #include <asm/smp_scu.h>
 
@@ -36,13 +35,6 @@ extern void exynos4_secondary_startup(void);
 
 #define CPU1_BOOT_REG		(samsung_rev() == EXYNOS4210_REV_1_1 ? \
 				S5P_INFORM5 : S5P_VA_SYSRAM)
-
-/*
- * control for which core is the next to come out of the secondary
- * boot "holding pen"
- */
-
-volatile int __cpuinitdata pen_release = -1;
 
 /*
  * Write pen_release in a way that is guaranteed to be visible to all
@@ -66,13 +58,6 @@ static DEFINE_SPINLOCK(boot_lock);
 
 void __cpuinit platform_secondary_init(unsigned int cpu)
 {
-	/*
-	 * if any interrupts are already enabled for the primary
-	 * core (e.g. timer irq), then they will not have been enabled
-	 * for us: do so
-	 */
-	gic_secondary_init(0);
-
 	/*
 	 * let the primary processor know we're out of the
 	 * pen, then head off into the C entry point

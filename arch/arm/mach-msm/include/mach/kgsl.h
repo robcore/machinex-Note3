@@ -71,7 +71,6 @@ struct kgsl_device_iommu_data {
 struct kgsl_pwrlevel {
 	unsigned int gpu_freq;
 	unsigned int bus_freq;
-	unsigned int io_fraction;
 };
 
 struct kgsl_device_platform_data {
@@ -91,7 +90,8 @@ struct kgsl_device_platform_data {
 	struct coresight_device *csdev;
 	struct coresight_platform_data *coresight_pdata;
 	unsigned int chipid;
-	unsigned int pm_qos_latency;
+	unsigned int pm_qos_active_latency;
+	unsigned int pm_qos_wakeup_latency;
 };
 
 #endif

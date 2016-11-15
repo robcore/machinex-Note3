@@ -128,7 +128,10 @@ static void br_stp_start(struct net_bridge *br)
 	char *argv[] = { BR_STP_PROG, br->dev->name, "start", NULL };
 	char *envp[] = { NULL };
 
-	r = call_usermodehelper(BR_STP_PROG, argv, envp, UMH_WAIT_PROC);
+	if (net_eq(dev_net(br->dev), &init_net))
+		r = call_usermodehelper(BR_STP_PROG, argv, envp, UMH_WAIT_PROC);
+	else
+		r = -ENOENT;
 
 	spin_lock_bh(&br->lock);
 
@@ -211,6 +214,7 @@ void br_stp_change_bridge_id(struct net_bridge *br, const unsigned char *addr)
 	br_port_state_selection(br);
 	if (br_is_root_bridge(br) && !wasroot)
 		br_become_root_bridge(br);
+	spin_unlock_bh(&br->lock);
 }
 
 /* should be aligned on 2 bytes for compare_ether_addr() */

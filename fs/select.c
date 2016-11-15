@@ -26,8 +26,8 @@
 #include <linux/fs.h>
 #include <linux/rcupdate.h>
 #include <linux/hrtimer.h>
-#include <linux/freezer.h>
 #include <linux/sched/rt.h>
+#include <linux/freezer.h>
 
 #include <asm/uaccess.h>
 
@@ -188,7 +188,7 @@ static int __pollwake(wait_queue_t *wait, unsigned mode, int sync, void *key)
 	 * doesn't imply write barrier and the users expect write
 	 * barrier semantics on wakeup functions.  The following
 	 * smp_wmb() is equivalent to smp_wmb() in try_to_wake_up()
-	 * and is paired with set_mb() in poll_schedule_timeout.
+	 * and is paired with smp_store_mb() in poll_schedule_timeout.
 	 */
 	smp_wmb();
 	pwq->triggered = 1;
@@ -244,7 +244,7 @@ int poll_schedule_timeout(struct poll_wqueues *pwq, int state,
 	/*
 	 * Prepare for the next iteration.
 	 *
-	 * The following set_mb() serves two purposes.  First, it's
+	 * The following smp_store_mb() serves two purposes.  First, it's
 	 * the counterpart rmb of the wmb in pollwake() such that data
 	 * written before wake up is always visible after wake up.
 	 * Second, the full barrier guarantees that triggered clearing
@@ -252,7 +252,7 @@ int poll_schedule_timeout(struct poll_wqueues *pwq, int state,
 	 * this problem doesn't exist for the first iteration as
 	 * add_wait_queue() has full barrier semantics.
 	 */
-	set_mb(pwq->triggered, 0);
+	smp_store_mb(pwq->triggered, 0);
 
 	return rc;
 }
@@ -431,8 +431,6 @@ int do_select(int n, fd_set_bits *fds, struct timespec *end_time)
 		for (i = 0; i < n; ++rinp, ++routp, ++rexp) {
 			unsigned long in, out, ex, all_bits, bit = 1, mask, j;
 			unsigned long res_in = 0, res_out = 0, res_ex = 0;
-			const struct file_operations *f_op = NULL;
-			struct file *file = NULL;
 
 			in = *inp++; out = *outp++; ex = *exp++;
 			all_bits = in | out | ex;
@@ -442,20 +440,21 @@ int do_select(int n, fd_set_bits *fds, struct timespec *end_time)
 			}
 
 			for (j = 0; j < BITS_PER_LONG; ++j, ++i, bit <<= 1) {
-				int fput_needed;
+				struct fd f;
 				if (i >= n)
 					break;
 				if (!(bit & all_bits))
 					continue;
-				file = fget_light(i, &fput_needed);
-				if (file) {
-					f_op = file->f_op;
+				f = fdget(i);
+				if (f.file) {
+					const struct file_operations *f_op;
+					f_op = f.file->f_op;
 					mask = DEFAULT_POLLMASK;
 					if (f_op && f_op->poll) {
 						wait_key_set(wait, in, out, bit);
-						mask = (*f_op->poll)(file, wait);
+						mask = (*f_op->poll)(f.file, wait);
 					}
-					fput_light(file, fput_needed);
+					fdput(f);
 					if ((mask & POLLIN_SET) && (in & bit)) {
 						res_in |= bit;
 						retval++;
@@ -728,20 +727,17 @@ static inline unsigned int do_pollfd(struct pollfd *pollfd, poll_table *pwait)
 	mask = 0;
 	fd = pollfd->fd;
 	if (fd >= 0) {
-		int fput_needed;
-		struct file * file;
-
-		file = fget_light(fd, &fput_needed);
+		struct fd f = fdget(fd);
 		mask = POLLNVAL;
-		if (file != NULL) {
+		if (f.file) {
 			mask = DEFAULT_POLLMASK;
-			if (file->f_op && file->f_op->poll) {
+			if (f.file->f_op && f.file->f_op->poll) {
 				pwait->_key = pollfd->events|POLLERR|POLLHUP;
-				mask = file->f_op->poll(file, pwait);
+				mask = f.file->f_op->poll(f.file, pwait);
 			}
 			/* Mask out unneeded events. */
 			mask &= pollfd->events | POLLERR | POLLHUP;
-			fput_light(file, fput_needed);
+			fdput(f);
 		}
 	}
 	pollfd->revents = mask;

@@ -177,11 +177,13 @@ static int ip_vs_ftp_out(struct ip_vs_app *app, struct ip_vs_conn *cp,
 	__be16 port;
 	struct ip_vs_conn *n_cp;
 	char buf[24];		/* xxx.xxx.xxx.xxx,ppp,ppp\000 */
-	unsigned buf_len;
+	unsigned int buf_len;
 	int ret = 0;
 	enum ip_conntrack_info ctinfo;
 	struct nf_conn *ct;
 	struct net *net;
+
+	*diff = 0;
 
 	*diff = 0;
 
@@ -317,6 +319,9 @@ static int ip_vs_ftp_in(struct ip_vs_app *app, struct ip_vs_conn *cp,
 	__be16 port;
 	struct ip_vs_conn *n_cp;
 	struct net *net;
+
+	/* no diff required for incoming packets */
+	*diff = 0;
 
 	/* no diff required for incoming packets */
 	*diff = 0;

@@ -295,8 +295,8 @@ sys_call_table:
 	PTR	compat_sys_old_readdir
 	PTR	sys_mips_mmap			/* 4090 */
 	PTR	sys_munmap
-	PTR	sys_truncate
-	PTR	sys_ftruncate
+	PTR	compat_sys_truncate
+	PTR	compat_sys_ftruncate
 	PTR	sys_fchmod
 	PTR	sys_fchown			/* 4095 */
 	PTR	sys_getpriority
@@ -540,7 +540,7 @@ sys_call_table:
 	PTR	sys_accept4
 	PTR	compat_sys_recvmmsg		/* 4335 */
 	PTR	sys_fanotify_init
-	PTR	sys_32_fanotify_mark
+	PTR	compat_sys_fanotify_mark
 	PTR	sys_prlimit64
 	PTR	sys_name_to_handle_at
 	PTR	compat_sys_open_by_handle_at	/* 4340 */

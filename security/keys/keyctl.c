@@ -22,6 +22,7 @@
 #include <linux/err.h>
 #include <linux/vmalloc.h>
 #include <linux/security.h>
+#include <linux/uio.h>
 #include <asm/uaccess.h>
 #include "internal.h"
 
@@ -46,6 +47,9 @@ static int key_get_type_from_user(char *type,
  * Extract the description of a new key from userspace and either add it as a
  * new key to the specified keyring or update a matching key in that keyring.
  *
+ * If the description is NULL or an empty string, the key type is asked to
+ * generate one from the payload.
+ *
  * The keyring must be writable so that we can attach the key to it.
  *
  * If successful, the new key's serial number is returned, otherwise an error
@@ -61,7 +65,6 @@ SYSCALL_DEFINE5(add_key, const char __user *, _type,
 	char type[32], *description;
 	void *payload;
 	long ret;
-	bool vm;
 
 	ret = -EINVAL;
 	if (plen > 1024 * 1024 - 1)
@@ -72,23 +75,28 @@ SYSCALL_DEFINE5(add_key, const char __user *, _type,
 	if (ret < 0)
 		goto error;
 
-	description = strndup_user(_description, PAGE_SIZE);
-	if (IS_ERR(description)) {
-		ret = PTR_ERR(description);
-		goto error;
+	description = NULL;
+	if (_description) {
+		description = strndup_user(_description, PAGE_SIZE);
+		if (IS_ERR(description)) {
+			ret = PTR_ERR(description);
+			goto error;
+		}
+		if (!*description) {
+			kfree(description);
+			description = NULL;
+		}
 	}
 
 	/* pull the payload in if one was supplied */
 	payload = NULL;
 
-	vm = false;
 	if (_payload) {
 		ret = -ENOMEM;
 		payload = kmalloc(plen, GFP_KERNEL | __GFP_NOWARN);
 		if (!payload) {
 			if (plen <= PAGE_SIZE)
 				goto error2;
-			vm = true;
 			payload = vmalloc(plen);
 			if (!payload)
 				goto error2;
@@ -121,10 +129,7 @@ SYSCALL_DEFINE5(add_key, const char __user *, _type,
 
 	key_ref_put(keyring_ref);
  error3:
-	if (!vm)
-		kfree(payload);
-	else
-		vfree(payload);
+	kvfree(payload);
  error2:
 	kfree(description);
  error:
@@ -1106,7 +1111,7 @@ long keyctl_instantiate_key_iov(key_serial_t id,
 	struct iovec iovstack[UIO_FASTIOV], *iov = iovstack;
 	long ret;
 
-	if (_payload_iov == 0 || ioc == 0)
+	if (!_payload_iov || !ioc)
 		goto no_payload;
 
 	ret = rw_copy_check_uvector(WRITE, _payload_iov, ioc,
@@ -1475,7 +1480,8 @@ long keyctl_session_to_parent(void)
 		goto error_keyring;
 	newwork = &cred->rcu;
 
-	cred->tgcred->session_keyring = key_ref_to_ptr(keyring_r);
+	cred->session_keyring = key_ref_to_ptr(keyring_r);
+	keyring_r = NULL;
 	init_task_work(newwork, key_change_session_keyring);
 
 	me = current;
@@ -1499,7 +1505,7 @@ long keyctl_session_to_parent(void)
 	mycred = current_cred();
 	pcred = __task_cred(parent);
 	if (mycred == pcred ||
-	    mycred->tgcred->session_keyring == pcred->tgcred->session_keyring) {
+	    mycred->session_keyring == pcred->session_keyring) {
 		ret = 0;
 		goto unlock;
 	}
@@ -1515,9 +1521,9 @@ long keyctl_session_to_parent(void)
 		goto unlock;
 
 	/* the keyrings must have the same UID */
-	if ((pcred->tgcred->session_keyring &&
-	     pcred->tgcred->session_keyring->uid != mycred->euid) ||
-	    mycred->tgcred->session_keyring->uid != mycred->euid)
+	if ((pcred->session_keyring &&
+	     pcred->session_keyring->uid != mycred->euid) ||
+	    mycred->session_keyring->uid != mycred->euid)
 		goto unlock;
 
 	/* cancel an already pending keyring replacement */

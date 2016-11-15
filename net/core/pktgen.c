@@ -320,7 +320,7 @@ struct pktgen_dev {
 				(see RFC 3260, sec. 4) */
 
 	/* MPLS */
-	unsigned nr_labels;	/* Depth of stack, 0 = no MPLS */
+	unsigned int nr_labels;	/* Depth of stack, 0 = no MPLS */
 	__be32 labels[MAX_MPLS_LABELS];
 
 	/* VLAN/SVLAN (802.1Q/Q-in-Q) */
@@ -373,10 +373,10 @@ struct pktgen_dev {
 				  */
 	char odevname[32];
 	struct flow_state *flows;
-	unsigned cflows;	/* Concurrent flows (config) */
-	unsigned lflow;		/* Flow length  (config) */
-	unsigned nflows;	/* accumulated flows (stats) */
-	unsigned curfl;		/* current sequenced flow (state)*/
+	unsigned int cflows;	/* Concurrent flows (config) */
+	unsigned int lflow;		/* Flow length  (config) */
+	unsigned int nflows;	/* accumulated flows (stats) */
+	unsigned int curfl;		/* current sequenced flow (state)*/
 
 	u16 queue_map_min;
 	u16 queue_map_max;
@@ -501,7 +501,7 @@ out:
 
 static int pgctrl_open(struct inode *inode, struct file *file)
 {
-	return single_open(file, pgctrl_show, PDE(inode)->data);
+	return single_open(file, pgctrl_show, PDE_DATA(inode));
 }
 
 static const struct file_operations pktgen_fops = {
@@ -578,7 +578,7 @@ static int pktgen_if_show(struct seq_file *seq, void *v)
 		   pkt_dev->src_mac_count, pkt_dev->dst_mac_count);
 
 	if (pkt_dev->nr_labels) {
-		unsigned i;
+		unsigned int i;
 		seq_printf(seq, "     mpls: ");
 		for (i = 0; i < pkt_dev->nr_labels; i++)
 			seq_printf(seq, "%08x%s", ntohl(pkt_dev->labels[i]),
@@ -798,7 +798,7 @@ done_str:
 
 static ssize_t get_labels(const char __user *buffer, struct pktgen_dev *pkt_dev)
 {
-	unsigned n = 0;
+	unsigned int n = 0;
 	char c;
 	ssize_t i = 0;
 	int len;
@@ -1496,7 +1496,7 @@ static ssize_t pktgen_if_write(struct file *file,
 	}
 
 	if (!strcmp(name, "mpls")) {
-		unsigned n, cnt;
+		unsigned int n, cnt;
 
 		len = get_labels(&user_buffer[i], pkt_dev);
 		if (len < 0)
@@ -1682,7 +1682,7 @@ static ssize_t pktgen_if_write(struct file *file,
 
 static int pktgen_if_open(struct inode *inode, struct file *file)
 {
-	return single_open(file, pktgen_if_show, PDE(inode)->data);
+	return single_open(file, pktgen_if_show, PDE_DATA(inode));
 }
 
 static const struct file_operations pktgen_if_fops = {
@@ -1821,7 +1821,7 @@ out:
 
 static int pktgen_thread_open(struct inode *inode, struct file *file)
 {
-	return single_open(file, pktgen_thread_show, PDE(inode)->data);
+	return single_open(file, pktgen_thread_show, PDE_DATA(inode));
 }
 
 static const struct file_operations pktgen_thread_fops = {
@@ -1901,7 +1901,7 @@ static void pktgen_change_name(struct net_device *dev)
 			if (pkt_dev->odev != dev)
 				continue;
 
-			remove_proc_entry(pkt_dev->entry->name, pg_proc_dir);
+			proc_remove(pkt_dev->entry);
 
 			pkt_dev->entry = proc_create_data(dev->name, 0600,
 							  pg_proc_dir,
@@ -2313,7 +2313,7 @@ static void mod_cur_headers(struct pktgen_dev *pkt_dev)
 	}
 
 	if (pkt_dev->flags & F_MPLS_RND) {
-		unsigned i;
+		unsigned int i;
 		for (i = 0; i < pkt_dev->nr_labels; i++)
 			if (pkt_dev->labels[i] & MPLS_STACK_BOTTOM)
 				pkt_dev->labels[i] = MPLS_STACK_BOTTOM |
@@ -2546,7 +2546,7 @@ err:
 
 static void mpls_push(__be32 *mpls, struct pktgen_dev *pkt_dev)
 {
-	unsigned i;
+	unsigned int i;
 	for (i = 0; i < pkt_dev->nr_labels; i++)
 		*mpls++ = pkt_dev->labels[i] & ~MPLS_STACK_BOTTOM;
 
@@ -2930,8 +2930,7 @@ static struct sk_buff *fill_packet_ipv6(struct net_device *odev,
 
 	if (datalen < 0 || datalen < sizeof(struct pktgen_hdr)) {
 		datalen = sizeof(struct pktgen_hdr);
-		if (net_ratelimit())
-			pr_info("increased datalen to %d\n", datalen);
+		net_info_ratelimited("increased datalen to %d\n", datalen);
 	}
 
 	udph->source = htons(pkt_dev->cur_udp_src);
@@ -3360,8 +3359,8 @@ static void pktgen_xmit(struct pktgen_dev *pkt_dev)
 		pkt_dev->errors++;
 		break;
 	default: /* Drivers are not supposed to return other values! */
-		if (net_ratelimit())
-			pr_info("%s xmit error: %d\n", pkt_dev->odevname, ret);
+		net_info_ratelimited("%s xmit error: %d\n",
+				     pkt_dev->odevname, ret);
 		pkt_dev->errors++;
 		/* fallthru */
 	case NETDEV_TX_LOCKED:
@@ -3668,7 +3667,6 @@ static void _rem_dev_from_if_list(struct pktgen_thread *t,
 static int pktgen_remove_device(struct pktgen_thread *t,
 				struct pktgen_dev *pkt_dev)
 {
-
 	pr_debug("remove_device pkt_dev=%p\n", pkt_dev);
 
 	if (pkt_dev->running) {
@@ -3688,7 +3686,7 @@ static int pktgen_remove_device(struct pktgen_thread *t,
 	_rem_dev_from_if_list(t, pkt_dev);
 
 	if (pkt_dev->entry)
-		remove_proc_entry(pkt_dev->entry->name, pg_proc_dir);
+		proc_remove(pkt_dev->entry);
 
 #ifdef CONFIG_XFRM
 	free_SAs(pkt_dev);
@@ -3742,7 +3740,7 @@ static int __init pg_init(void)
 	unregister_netdevice_notifier(&pktgen_notifier_block);
 	remove_proc_entry(PGCTRL, pg_proc_dir);
  remove_dir:
-	proc_net_remove(&init_net, PG_PROC_DIR);
+	remove_proc_entry(PG_PROC_DIR, pn->net->proc_net);
 	return ret;
 }
 
@@ -3771,7 +3769,7 @@ static void __exit pg_cleanup(void)
 
 	/* Clean up proc file system */
 	remove_proc_entry(PGCTRL, pg_proc_dir);
-	proc_net_remove(&init_net, PG_PROC_DIR);
+	remove_proc_entry(PG_PROC_DIR, &init_net);
 }
 
 module_init(pg_init);

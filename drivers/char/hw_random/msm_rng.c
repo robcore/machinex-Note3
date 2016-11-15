@@ -108,7 +108,8 @@ static long msm_rng_ioctl(struct file *filp, unsigned int cmd,
  *  back to caller
  *
  */
-int msm_rng_direct_read(struct msm_rng_device *msm_rng_dev, void *data)
+int msm_rng_direct_read(struct msm_rng_device *msm_rng_dev,
+				void *data, size_t max)
 {
 	struct platform_device *pdev;
 	void __iomem *base;
@@ -141,7 +142,7 @@ int msm_rng_direct_read(struct msm_rng_device *msm_rng_dev, void *data)
 		*(retdata++) = val;
 		currsize += 4;
 
-	} while (currsize < Q_HW_DRBG_BLOCK_BYTES);
+	} while (currsize < max);
 
 	/* vote to turn off clock */
 	clk_disable_unprepare(msm_rng_dev->prng_clk);
@@ -278,47 +279,32 @@ int _do_msm_fips_drbg_init(void *rng_dev)
 #ifdef CONFIG_FIPS_ENABLE
 static int msm_rng_read(struct hwrng *rng, void *data, size_t max, bool wait)
 {
-	struct msm_rng_device *msm_rng_dev = (struct msm_rng_device *)rng->priv;
-	unsigned char a[Q_HW_DRBG_BLOCK_BYTES];
-	int read_size;
-	unsigned char *p = data;
+	struct msm_rng_device *msm_rng_dev;
+	int sizeread = 0;
+
+	msm_rng_dev = (struct msm_rng_device *)rng->priv;
 
 	switch (fips_mode_enabled) {
 	case DRBG_FIPS_STARTED:
-		return msm_rng_drbg_read(rng, data, max, wait);
+		sizeread = msm_rng_drbg_read(rng, data, max, wait);
 		break;
 	case FIPS_NOT_STARTED:
-		if (g_fips140_status != FIPS140_STATUS_PASS) {
-			do {
-				read_size = msm_rng_direct_read(msm_rng_dev, a);
-				if (read_size <= 0)
-					break;
-				if ((max - read_size > 0)) {
-					memcpy(p, a, read_size);
-					p += read_size;
-					max -= read_size;
-				} else {
-					memcpy(p, a, max);
-				break;
-				}
-			} while (1);
-			return p - (unsigned char *)data;
-		} else {
-				fips_mode_enabled  = DRBG_FIPS_STARTED;
-				return msm_rng_drbg_read(rng, data, max, wait);
-			}
+		sizeread = msm_rng_direct_read(msm_rng_dev, data, max);
 		break;
 	default:
-		return 0;
+		sizeread = 0;
 		break;
 	}
 
-	return 0;
+	return sizeread;
 }
 #else
 static int msm_rng_read(struct hwrng *rng, void *data, size_t max, bool wait)
 {
-	return msm_rng_drbg_read(rng, data, max, wait);
+	struct msm_rng_device *msm_rng_dev;
+
+	msm_rng_dev = (struct msm_rng_device *)rng->priv;
+	return msm_rng_direct_read(msm_rng_dev, data, max);
 }
 #endif
 

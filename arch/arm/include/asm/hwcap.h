@@ -25,6 +25,17 @@
 #define HWCAP_IDIVT	(1 << 18)
 #define HWCAP_VFPD32	(1 << 19)	/* set if VFP has 32 regs (not 16) */
 #define HWCAP_IDIV	(HWCAP_IDIVA | HWCAP_IDIVT)
+#define HWCAP_LPAE     (1 << 20)
+#define HWCAP_EVTSTRM  (1 << 21)
+
+/*
+ * HWCAP2 flags - for elf_hwcap2 (in kernel) and AT_HWCAP2
+ */
+#define HWCAP2_AES	(1 << 0)
+#define HWCAP2_PMULL	(1 << 1)
+#define HWCAP2_SHA1	(1 << 2)
+#define HWCAP2_SHA2	(1 << 3)
+#define HWCAP2_CRC32	(1 << 4)
 
 #if defined(__KERNEL__)
 #if !defined(__ASSEMBLY__)
@@ -33,7 +44,8 @@
  * instruction set this cpu supports.
  */
 #define ELF_HWCAP	(elf_hwcap)
-extern unsigned int elf_hwcap;
+#define ELF_HWCAP2	(elf_hwcap2)
+extern unsigned int elf_hwcap, elf_hwcap2;
 #endif
 #endif
 

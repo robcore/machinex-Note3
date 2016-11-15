@@ -438,11 +438,6 @@ asmlinkage long sys32_clone(unsigned int clone_flags, unsigned int newsp,
  * Some system calls that need sign extended arguments. This could be
  * done by a generic wrapper.
  */
-long sys32_lseek(unsigned int fd, int offset, unsigned int whence)
-{
-	return sys_lseek(fd, offset, whence);
-}
-
 long sys32_kill(int pid, int sig)
 {
 	return sys_kill(pid, sig);
@@ -504,13 +499,4 @@ asmlinkage long sys32_fallocate(int fd, int mode, unsigned offset_lo,
 {
 	return sys_fallocate(fd, mode, ((u64)offset_hi << 32) | offset_lo,
 			     ((u64)len_hi << 32) | len_lo);
-}
-
-asmlinkage long sys32_fanotify_mark(int fanotify_fd, unsigned int flags,
-				    u32 mask_lo, u32 mask_hi,
-				    int fd, const char  __user *pathname)
-{
-	return sys_fanotify_mark(fanotify_fd, flags,
-				 ((u64)mask_hi << 32) | mask_lo,
-				 fd, pathname);
 }

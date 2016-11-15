@@ -20,6 +20,9 @@
 #include <linux/ima.h>
 #include <linux/evm.h>
 #include <linux/fsnotify.h>
+#include <linux/mman.h>
+#include <linux/mount.h>
+#include <linux/personality.h>
 #include <net/flow.h>
 
 #define MAX_LSM_EVM_XATTR	2
@@ -280,8 +283,8 @@ int security_sb_statfs(struct dentry *dentry)
 	return security_ops->sb_statfs(dentry);
 }
 
-int security_sb_mount(char *dev_name, struct path *path,
-                       char *type, unsigned long flags, void *data)
+int security_sb_mount(const char *dev_name, struct path *path,
+                       const char *type, unsigned long flags, void *data)
 {
 	return security_ops->sb_mount(dev_name, path, type, flags, data);
 }
@@ -303,10 +306,10 @@ int security_sb_set_mnt_opts(struct super_block *sb,
 }
 EXPORT_SYMBOL(security_sb_set_mnt_opts);
 
-void security_sb_clone_mnt_opts(const struct super_block *oldsb,
+int security_sb_clone_mnt_opts(const struct super_block *oldsb,
 				struct super_block *newsb)
 {
-	security_ops->sb_clone_mnt_opts(oldsb, newsb);
+	return security_ops->sb_clone_mnt_opts(oldsb, newsb);
 }
 EXPORT_SYMBOL(security_sb_clone_mnt_opts);
 
@@ -691,16 +694,44 @@ int security_file_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	return security_ops->file_ioctl(file, cmd, arg);
 }
 
-int security_file_mmap(struct file *file, unsigned long reqprot,
-			unsigned long prot, unsigned long flags,
-			unsigned long addr, unsigned long addr_only)
+int security_mmap_file(struct file *file, unsigned long prot,
+			unsigned long flags)
 {
+	unsigned long reqprot = prot;
 	int ret;
-
-	ret = security_ops->file_mmap(file, reqprot, prot, flags, addr, addr_only);
+	/*
+	 * Does the application expect PROT_READ to imply PROT_EXEC?
+	 *
+	 * (the exception is when the underlying filesystem is noexec
+	 *  mounted, in which case we dont add PROT_EXEC.)
+	 */
+	if (!(reqprot & PROT_READ))
+		goto out;
+	if (!(current->personality & READ_IMPLIES_EXEC))
+		goto out;
+	if (!file) {
+		prot |= PROT_EXEC;
+	} else if (!(file->f_path.mnt->mnt_flags & MNT_NOEXEC)) {
+#ifndef CONFIG_MMU
+		unsigned long caps = 0;
+		struct address_space *mapping = file->f_mapping;
+		if (mapping && mapping->backing_dev_info)
+			caps = mapping->backing_dev_info->capabilities;
+		if (!(caps & BDI_CAP_EXEC_MAP))
+			goto out;
+#endif
+		prot |= PROT_EXEC;
+	}
+out:
+	ret = security_ops->mmap_file(file, reqprot, prot, flags);
 	if (ret)
 		return ret;
 	return ima_file_mmap(file, prot);
+}
+
+int security_mmap_addr(unsigned long addr)
+{
+	return security_ops->mmap_addr(addr);
 }
 
 int security_file_mprotect(struct vm_area_struct *vma, unsigned long reqprot,
@@ -735,11 +766,11 @@ int security_file_receive(struct file *file)
 	return security_ops->file_receive(file);
 }
 
-int security_dentry_open(struct file *file, const struct cred *cred)
+int security_file_open(struct file *file, const struct cred *cred)
 {
 	int ret;
 
-	ret = security_ops->dentry_open(file, cred);
+	ret = security_ops->file_open(file, cred);
 	if (ret)
 		return ret;
 
@@ -805,6 +836,11 @@ int security_kernel_create_files_as(struct cred *new, struct inode *inode)
 int security_kernel_module_request(char *kmod_name)
 {
 	return security_ops->kernel_module_request(kmod_name);
+}
+
+int security_kernel_module_from_file(struct file *file)
+{
+	return security_ops->kernel_module_from_file(file);
 }
 
 int security_task_fix_setuid(struct cred *new, const struct cred *old,

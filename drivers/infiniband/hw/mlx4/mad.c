@@ -52,6 +52,14 @@ enum {
 		counter = cpu_to_be32(value);	 \
 } while (0)
 
+/* Counters should be saturate once they reach their maximum value */
+#define ASSIGN_32BIT_COUNTER(counter, value) do {\
+	if ((value) > (u32)~0U)			 \
+		counter = cpu_to_be32((u32)~0U); \
+	else					 \
+		counter = cpu_to_be32(value);	 \
+} while (0)
+
 int mlx4_MAD_IFC(struct mlx4_ib_dev *dev, int ignore_mkey, int ignore_bkey,
 		 int port, struct ib_wc *in_wc, struct ib_grh *in_grh,
 		 void *in_mad, void *response_mad)

@@ -35,6 +35,7 @@
 #include <net/sock.h>
 #include <net/compat.h>
 #include <net/scm.h>
+#include <net/cls_cgroup.h>
 
 
 /*
@@ -79,6 +80,7 @@ static int scm_fp_copy(struct cmsghdr *cmsg, struct scm_fp_list **fplp)
 		*fplp = fpl;
 		fpl->count = 0;
 		fpl->max = SCM_MAX_FD;
+		fpl->user = NULL;
 	}
 	fpp = &fpl->fp[fpl->count];
 
@@ -99,6 +101,10 @@ static int scm_fp_copy(struct cmsghdr *cmsg, struct scm_fp_list **fplp)
 		*fpp++ = file;
 		fpl->count++;
 	}
+
+	if (!fpl->user)
+		fpl->user = get_uid(current_user());
+
 	return num;
 }
 
@@ -109,25 +115,10 @@ void __scm_destroy(struct scm_cookie *scm)
 
 	if (fpl) {
 		scm->fp = NULL;
-		if (current->scm_work_list) {
-			list_add_tail(&fpl->list, current->scm_work_list);
-		} else {
-			LIST_HEAD(work_list);
-
-			current->scm_work_list = &work_list;
-
-			list_add(&fpl->list, &work_list);
-			while (!list_empty(&work_list)) {
-				fpl = list_first_entry(&work_list, struct scm_fp_list, list);
-
-				list_del(&fpl->list);
-				for (i=fpl->count-1; i>=0; i--)
-					fput(fpl->fp[i]);
-				kfree(fpl);
-			}
-
-			current->scm_work_list = NULL;
-		}
+		for (i=fpl->count-1; i>=0; i--)
+			fput(fpl->fp[i]);
+		free_uid(fpl->user);
+		kfree(fpl);
 	}
 }
 EXPORT_SYMBOL(__scm_destroy);
@@ -298,8 +289,10 @@ void scm_detach_fds(struct msghdr *msg, struct scm_cookie *scm)
 		}
 		/* Bump the usage count and install the file. */
 		sock = sock_from_file(fp[i], &err);
-		if (sock)
-			sock_update_netprioidx(sock->sk, current);
+		if (sock) {
+			sock_update_netprioidx(sock->sk);
+			sock_update_classid(sock->sk);
+		}
 		fd_install(new_fd, get_file(fp[i]));
 	}
 
@@ -342,6 +335,7 @@ struct scm_fp_list *scm_fp_dup(struct scm_fp_list *fpl)
 		for (i = 0; i < fpl->count; i++)
 			get_file(fpl->fp[i]);
 		new_fpl->max = new_fpl->count;
+		new_fpl->user = get_uid(fpl->user);
 	}
 	return new_fpl;
 }

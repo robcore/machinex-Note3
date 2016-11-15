@@ -22,7 +22,7 @@
 #include <linux/slab.h>
 #include <linux/io.h>
 #include <linux/of_device.h>
-#include <linux/memory_alloc.h>
+#include <linux/dma-mapping.h>
 #include <asm/mach-types.h>
 #include <mach/msm_bus.h>
 #include <mach/msm_bus_board.h>
@@ -132,7 +132,8 @@ struct audio_ocmem_prv {
 	bool audio_ocmem_running;
 	void *ocmem_ramdump_dev;
 	struct ramdump_segment ocmem_ramdump_segment;
-	unsigned long ocmem_dump_addr;
+	dma_addr_t ocmem_dump_addr;
+	void *ocmem_dump_virt;
 };
 
 static struct audio_ocmem_prv audio_ocmem_lcl;
@@ -362,59 +363,65 @@ int audio_ocmem_enable(int cid)
 		case OCMEM_STATE_SHRINK:
 			pr_debug("%s: ocmem shrink request process\n",
 							__func__);
-			atomic_set(&audio_ocmem_lcl.audio_cond, 1);
-			clear_bit_pos(audio_ocmem_lcl.audio_state,
-					OCMEM_STATE_MAP_COMPL);
-			set_bit_pos(audio_ocmem_lcl.audio_state,
-					OCMEM_STATE_UNMAP_TRANSITION);
-			ret = ocmem_unmap(cid, audio_ocmem_lcl.buf,
-					&audio_ocmem_lcl.mlist);
-			if (ret) {
-				pr_err("%s: ocmem_unmap failed, state[%d]\n",
-				__func__,
-				atomic_read(&audio_ocmem_lcl.audio_state));
-				goto fail_cmd1;
-			}
+			if (test_bit_pos(audio_ocmem_lcl.audio_state,
+						OCMEM_STATE_MAP_COMPL)) {
+				atomic_set(&audio_ocmem_lcl.audio_cond, 1);
+				clear_bit_pos(audio_ocmem_lcl.audio_state,
+						OCMEM_STATE_MAP_COMPL);
+				set_bit_pos(audio_ocmem_lcl.audio_state,
+						OCMEM_STATE_UNMAP_TRANSITION);
+				ret = ocmem_unmap(cid, audio_ocmem_lcl.buf,
+						&audio_ocmem_lcl.mlist);
+				if (ret) {
+					pr_err("%s: ocmem_unmap failed, state[%d]\n",
+					__func__,
+					atomic_read(&audio_ocmem_lcl.audio_state));
+					goto fail_cmd1;
+				}
 
-			wait_event_interruptible(audio_ocmem_lcl.audio_wait,
-				(atomic_read(&audio_ocmem_lcl.audio_state) &
-					     _UNMAP_RESPONSE_BIT_MASK_)
-					     != 0);
-			ret = ocmem_shrink(cid, audio_ocmem_lcl.buf, 0);
-			if (ret) {
-				pr_err("%s: ocmem_shrink failed, state[%d]\n",
-				__func__,
-				atomic_read(&audio_ocmem_lcl.audio_state));
-				goto fail_cmd1;
-			}
-			atomic_set(&audio_ocmem_lcl.audio_cond, 1);
-			clear_bit_pos(audio_ocmem_lcl.audio_state,
+				wait_event_interruptible(audio_ocmem_lcl.audio_wait,
+					(atomic_read(&audio_ocmem_lcl.audio_state) &
+						     _UNMAP_RESPONSE_BIT_MASK_)
+						     != 0);
+				ret = ocmem_shrink(cid, audio_ocmem_lcl.buf, 0);
+				if (ret) {
+					pr_err("%s: ocmem_shrink failed, state[%d]\n",
+					__func__,
+					atomic_read(&audio_ocmem_lcl.audio_state));
+					goto fail_cmd1;
+				}
+				atomic_set(&audio_ocmem_lcl.audio_cond, 1);
+				clear_bit_pos(audio_ocmem_lcl.audio_state,
 					OCMEM_STATE_SHRINK);
+                        }
 			pr_debug("%s:shrink process complete\n", __func__);
 			break;
 		case OCMEM_STATE_GROW:
 			pr_debug("%s: ocmem grow request process\n",
 							__func__);
-			atomic_set(&audio_ocmem_lcl.audio_cond, 1);
-			clear_bit_pos(audio_ocmem_lcl.audio_state,
-					OCMEM_STATE_UNMAP_COMPL);
-			set_bit_pos(audio_ocmem_lcl.audio_state,
-					OCMEM_STATE_MAP_TRANSITION);
-			ret = ocmem_map(cid, audio_ocmem_lcl.buf,
+			if (test_bit_pos(audio_ocmem_lcl.audio_state,
+						OCMEM_STATE_UNMAP_COMPL)) {
+				atomic_set(&audio_ocmem_lcl.audio_cond, 1);
+				clear_bit_pos(audio_ocmem_lcl.audio_state,
+						OCMEM_STATE_UNMAP_COMPL);
+				set_bit_pos(audio_ocmem_lcl.audio_state,
+						OCMEM_STATE_MAP_TRANSITION);
+				ret = ocmem_map(cid, audio_ocmem_lcl.buf,
 						&audio_ocmem_lcl.mlist);
-			if (ret) {
-				pr_err("%s: ocmem_map failed, state[%d]\n",
-				__func__,
-				atomic_read(&audio_ocmem_lcl.audio_state));
-				goto fail_cmd1;
-			}
-			wait_event_interruptible(audio_ocmem_lcl.audio_wait,
-				(atomic_read(&audio_ocmem_lcl.audio_state) &
-						_MAP_RESPONSE_BIT_MASK_) != 0);
+				if (ret) {
+					pr_err("%s: ocmem_map failed, state[%d]\n",
+					__func__,
+					atomic_read(&audio_ocmem_lcl.audio_state));
+					goto fail_cmd1;
+				}
+				wait_event_interruptible(audio_ocmem_lcl.audio_wait,
+					(atomic_read(&audio_ocmem_lcl.audio_state) &
+							_MAP_RESPONSE_BIT_MASK_) != 0);
 
-			clear_bit_pos(audio_ocmem_lcl.audio_state,
-					OCMEM_STATE_GROW);
-			atomic_set(&audio_ocmem_lcl.audio_cond, 1);
+				clear_bit_pos(audio_ocmem_lcl.audio_state,
+						OCMEM_STATE_GROW);
+				atomic_set(&audio_ocmem_lcl.audio_cond, 1);
+			}
 			break;
 		case OCMEM_STATE_EXIT:
 			if (test_bit_pos(audio_ocmem_lcl.audio_state,
@@ -778,13 +785,10 @@ static int audio_ocmem_platform_data_populate(struct platform_device *pdev)
 static void do_ocmem_ramdump(void)
 {
 	int ret = 0;
-	void *virt = NULL;
 
-	virt = ioremap(audio_ocmem_lcl.ocmem_dump_addr, AUDIO_OCMEM_BUF_SIZE);
 	ret = ocmem_dump(OCMEM_LP_AUDIO,
 			 audio_ocmem_lcl.buf,
-			 (unsigned long)virt);
-	iounmap(virt);
+			 (unsigned long)audio_ocmem_lcl.ocmem_dump_virt);
 
 	if (ret)
 		pr_err("%s: ocmem_dump failed\n", __func__);
@@ -892,12 +896,12 @@ static int ocmem_audio_client_probe(struct platform_device *pdev)
 	}
 	subsys_notif_register_notifier("adsp", &anb);
 
-	audio_ocmem_lcl.ocmem_dump_addr =
-		allocate_contiguous_memory_nomap(AUDIO_OCMEM_BUF_SIZE,
-						 MEMTYPE_EBI1,
-						 AUDIO_OCMEM_BUF_SIZE);
+	audio_ocmem_lcl.ocmem_dump_virt = dma_alloc_coherent(NULL,
+					AUDIO_OCMEM_BUF_SIZE,
+					&audio_ocmem_lcl.ocmem_dump_addr,
+					GFP_KERNEL);
 
-	if (audio_ocmem_lcl.ocmem_dump_addr) {
+	if (audio_ocmem_lcl.ocmem_dump_virt) {
 		audio_ocmem_lcl.ocmem_ramdump_dev =
 			create_ramdump_device("audio-ocmem", &pdev->dev);
 
@@ -970,9 +974,10 @@ destroy_audio_wq:
 destroy_ramdump:
 	if (audio_ocmem_lcl.ocmem_ramdump_dev)
 		destroy_ramdump_device(audio_ocmem_lcl.ocmem_ramdump_dev);
-	if (audio_ocmem_lcl.ocmem_dump_addr)
-		free_contiguous_memory_by_paddr(
-		    audio_ocmem_lcl.ocmem_dump_addr);
+	if (audio_ocmem_lcl.ocmem_dump_virt)
+		dma_free_coherent(NULL, AUDIO_OCMEM_BUF_SIZE,
+			audio_ocmem_lcl.ocmem_dump_virt,
+			audio_ocmem_lcl.ocmem_dump_addr);
 	return ret;
 }
 
@@ -988,9 +993,11 @@ static int ocmem_audio_client_remove(struct platform_device *pdev)
 					&audio_ocmem_client_nb);
 	if (audio_ocmem_lcl.ocmem_ramdump_dev)
 		destroy_ramdump_device(audio_ocmem_lcl.ocmem_ramdump_dev);
-	if (audio_ocmem_lcl.ocmem_dump_addr)
-		free_contiguous_memory_by_paddr(
-		    audio_ocmem_lcl.ocmem_dump_addr);
+
+	if (audio_ocmem_lcl.ocmem_dump_virt)
+		dma_free_coherent(NULL, AUDIO_OCMEM_BUF_SIZE,
+			audio_ocmem_lcl.ocmem_dump_virt,
+			audio_ocmem_lcl.ocmem_dump_addr);
 
 	return 0;
 }

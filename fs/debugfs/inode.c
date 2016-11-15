@@ -54,13 +54,11 @@ static struct inode *debugfs_get_inode(struct super_block *sb, umode_t mode, dev
 			break;
 		case S_IFLNK:
 			inode->i_op = &debugfs_link_operations;
-			inode->i_fop = fops;
 			inode->i_private = data;
 			break;
 		case S_IFDIR:
 			inode->i_op = &simple_dir_inode_operations;
-			inode->i_fop = fops ? fops : &simple_dir_operations;
-			inode->i_private = data;
+			inode->i_fop = &simple_dir_operations;
 
 			/* directory inodes start off with i_nlink == 2
 			 * (for "." entry) */
@@ -91,13 +89,12 @@ static int debugfs_mknod(struct inode *dir, struct dentry *dentry,
 	return error;
 }
 
-static int debugfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode,
-			 void *data, const struct file_operations *fops)
+static int debugfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 {
 	int res;
 
 	mode = (mode & (S_IRWXUGO | S_ISVTX)) | S_IFDIR;
-	res = debugfs_mknod(dir, dentry, mode, 0, data, fops);
+	res = debugfs_mknod(dir, dentry, mode, 0, NULL, NULL);
 	if (!res) {
 		inc_nlink(dir);
 		fsnotify_mkdir(dir, dentry);
@@ -106,10 +103,10 @@ static int debugfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode,
 }
 
 static int debugfs_link(struct inode *dir, struct dentry *dentry, umode_t mode,
-			void *data, const struct file_operations *fops)
+			void *data)
 {
 	mode = (mode & S_IALLUGO) | S_IFLNK;
-	return debugfs_mknod(dir, dentry, mode, 0, data, fops);
+	return debugfs_mknod(dir, dentry, mode, 0, data, NULL);
 }
 
 static int debugfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
@@ -174,7 +171,7 @@ static int debugfs_parse_options(char *data, struct debugfs_mount_opts *opts)
 			opts->uid = option;
 			break;
 		case Opt_gid:
-			if (match_octal(&args[0], &option))
+			if (match_int(&args[0], &option))
 				return -EINVAL;
 			opts->gid = option;
 			break;
@@ -213,6 +210,7 @@ static int debugfs_remount(struct super_block *sb, int *flags, char *data)
 	int err;
 	struct debugfs_fs_info *fsi = sb->s_fs_info;
 
+	sync_filesystem(sb);
 	err = debugfs_parse_options(data, &fsi->mount_opts);
 	if (err)
 		goto fail;
@@ -301,14 +299,21 @@ static struct file_system_type debug_fs_type = {
 	.mount =	debug_mount,
 	.kill_sb =	kill_litter_super,
 };
+MODULE_ALIAS_FS("debugfs");
 
-static int debugfs_create_by_name(const char *name, umode_t mode,
-				  struct dentry *parent,
-				  struct dentry **dentry,
-				  void *data,
-				  const struct file_operations *fops)
+static struct dentry *__create_file(const char *name, umode_t mode,
+				    struct dentry *parent, void *data,
+				    const struct file_operations *fops)
 {
-	int error = 0;
+	struct dentry *dentry = NULL;
+	int error;
+
+	pr_debug("debugfs: creating file '%s'\n",name);
+
+	error = simple_pin_fs(&debug_fs_type, &debugfs_mount,
+			      &debugfs_mount_count);
+	if (error)
+		goto exit;
 
 	/* If the parent is not specified, we create it in the root.
 	 * We need the root dentry to do this, which is in the super
@@ -318,30 +323,34 @@ static int debugfs_create_by_name(const char *name, umode_t mode,
 	if (!parent)
 		parent = debugfs_mount->mnt_root;
 
-	*dentry = NULL;
 	mutex_lock(&parent->d_inode->i_mutex);
-	*dentry = lookup_one_len(name, parent, strlen(name));
-	if (!IS_ERR(*dentry)) {
+	dentry = lookup_one_len(name, parent, strlen(name));
+	if (!IS_ERR(dentry)) {
 		switch (mode & S_IFMT) {
 		case S_IFDIR:
-			error = debugfs_mkdir(parent->d_inode, *dentry, mode,
-					      data, fops);
+			error = debugfs_mkdir(parent->d_inode, dentry, mode);
+					      
 			break;
 		case S_IFLNK:
-			error = debugfs_link(parent->d_inode, *dentry, mode,
-					     data, fops);
+			error = debugfs_link(parent->d_inode, dentry, mode,
+					     data);
 			break;
 		default:
-			error = debugfs_create(parent->d_inode, *dentry, mode,
+			error = debugfs_create(parent->d_inode, dentry, mode,
 					       data, fops);
 			break;
 		}
-		dput(*dentry);
+		dput(dentry);
 	} else
-		error = PTR_ERR(*dentry);
+		error = PTR_ERR(dentry);
 	mutex_unlock(&parent->d_inode->i_mutex);
 
-	return error;
+	if (error) {
+		dentry = NULL;
+		simple_release_fs(&debugfs_mount, &debugfs_mount_count);
+	}
+exit:
+	return dentry;
 }
 
 /**
@@ -374,25 +383,15 @@ struct dentry *debugfs_create_file(const char *name, umode_t mode,
 				   struct dentry *parent, void *data,
 				   const struct file_operations *fops)
 {
-	struct dentry *dentry = NULL;
-	int error;
-
-	pr_debug("debugfs: creating file '%s'\n",name);
-
-	error = simple_pin_fs(&debug_fs_type, &debugfs_mount,
-			      &debugfs_mount_count);
-	if (error)
-		goto exit;
-
-	error = debugfs_create_by_name(name, mode, parent, &dentry,
-				       data, fops);
-	if (error) {
-		dentry = NULL;
-		simple_release_fs(&debugfs_mount, &debugfs_mount_count);
-		goto exit;
+	switch (mode & S_IFMT) {
+	case S_IFREG:
+	case 0:
+		break;
+	default:
+		BUG();
 	}
-exit:
-	return dentry;
+
+	return __create_file(name, mode, parent, data, fops);
 }
 EXPORT_SYMBOL_GPL(debugfs_create_file);
 
@@ -455,8 +454,7 @@ struct dentry *debugfs_create_symlink(const char *name, struct dentry *parent,
 	if (!link)
 		return NULL;
 
-	result = debugfs_create_file(name, S_IFLNK | S_IRWXUGO, parent, link,
-				     NULL);
+	result = __create_file(name, S_IFLNK | S_IRWXUGO, parent, link, NULL);
 	if (!result)
 		kfree(link);
 	return result;
@@ -498,7 +496,7 @@ void debugfs_remove(struct dentry *dentry)
 	struct dentry *parent;
 	int ret;
 
-	if (!dentry)
+	if (IS_ERR_OR_NULL(dentry))
 		return;
 
 	parent = dentry->d_parent;
@@ -529,7 +527,7 @@ void debugfs_remove_recursive(struct dentry *dentry)
 {
 	struct dentry *child, *next, *parent;
 
-	if (!dentry)
+	if (IS_ERR_OR_NULL(dentry))
 		return;
 
 	parent = dentry->d_parent;

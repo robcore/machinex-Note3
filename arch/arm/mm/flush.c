@@ -199,7 +199,6 @@ static void __flush_dcache_aliases(struct address_space *mapping, struct page *p
 {
 	struct mm_struct *mm = current->active_mm;
 	struct vm_area_struct *mpnt;
-	struct prio_tree_iter iter;
 	pgoff_t pgoff;
 
 	/*
@@ -211,7 +210,7 @@ static void __flush_dcache_aliases(struct address_space *mapping, struct page *p
 	pgoff = page->index << (PAGE_CACHE_SHIFT - PAGE_SHIFT);
 
 	flush_dcache_mmap_lock(mapping);
-	vma_prio_tree_foreach(mpnt, &iter, &mapping->i_mmap, pgoff, pgoff) {
+	vma_interval_tree_foreach(mpnt, &mapping->i_mmap, pgoff, pgoff) {
 		unsigned long offset;
 
 		/*
@@ -288,7 +287,7 @@ void flush_dcache_page(struct page *page)
 	mapping = page_mapping(page);
 
 	if (!cache_ops_need_broadcast() &&
-	    mapping && !mapping_mapped(mapping))
+	    mapping && !page_mapped(page))
 		clear_bit(PG_dcache_clean, &page->flags);
 	else {
 		__flush_dcache_page(mapping, page);

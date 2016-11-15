@@ -130,11 +130,10 @@ static int caif_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 	struct caifsock *cf_sk = container_of(sk, struct caifsock, sk);
 
 	if (atomic_read(&sk->sk_rmem_alloc) + skb->truesize >=
-		(unsigned)sk->sk_rcvbuf && rx_flow_is_on(cf_sk)) {
-		if (net_ratelimit())
-			pr_debug("sending flow OFF (queue len = %d %d)\n",
-					atomic_read(&cf_sk->sk.sk_rmem_alloc),
-					sk_rcvbuf_lowwater(cf_sk));
+		(unsigned int)sk->sk_rcvbuf && rx_flow_is_on(cf_sk)) {
+		net_dbg_ratelimited("sending flow OFF (queue len = %d %d)\n",
+				    atomic_read(&cf_sk->sk.sk_rmem_alloc),
+				    sk_rcvbuf_lowwater(cf_sk));
 		set_rx_flow_off(cf_sk);
 		caif_flow_ctrl(sk, CAIF_MODEMCMD_FLOW_OFF_REQ);
 	}
@@ -144,8 +143,7 @@ static int caif_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 		return err;
 	if (!sk_rmem_schedule(sk, skb->truesize) && rx_flow_is_on(cf_sk)) {
 		set_rx_flow_off(cf_sk);
-		if (net_ratelimit())
-			pr_debug("sending flow OFF due to rmem_schedule\n");
+		net_dbg_ratelimited("sending flow OFF due to rmem_schedule\n");
 		caif_flow_ctrl(sk, CAIF_MODEMCMD_FLOW_OFF_REQ);
 	}
 	skb->dev = NULL;
@@ -333,6 +331,10 @@ static long caif_stream_data_wait(struct sock *sk, long timeo)
 		release_sock(sk);
 		timeo = schedule_timeout(timeo);
 		lock_sock(sk);
+
+		if (sock_flag(sk, SOCK_DEAD))
+			break;
+
 		clear_bit(SOCK_ASYNC_WAITDATA, &sk->sk_socket->flags);
 	}
 
@@ -377,6 +379,10 @@ static int caif_stream_recvmsg(struct kiocb *iocb, struct socket *sock,
 		struct sk_buff *skb;
 
 		lock_sock(sk);
+		if (sock_flag(sk, SOCK_DEAD)) {
+			err = -ECONNRESET;
+			goto unlock;
+		}
 		skb = skb_dequeue(&sk->sk_receive_queue);
 		caif_check_flow_release(sk);
 

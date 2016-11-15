@@ -2439,6 +2439,8 @@ int __init regulatory_init(void)
 
 	reg_regdb_size_check();
 
+	reg_regdb_size_check();
+
 	cfg80211_regdomain = cfg80211_world_regdom;
 
 	user_alpha2[0] = '9';

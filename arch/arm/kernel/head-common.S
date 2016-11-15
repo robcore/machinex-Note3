@@ -10,6 +10,7 @@
  * published by the Free Software Foundation.
  *
  */
+#include <asm/assembler.h>
 
 #define ATAG_CORE 0x54410001
 #define ATAG_CORE_SIZE ((2*4 + 3*4) >> 2)
@@ -61,10 +62,10 @@ __vet_atags:
 	cmp	r5, r6
 	bne	1f
 
-2:	mov	pc, lr				@ atag/dtb pointer is ok
+2:	ret	lr				@ atag/dtb pointer is ok
 
 1:	mov	r2, #0
-	mov	pc, lr
+	ret	lr
 ENDPROC(__vet_atags)
 
 /*
@@ -98,8 +99,9 @@ __mmap_switched:
 	str	r9, [r4]			@ Save processor ID
 	str	r1, [r5]			@ Save machine type
 	str	r2, [r6]			@ Save atags pointer
-	bic	r4, r0, #CR_A			@ Clear 'A' bit
-	stmia	r7, {r0, r4}			@ Save control register values
+	cmp	r7, #0
+	bicne	r4, r0, #CR_A			@ Clear 'A' bit
+	stmneia	r7, {r0, r4}			@ Save control register values
 	b	start_kernel
 ENDPROC(__mmap_switched)
 
@@ -113,7 +115,11 @@ __mmap_switched_data:
 	.long	processor_id			@ r4
 	.long	__machine_arch_type		@ r5
 	.long	__atags_pointer			@ r6
+#ifdef CONFIG_CPU_CP15
 	.long	cr_alignment			@ r7
+#else
+	.long	0				@ r7
+#endif
 	.long	init_thread_union + THREAD_START_SP @ sp
 	.size	__mmap_switched_data, . - __mmap_switched_data
 
@@ -127,6 +133,9 @@ ENTRY(lookup_processor_type)
 	mov	r0, r5
 	ldmfd	sp!, {r4 - r6, r9, pc}
 ENDPROC(lookup_processor_type)
+
+	__FINIT
+	.text
 
 /*
  * Read processor ID register (CP#15, CR0), and look up in the linker-built
@@ -156,7 +165,7 @@ __lookup_processor_type:
 	cmp	r5, r6
 	blo	1b
 	mov	r5, #0				@ unknown processor
-2:	mov	pc, lr
+2:	ret	lr
 ENDPROC(__lookup_processor_type)
 
 /*

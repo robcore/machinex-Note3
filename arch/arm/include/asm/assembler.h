@@ -22,6 +22,7 @@
 
 #include <asm/ptrace.h>
 #include <asm/domain.h>
+#include <asm/opcodes-virt.h>
 
 #define IOMEM(x)	(x)
 
@@ -29,8 +30,8 @@
  * Endian independent macros for shifting bytes within registers.
  */
 #ifndef __ARMEB__
-#define pull            lsr
-#define push            lsl
+#define lspull          lsr
+#define lspush          lsl
 #define get_byte_0      lsl #0
 #define get_byte_1	lsr #8
 #define get_byte_2	lsr #16
@@ -40,8 +41,8 @@
 #define put_byte_2	lsl #16
 #define put_byte_3	lsl #24
 #else
-#define pull            lsl
-#define push            lsr
+#define lspull          lsl
+#define lspush          lsr
 #define get_byte_0	lsr #24
 #define get_byte_1	lsr #16
 #define get_byte_2	lsr #8
@@ -211,9 +212,9 @@
 #ifdef CONFIG_SMP
 #if __LINUX_ARM_ARCH__ >= 7
 	.ifeqs "\mode","arm"
-	ALT_SMP(dmb)
+	ALT_SMP(dmb	ish)
 	.else
-	ALT_SMP(W(dmb))
+	ALT_SMP(W(dmb)	ish)
 	.endif
 #elif __LINUX_ARM_ARCH__ == 6
 	ALT_SMP(mcr	p15, 0, r0, c7, c10, 5)	@ dmb
@@ -238,6 +239,38 @@
 	msr	cpsr_c, #\mode
 	.endm
 #endif
+
+/*
+ * Helper macro to enter SVC mode cleanly and mask interrupts. reg is
+ * a scratch register for the macro to overwrite.
+ *
+ * This macro is intended for forcing the CPU into SVC mode at boot time.
+ * you cannot return to the original mode.
+ */
+.macro safe_svcmode_maskall reg:req
+#if __LINUX_ARM_ARCH__ >= 6
+	mrs	\reg , cpsr
+	eor	\reg, \reg, #HYP_MODE
+	tst	\reg, #MODE_MASK
+	bic	\reg , \reg , #MODE_MASK
+	orr	\reg , \reg , #PSR_I_BIT | PSR_F_BIT | SVC_MODE
+THUMB(	orr	\reg , \reg , #PSR_T_BIT	)
+	bne	1f
+	orr	\reg, \reg, #PSR_A_BIT
+	adr	lr, BSYM(2f)
+	msr	spsr_cxsf, \reg
+	__MSR_ELR_HYP(14)
+	__ERET
+1:	msr	cpsr_c, \reg
+2:
+#else
+/*
+ * workaround for possibly broken pre-v6 hardware
+ * (akita, Sharp Zaurus C-1000, PXA270-based)
+ */
+	setmode	PSR_F_BIT | PSR_I_BIT | SVC_MODE, \reg
+#endif
+.endm
 
 /*
  * STRT/LDRT access macros with ARM and Thumb-2 variants
@@ -325,6 +358,27 @@
 	adds	\tmp, \addr, #\size - 1
 	sbcccs	\tmp, \tmp, \limit
 	bcs	\bad
+#endif
+	.endm
+
+	.irp	c,,eq,ne,cs,cc,mi,pl,vs,vc,hi,ls,ge,lt,gt,le,hs,lo
+	.macro	ret\c, reg
+#if __LINUX_ARM_ARCH__ < 6
+	mov\c	pc, \reg
+#else
+	.ifeqs	"\reg", "lr"
+	bx\c	\reg
+	.else
+	mov\c	pc, \reg
+	.endif
+#endif
+	.endm
+	.endr
+
+	.macro	ret.w, reg
+	ret	\reg
+#ifdef CONFIG_THUMB2_KERNEL
+	nop
 #endif
 	.endm
 

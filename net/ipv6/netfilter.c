@@ -1,3 +1,9 @@
+/*
+ * IPv6 specific functions of netfilter core
+ *
+ * Rusty Russell (C) 2000 -- This code is GPL.
+ * Patrick McHardy (C) 2006-2012
+ */
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/ipv6.h>
@@ -172,6 +178,10 @@ static __sum16 nf_ip6_checksum_partial(struct sk_buff *skb, unsigned int hook,
 	return csum;
 };
 
+static const struct nf_ipv6_ops ipv6ops = {
+	.chk_addr	= ipv6_chk_addr,
+};
+
 static const struct nf_afinfo nf_ip6_afinfo = {
 	.family			= AF_INET6,
 	.checksum		= nf_ip6_checksum,
@@ -184,6 +194,7 @@ static const struct nf_afinfo nf_ip6_afinfo = {
 
 int __init ipv6_netfilter_init(void)
 {
+	RCU_INIT_POINTER(nf_ipv6_ops, &ipv6ops);
 	return nf_register_afinfo(&nf_ip6_afinfo);
 }
 
@@ -192,5 +203,6 @@ int __init ipv6_netfilter_init(void)
  */
 void ipv6_netfilter_fini(void)
 {
+	RCU_INIT_POINTER(nf_ipv6_ops, NULL);
 	nf_unregister_afinfo(&nf_ip6_afinfo);
 }

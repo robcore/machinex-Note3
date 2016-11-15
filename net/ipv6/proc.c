@@ -247,7 +247,7 @@ static int snmp6_dev_seq_show(struct seq_file *seq, void *v)
 
 static int snmp6_dev_seq_open(struct inode *inode, struct file *file)
 {
-	return single_open(file, snmp6_dev_seq_show, PDE(inode)->data);
+	return single_open(file, snmp6_dev_seq_show, PDE_DATA(inode));
 }
 
 static const struct file_operations snmp6_dev_seq_fops = {
@@ -287,8 +287,7 @@ int snmp6_unregister_dev(struct inet6_dev *idev)
 		return -ENOENT;
 	if (!idev->stats.proc_dir_entry)
 		return -EINVAL;
-	remove_proc_entry(idev->stats.proc_dir_entry->name,
-			  net->mib.proc_net_devsnmp6);
+	proc_remove(idev->stats.proc_dir_entry);
 	idev->stats.proc_dir_entry = NULL;
 	return 0;
 }
@@ -308,17 +307,17 @@ static int __net_init ipv6_proc_init_net(struct net *net)
 	return 0;
 
 proc_snmp6_fail:
-	proc_net_remove(net, "sockstat6");
+	remove_proc_entry("sockstat6", net->proc_net);
 proc_dev_snmp6_fail:
-	proc_net_remove(net, "dev_snmp6");
+	remove_proc_entry("snmp6", net->proc_net);
 	return -ENOMEM;
 }
 
 static void __net_exit ipv6_proc_exit_net(struct net *net)
 {
-	proc_net_remove(net, "sockstat6");
-	proc_net_remove(net, "dev_snmp6");
-	proc_net_remove(net, "snmp6");
+	remove_proc_entry("sockstat6", net->proc_net);
+	remove_proc_entry("dev_snmp6", net->proc_net);
+	remove_proc_entry("snmp6", net->proc_net);
 }
 
 static struct pernet_operations ipv6_proc_ops = {

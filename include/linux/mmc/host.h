@@ -81,11 +81,13 @@ struct mmc_ios {
 #define MMC_SET_DRIVER_TYPE_A	1
 #define MMC_SET_DRIVER_TYPE_C	2
 #define MMC_SET_DRIVER_TYPE_D	3
+#define MMC_SET_DRIVER_TYPE_4	4		/* eMMC only */
 };
 
 /* states to represent load on the host */
 enum mmc_load {
 	MMC_LOAD_HIGH,
+	MMC_LOAD_INIT,
 	MMC_LOAD_LOW,
 };
 
@@ -143,7 +145,8 @@ struct mmc_host_ops {
 	/* The tuning command opcode value is different for SD and eMMC cards */
 	int	(*execute_tuning)(struct mmc_host *host, u32 opcode);
 	void	(*enable_preset_value)(struct mmc_host *host, bool enable);
-	int	(*select_drive_strength)(unsigned int max_dtr, int host_drv, int card_drv);
+	int	(*select_drive_strength)(struct mmc_host *host,
+					 int host_drv, int card_drv);
 	void	(*hw_reset)(struct mmc_host *host);
 	unsigned long (*get_max_frequency)(struct mmc_host *host);
 	unsigned long (*get_min_frequency)(struct mmc_host *host);
@@ -203,6 +206,13 @@ enum dev_state {
 	DEV_RESUMED,
 };
 
+struct regulator;
+
+struct mmc_supply {
+	struct regulator *vmmc;		/* Card power supply */
+	struct regulator *vqmmc;	/* Optional Vccq supply */
+};
+
 struct mmc_host {
 	struct device		*parent;
 	struct device		class_dev;
@@ -235,7 +245,7 @@ struct mmc_host {
 #define MMC_VDD_34_35		0x00400000	/* VDD voltage 3.4 ~ 3.5 */
 #define MMC_VDD_35_36		0x00800000	/* VDD voltage 3.5 ~ 3.6 */
 
-	unsigned long		caps;		/* Host capabilities */
+	u32			caps;		/* Host capabilities */
 
 #define MMC_CAP_4_BIT_DATA	(1 << 0)	/* Can the host do 4 bit transfers */
 #define MMC_CAP_MMC_HIGHSPEED	(1 << 1)	/* Can do MMC high-speed timing */
@@ -263,9 +273,9 @@ struct mmc_host {
 #define MMC_CAP_SET_XPC_330	(1 << 20)	/* Host supports >150mA current at 3.3V */
 #define MMC_CAP_SET_XPC_300	(1 << 21)	/* Host supports >150mA current at 3.0V */
 #define MMC_CAP_SET_XPC_180	(1 << 22)	/* Host supports >150mA current at 1.8V */
-#define MMC_CAP_DRIVER_TYPE_A	(1 << 23)	/* Host supports Driver Type A */
-#define MMC_CAP_DRIVER_TYPE_C	(1 << 24)	/* Host supports Driver Type C */
-#define MMC_CAP_DRIVER_TYPE_D	(1 << 25)	/* Host supports Driver Type D */
+#define MMC_CAP_DRIVER_TYPE_A	(1 << 23)	/* Host supports SD Driver Type A (eMMC Type 1) */
+#define MMC_CAP_DRIVER_TYPE_C	(1 << 24)	/* Host supports SD Driver Type C (eMMC Type 2) */
+#define MMC_CAP_DRIVER_TYPE_D	(1 << 25)	/* Host supports SD Driver Type D (eMMC Type 3) */
 #define MMC_CAP_MAX_CURRENT_200	(1 << 26)	/* Host max current limit is 200mA */
 #define MMC_CAP_MAX_CURRENT_400	(1 << 27)	/* Host max current limit is 400mA */
 #define MMC_CAP_MAX_CURRENT_600	(1 << 28)	/* Host max current limit is 600mA */
@@ -273,7 +283,7 @@ struct mmc_host {
 #define MMC_CAP_CMD23		(1 << 30)	/* CMD23 supported. */
 #define MMC_CAP_HW_RESET	(1 << 31)	/* Hardware reset */
 
-	unsigned int		caps2;		/* More host capabilities */
+	u32			caps2;		/* More host capabilities */
 
 #define MMC_CAP2_BOOTPART_NOACC	(1 << 0)	/* Boot partition no access */
 #define MMC_CAP2_CACHE_CTRL	(1 << 1)	/* Allow cache control */
@@ -309,6 +319,8 @@ struct mmc_host {
 #define MMC_CAP2_CORE_PM	(1 << 23)	/* use PM framework */
 #define MMC_CAP2_HS400		(MMC_CAP2_HS400_1_8V | \
 				 MMC_CAP2_HS400_1_2V)
+#define MMC_CAP2_DRIVER_TYPE_4	(1 << 31)	/* Host supports eMMC Driver Type 4 */
+
 	mmc_pm_flag_t		pm_caps;	/* supported pm features */
 
 	int			clk_requests;	/* internal reference counter */
@@ -381,6 +393,7 @@ struct mmc_host {
 #ifdef CONFIG_REGULATOR
 	bool			regulator_enabled; /* regulator state */
 #endif
+	struct mmc_supply	supply;
 
 	struct dentry		*debugfs_root;
 
@@ -423,6 +436,7 @@ struct mmc_host {
 		unsigned int	down_threshold;
 		ktime_t		start_busy;
 		bool		enable;
+		bool		scale_down_in_low_wr_load;
 		bool		initialized;
 		bool		in_progress;
 		/* freq. transitions are not allowed in invalid state */
@@ -486,8 +500,10 @@ extern int mmc_cache_ctrl(struct mmc_host *, u8);
 static inline void mmc_signal_sdio_irq(struct mmc_host *host)
 {
 	if (!host->sdio_irqs) {
+#if 0 /* when mmc resume from suspend it's take time to get irq, no need to spam dmesg */
 		pr_err("%s: SDIO interrupt recieved without function driver claiming an irq\n",
 				mmc_hostname(host));
+#endif
 		return;
 	}
 
@@ -496,13 +512,12 @@ static inline void mmc_signal_sdio_irq(struct mmc_host *host)
 	wake_up_process(host->sdio_irq_thread);
 }
 
-struct regulator;
-
 #ifdef CONFIG_REGULATOR
 int mmc_regulator_get_ocrmask(struct regulator *supply);
 int mmc_regulator_set_ocr(struct mmc_host *mmc,
 			struct regulator *supply,
 			unsigned short vdd_bit);
+int mmc_regulator_get_supply(struct mmc_host *mmc);
 #else
 static inline int mmc_regulator_get_ocrmask(struct regulator *supply)
 {
@@ -512,6 +527,11 @@ static inline int mmc_regulator_get_ocrmask(struct regulator *supply)
 static inline int mmc_regulator_set_ocr(struct mmc_host *mmc,
 				 struct regulator *supply,
 				 unsigned short vdd_bit)
+{
+	return 0;
+}
+
+static inline int mmc_regulator_get_supply(struct mmc_host *mmc)
 {
 	return 0;
 }
@@ -557,6 +577,11 @@ static inline int mmc_host_uhs(struct mmc_host *host)
 		(MMC_CAP_UHS_SDR12 | MMC_CAP_UHS_SDR25 |
 		 MMC_CAP_UHS_SDR50 | MMC_CAP_UHS_SDR104 |
 		 MMC_CAP_UHS_DDR50);
+}
+
+static inline int mmc_host_packed_wr(struct mmc_host *host)
+{
+	return host->caps2 & MMC_CAP2_PACKED_WR;
 }
 
 #ifdef CONFIG_MMC_CLKGATE

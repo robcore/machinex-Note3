@@ -27,8 +27,8 @@
  * @addr: Address to poll
  * @val: Variable to read the value into
  * @cond: Break condition (usually involving @val)
- * @sleep_us: Maximum time to sleep between reads in uS (0 tight-loops)
- * @timeout_us: Timeout in uS, 0 means never timeout
+ * @sleep_us: Maximum time to sleep between reads in us (0 tight-loops)
+ * @timeout_us: Timeout in us, 0 means never timeout
  *
  * Returns 0 on success and -ETIMEDOUT upon a timeout. In either
  * case, the last read value at @addr is stored in @val. Must not
@@ -37,7 +37,7 @@
 #define readl_poll_timeout(addr, val, cond, sleep_us, timeout_us) \
 ({ \
 	ktime_t timeout = ktime_add_us(ktime_get(), timeout_us); \
-	might_sleep_if(timeout_us); \
+	might_sleep_if(sleep_us); \
 	for (;;) { \
 		(val) = readl(addr); \
 		if (cond) \
@@ -47,7 +47,7 @@
 			break; \
 		} \
 		if (sleep_us) \
-			usleep_range(DIV_ROUND_UP(sleep_us, 4), sleep_us); \
+			usleep_range((sleep_us >> 2) + 1, sleep_us); \
 	} \
 	(cond) ? 0 : -ETIMEDOUT; \
 })
@@ -79,7 +79,7 @@
  * @addr: Address to poll
  * @val: Variable to read the value into
  * @cond: Break condition (usually involving @val)
- * @sleep_us: Maximum time to sleep between reads in uS (0 tight-loops)
+ * @sleep_us: Maximum time to sleep between reads in us (0 tight-loops)
  *
  * Must not be called from atomic context if sleep_us is used.
  */
@@ -91,7 +91,7 @@
  * @addr: Address to poll
  * @val: Variable to read the value into
  * @cond: Break condition (usually involving @val)
- * @timeout_us: Timeout in uS, 0 means never timeout
+ * @timeout_us: Timeout in us, 0 means never timeout
  *
  * Returns 0 on success and -ETIMEDOUT upon a timeout. In either
  * case, the last read value at @addr is stored in @val. Must not

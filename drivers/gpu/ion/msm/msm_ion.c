@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2013,2016 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -113,8 +113,7 @@ static struct ion_heap_desc ion_heap_meta[] = {
 };
 #endif
 
-struct ion_client *msm_ion_client_create(unsigned int heap_mask,
-					const char *name)
+struct ion_client *msm_ion_client_create(const char *name)
 {
 	/*
 	 * The assumption is that if there is a NULL device, the ion
@@ -849,7 +848,7 @@ static struct ion_platform_data *msm_ion_parse_dt(struct platform_device *pdev)
 	uint32_t num_heaps = 0;
 	int idx = 0;
 
-	for_each_child_of_node(dt_node, node)
+	for_each_available_child_of_node(dt_node, node)
 		num_heaps++;
 
 	if (!num_heaps)
@@ -868,7 +867,7 @@ static struct ion_platform_data *msm_ion_parse_dt(struct platform_device *pdev)
 	pdata->heaps = heaps;
 	pdata->nr = num_heaps;
 
-	for_each_child_of_node(dt_node, node) {
+	for_each_available_child_of_node(dt_node, node) {
 		new_dev = of_platform_device_create(node, NULL, &pdev->dev);
 		if (!new_dev) {
 			pr_err("Failed to create device %s\n", node->name);
@@ -989,7 +988,7 @@ static long msm_ion_custom_ioctl(struct ion_client *client,
 		} else {
 			handle = ion_import_dma_buf(client, data.fd);
 			if (IS_ERR(handle)) {
-				pr_info("%s: Could not import handle: %p\n",
+				pr_info("%s: Could not import handle: %pK\n",
 					__func__, handle);
 				return -EINVAL;
 			}
@@ -1001,7 +1000,7 @@ static long msm_ion_custom_ioctl(struct ion_client *client,
 		end = (unsigned long) data.vaddr + data.length;
 
 		if (start && check_vaddr_bounds(start, end)) {
-			pr_err("%s: virtual address %p is out of bounds\n",
+			pr_err("%s: virtual address %pK is out of bounds\n",
 				__func__, data.vaddr);
 			ret = -EINVAL;
 		} else {
