@@ -202,7 +202,10 @@ typedef struct sigaltstack {
 
 #ifdef __KERNEL__
 
-#define __ARCH_HAS_KA_RESTORER
+struct k_sigaction {
+	struct			__new_sigaction sa;
+	void			__user *ka_restorer;
+};
 
 #define ptrace_signal_deliver(regs, cookie) do { } while (0)
 

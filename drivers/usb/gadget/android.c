@@ -59,7 +59,6 @@
 #ifdef CONFIG_SND_PCM
 #include "f_audio_source.c"
 #endif
-#include "f_midi.c"
 #include "f_mass_storage.c"
 #include "u_serial.c"
 #include "u_sdio.c"
@@ -86,9 +85,6 @@
 #include "f_mtp.c"
 #endif
 #include "f_accessory.c"
-#include "f_hid.h"
-#include "f_hid_android_keyboard.c"
-#include "f_hid_android_mouse.c"
 #define USB_ETH_RNDIS y
 #include "f_rndis.c"
 #include "rndis.c"
@@ -128,12 +124,6 @@ static int composite_string_index;
 #define PRODUCT_ID		0x0001
 
 #define ANDROID_DEVICE_NODE_NAME_LENGTH 11
-
-/* f_midi configuration */
-#define MIDI_INPUT_PORTS    1
-#define MIDI_OUTPUT_PORTS   1
-#define MIDI_BUFFER_SIZE    1024
-#define MIDI_QUEUE_LENGTH   32
 
 struct android_usb_function {
 	char *name;
@@ -231,9 +221,6 @@ struct android_dev {
 	struct usb_composite_dev *cdev;
 	struct device *dev;
 
-	void (*setup_complete)(struct usb_ep *ep,
-				struct usb_request *req);
-
 	bool enabled;
 	int disable_depth;
 	struct mutex mutex;
@@ -245,13 +232,6 @@ struct android_dev {
 	bool sw_suspended;
 	char pm_qos[5];
 	struct pm_qos_request pm_qos_req_dma;
-	unsigned up_pm_qos_sample_sec;
-	unsigned up_pm_qos_threshold;
-	unsigned down_pm_qos_sample_sec;
-	unsigned down_pm_qos_threshold;
-	unsigned idle_pc_rpm_no_int_secs;
-	struct delayed_work pm_qos_work;
-	enum android_pm_qos_state curr_pm_qos_state;
 	struct work_struct work;
 #if defined(CONFIG_SEC_H_PROJECT)
 	struct delayed_work usb_connection_work;
@@ -411,17 +391,8 @@ static void android_work(struct work_struct *data)
 	dev->sw_suspended = dev->suspended;
 	spin_unlock_irqrestore(&cdev->lock, flags);
 
-	if (pdata->pm_qos_latency[0] && pm_qos_vote == 1) {
-		cancel_delayed_work_sync(&dev->pm_qos_work);
-		android_pm_qos_update_latency(dev, pdata->pm_qos_latency[WFI]);
-		dev->curr_pm_qos_state = WFI;
-		queue_delayed_work(system_nrt_wq, &dev->pm_qos_work,
-			    msecs_to_jiffies(1000*dev->down_pm_qos_sample_sec));
-	} else if (pdata->pm_qos_latency[0] && pm_qos_vote == 0) {
-		cancel_delayed_work_sync(&dev->pm_qos_work);
-		android_pm_qos_update_latency(dev, PM_QOS_DEFAULT_VALUE);
-		dev->curr_pm_qos_state = NO_USB_VOTE;
-	}
+	if (pm_qos_vote != -1)
+		android_pm_qos_update_latency(dev, pm_qos_vote);
 
 	if (uevent_envp) {
 		/*
@@ -2269,11 +2240,10 @@ static ssize_t audio_source_pcm_show(struct device *dev,
 	struct audio_source_config *config = f->config;
 
 	/* print PCM card and device numbers */
-	return snprintf(buf, PAGE_SIZE,
-			"%d %d\n", config->card, config->device);
+	return sprintf(buf, "%d %d\n", config->card, config->device);
 }
 
-static DEVICE_ATTR(pcm, S_IRUGO, audio_source_pcm_show, NULL);
+static DEVICE_ATTR(pcm, S_IRUGO | S_IWUSR, audio_source_pcm_show, NULL);
 
 static struct device_attribute *audio_source_function_attributes[] = {
 	&dev_attr_pcm,
@@ -2336,95 +2306,6 @@ static struct android_usb_function uasp_function = {
 	.bind_config	= uasp_function_bind_config,
 };
 
-static int hid_function_init(struct android_usb_function *f, struct usb_composite_dev *cdev)
-{
-	return ghid_setup(cdev->gadget, 2);
-}
-
-static void hid_function_cleanup(struct android_usb_function *f)
-{
-	ghid_cleanup();
-}
-
-static int hid_function_bind_config(struct android_usb_function *f, struct usb_configuration *c)
-{
-	int ret;
-	printk(KERN_INFO "hid keyboard\n");
-	ret = hidg_bind_config(c, &ghid_device_android_keyboard, 0);
-	if (ret) {
-		pr_info("%s: hid_function_bind_config keyboard failed: %d\n", __func__, ret);
-		return ret;
-	}
-	printk(KERN_INFO "hid mouse\n");
-	ret = hidg_bind_config(c, &ghid_device_android_mouse, 1);
-	if (ret) {
-		pr_info("%s: hid_function_bind_config mouse failed: %d\n", __func__, ret);
-		return ret;
-	}
-	return 0;
-}
-
-static struct android_usb_function hid_function = {
-	.name		= "hid_usb",
-	.init		= hid_function_init,
-	.cleanup	= hid_function_cleanup,
-	.bind_config	= hid_function_bind_config,
-};
-
-static int midi_function_init(struct android_usb_function *f,
-					struct usb_composite_dev *cdev)
-{
-	struct midi_alsa_config *config;
-
-	config = kzalloc(sizeof(struct midi_alsa_config), GFP_KERNEL);
-	f->config = config;
-	if (!config)
-		return -ENOMEM;
-	config->card = -1;
-	config->device = -1;
-	return 0;
-}
-
-static void midi_function_cleanup(struct android_usb_function *f)
-{
-	kfree(f->config);
-}
-
-static int midi_function_bind_config(struct android_usb_function *f,
-						struct usb_configuration *c)
-{
-	struct midi_alsa_config *config = f->config;
-
-	return f_midi_bind_config(c, SNDRV_DEFAULT_IDX1, SNDRV_DEFAULT_STR1,
-			MIDI_INPUT_PORTS, MIDI_OUTPUT_PORTS, MIDI_BUFFER_SIZE,
-			MIDI_QUEUE_LENGTH, config);
-}
-
-static ssize_t midi_alsa_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct android_usb_function *f = dev_get_drvdata(dev);
-	struct midi_alsa_config *config = f->config;
-
-	/* print ALSA card and device numbers */
-	return sprintf(buf, "%d %d\n", config->card, config->device);
-}
-
-static DEVICE_ATTR(alsa, S_IRUGO, midi_alsa_show, NULL);
-
-static struct device_attribute *midi_function_attributes[] = {
-	&dev_attr_alsa,
-	NULL
-};
-
-static struct android_usb_function midi_function = {
-	.name		= "midi",
-	.init		= midi_function_init,
-	.cleanup	= midi_function_cleanup,
-	.bind_config	= midi_function_bind_config,
-	.attributes	= midi_function_attributes,
-};
-
 static struct android_usb_function *supported_functions[] = {
 	&mbim_function,
 	&ecm_qc_function,
@@ -2460,9 +2341,7 @@ static struct android_usb_function *supported_functions[] = {
 #ifdef CONFIG_SND_PCM
 	&audio_source_function,
 #endif
-	&midi_function,
 	&uasp_function,
-	&hid_function,
 	NULL
 };
 
@@ -2730,9 +2609,6 @@ functions_show(struct device *pdev, struct device_attribute *attr, char *buf)
 	return buff - buf;
 }
 
-static int hid_enabled = 0;
-module_param_named(usb_keyboard, hid_enabled, uint, 0664);
-
 static ssize_t
 functions_store(struct device *pdev, struct device_attribute *attr,
 			       const char *buff, size_t size)
@@ -2793,9 +2669,6 @@ functions_store(struct device *pdev, struct device_attribute *attr,
 						name);
 			}
 		}
-		/* HID driver enabled only when needed. */
-		if (hid_enabled)
-			android_enable_function(dev, conf, "hid_usb");
 	}
 
 	/* Free uneeded configurations if exists */
@@ -2960,15 +2833,6 @@ static ssize_t pm_qos_store(struct device *pdev,
 	return size;
 }
 
-static ssize_t pm_qos_state_show(struct device *pdev,
-			struct device_attribute *attr, char *buf)
-{
-	struct android_dev *dev = dev_get_drvdata(pdev);
-
-	return snprintf(buf, PAGE_SIZE, "%s\n",
-				pm_qos_to_string(dev->curr_pm_qos_state));
-}
-
 static ssize_t state_show(struct device *pdev, struct device_attribute *attr,
 			   char *buf)
 {
@@ -3009,31 +2873,6 @@ field ## _store(struct device *dev, struct device_attribute *attr,	\
 		return size;						\
 	}								\
 	return -1;							\
-}									\
-static DEVICE_ATTR(field, S_IRUGO | S_IWUSR, field ## _show, field ## _store);
-
-#define ANDROID_DEV_ATTR(field, format_string)				\
-static ssize_t								\
-field ## _show(struct device *pdev, struct device_attribute *attr,	\
-		char *buf)						\
-{									\
-	struct android_dev *dev = dev_get_drvdata(pdev);		\
-									\
-	return snprintf(buf, PAGE_SIZE,					\
-			format_string, dev->field);			\
-}									\
-static ssize_t								\
-field ## _store(struct device *pdev, struct device_attribute *attr,	\
-		const char *buf, size_t size)				\
-{									\
-	unsigned value;							\
-	struct android_dev *dev = dev_get_drvdata(pdev);		\
-									\
-	if (sscanf(buf, format_string, &value) == 1) {			\
-		dev->field = value;					\
-		return size;						\
-	}								\
-	return -EINVAL;							\
 }									\
 static DEVICE_ATTR(field, S_IRUGO | S_IWUSR, field ## _show, field ## _store);
 
@@ -3232,15 +3071,8 @@ static DEVICE_ATTR(macos,S_IRUGO | S_IWUSR, macos_show, NULL);
 static DEVICE_ATTR(functions, S_IRUGO | S_IWUSR, functions_show,
 						 functions_store);
 static DEVICE_ATTR(enable, S_IRUGO | S_IWUSR, enable_show, enable_store);
-
-static DEVICE_ATTR(pm_qos, S_IRUGO | S_IWUSR, pm_qos_show, pm_qos_store);
-static DEVICE_ATTR(pm_qos_state, S_IRUGO, pm_qos_state_show, NULL);
-ANDROID_DEV_ATTR(up_pm_qos_sample_sec, "%u\n");
-ANDROID_DEV_ATTR(down_pm_qos_sample_sec, "%u\n");
-ANDROID_DEV_ATTR(up_pm_qos_threshold, "%u\n");
-ANDROID_DEV_ATTR(down_pm_qos_threshold, "%u\n");
-ANDROID_DEV_ATTR(idle_pc_rpm_no_int_secs, "%u\n");
-
+static DEVICE_ATTR(pm_qos, S_IRUGO | S_IWUSR,
+		pm_qos_show, pm_qos_store);
 static DEVICE_ATTR(state, S_IRUGO, state_show, NULL);
 static DEVICE_ATTR(remote_wakeup, S_IRUGO | S_IWUSR,
 		remote_wakeup_show, remote_wakeup_store);
@@ -3263,12 +3095,6 @@ static struct device_attribute *android_usb_attributes[] = {
 	&dev_attr_functions,
 	&dev_attr_enable,
 	&dev_attr_pm_qos,
-	&dev_attr_up_pm_qos_sample_sec,
-	&dev_attr_down_pm_qos_sample_sec,
-	&dev_attr_up_pm_qos_threshold,
-	&dev_attr_down_pm_qos_threshold,
-	&dev_attr_idle_pc_rpm_no_int_secs,
-	&dev_attr_pm_qos_state,
 	&dev_attr_state,
 	&dev_attr_bcdUSB,
 #if defined(CONFIG_SEC_H_PROJECT) || defined(CONFIG_SEC_F_PROJECT) || defined(CONFIG_SEC_K_PROJECT)
@@ -3390,7 +3216,6 @@ static int android_usb_unbind(struct usb_composite_dev *cdev)
 	product_string[0] = '\0';
 	serial_string[0] = '0';
 	cancel_work_sync(&dev->work);
-	cancel_delayed_work_sync(&dev->pm_qos_work);
 	android_cleanup_functions(dev->functions);
 	return 0;
 }
@@ -3444,9 +3269,6 @@ android_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *c)
 			}
 		}
 
-
-	/* Save the default handler */
-	dev->setup_complete = cdev->req->complete;
 
 	/*
 	 * skip the  work when 2nd set config arrives
@@ -3666,7 +3488,7 @@ static int __devinit android_probe(struct platform_device *pdev)
 	struct android_usb_platform_data *pdata;
 	struct android_dev *android_dev;
 	struct resource *res;
-	int ret = 0, i, len = 0, prop_len = 0;
+	int ret = 0, i, len = 0;
 
 	if (pdev->dev.of_node) {
 		dev_dbg(&pdev->dev, "device tree enabled\n");
@@ -3676,16 +3498,9 @@ static int __devinit android_probe(struct platform_device *pdev)
 			return -ENOMEM;
 		}
 
-		of_get_property(pdev->dev.of_node, "qcom,pm-qos-latency",
-								&prop_len);
-		if (prop_len == sizeof(pdata->pm_qos_latency)) {
-			of_property_read_u32_array(pdev->dev.of_node,
-				"qcom,pm-qos-latency", pdata->pm_qos_latency,
-				 prop_len/sizeof(*pdata->pm_qos_latency));
-		} else {
-			pr_info("pm_qos latency not specified %d\n", prop_len);
-		}
-
+		of_property_read_u32(pdev->dev.of_node,
+				"qcom,android-usb-swfi-latency",
+				&pdata->swfi_latency);
 		pdata->cdrom = of_property_read_bool(pdev->dev.of_node,
 				"qcom,android-usb-cdrom");
 		pdata->internal_ums = of_property_read_bool(pdev->dev.of_node,
@@ -3793,16 +3608,9 @@ static int __devinit android_probe(struct platform_device *pdev)
 	}
 
 	/* pm qos request to prevent apps idle power collapse */
-	android_dev->curr_pm_qos_state = NO_USB_VOTE;
-	if (pdata && pdata->pm_qos_latency[0]) {
+	if (pdata && pdata->swfi_latency)
 		pm_qos_add_request(&android_dev->pm_qos_req_dma,
 			PM_QOS_CPU_DMA_LATENCY, PM_QOS_DEFAULT_VALUE);
-		android_dev->down_pm_qos_sample_sec = DOWN_PM_QOS_SAMPLE_SEC;
-		android_dev->down_pm_qos_threshold = DOWN_PM_QOS_THRESHOLD;
-		android_dev->up_pm_qos_sample_sec = UP_PM_QOS_SAMPLE_SEC;
-		android_dev->up_pm_qos_threshold = UP_PM_QOS_THRESHOLD;
-		android_dev->idle_pc_rpm_no_int_secs = IDLE_PC_RPM_NO_INT_SECS;
-	}
 	strlcpy(android_dev->pm_qos, "high", sizeof(android_dev->pm_qos));
 
 #ifdef CONFIG_USB_DUN_SUPPORT
@@ -3848,7 +3656,7 @@ static int android_remove(struct platform_device *pdev)
 
 	if (dev) {
 		android_destroy_device(dev);
-		if (pdata && pdata->pm_qos_latency[0])
+		if (pdata && pdata->swfi_latency)
 			pm_qos_remove_request(&dev->pm_qos_req_dma);
 		list_del(&dev->list_item);
 		android_dev_count--;

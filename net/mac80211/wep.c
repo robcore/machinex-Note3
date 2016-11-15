@@ -162,9 +162,6 @@ int ieee80211_wep_encrypt(struct ieee80211_local *local,
 	if (WARN_ON(skb_tailroom(skb) < WEP_ICV_LEN))
 		return -1;
 
-	if (WARN_ON(skb_tailroom(skb) < WEP_ICV_LEN))
-		return -1;
-
 	iv = ieee80211_wep_add_iv(local, skb, keylen, keyidx);
 	if (!iv)
 		return -1;

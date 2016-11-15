@@ -451,7 +451,7 @@ static netdev_tx_t reg_vif_xmit(struct sk_buff *skb, struct net_device *dev)
 	struct mr_table *mrt;
 	struct flowi4 fl4 = {
 		.flowi4_oif	= dev->ifindex,
-		.flowi4_iif	= skb->skb_iif ? : LOOPBACK_IFINDEX,
+		.flowi4_iif	= skb->skb_iif,
 		.flowi4_mark	= skb->mark,
 	};
 	int err;
@@ -962,7 +962,8 @@ static int ipmr_cache_report(struct mr_table *mrt,
 	ret = sock_queue_rcv_skb(mroute_sk, skb);
 	rcu_read_unlock();
 	if (ret < 0) {
-		net_warn_ratelimited("mroute: pending queue full, dropping entries\n");
+		if (net_ratelimit())
+			pr_warn("mroute: pending queue full, dropping entries\n");
 		kfree_skb(skb);
 	}
 
@@ -2507,7 +2508,7 @@ static int __net_init ipmr_net_init(struct net *net)
 
 #ifdef CONFIG_PROC_FS
 proc_cache_fail:
-	remove_proc_entry("ip_mr_vif", net->proc_net);
+	proc_net_remove(net, "ip_mr_vif");
 proc_vif_fail:
 	ipmr_rules_exit(net);
 #endif
@@ -2518,8 +2519,8 @@ fail:
 static void __net_exit ipmr_net_exit(struct net *net)
 {
 #ifdef CONFIG_PROC_FS
-	remove_proc_entry("ip_mr_cache", net->proc_net);
-	remove_proc_entry("ip_mr_vif", net->proc_net);
+	proc_net_remove(net, "ip_mr_cache");
+	proc_net_remove(net, "ip_mr_vif");
 #endif
 	ipmr_rules_exit(net);
 }

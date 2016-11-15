@@ -14,6 +14,7 @@
 #include <linux/types.h>
 #include <linux/kernel.h>
 #include <linux/skbuff.h>
+#include <linux/reciprocal_div.h>
 #include <linux/vmalloc.h>
 #include <net/pkt_sched.h>
 #include <net/inet_ecn.h>
@@ -75,6 +76,12 @@ struct choke_sched_data {
 
 	struct sk_buff **tab;
 };
+
+/* deliver a random number between 0 and N - 1 */
+static u32 random_N(unsigned int N)
+{
+	return reciprocal_divide(random32(), N);
+}
 
 /* number of elements in queue including holes */
 static unsigned int choke_len(const struct choke_sched_data *q)
@@ -226,7 +233,7 @@ static struct sk_buff *choke_peek_random(const struct choke_sched_data *q,
 	int retrys = 3;
 
 	do {
-		*pidx = (q->head + prandom_u32_max(choke_len(q))) & q->tab_mask;
+		*pidx = (q->head + random_N(choke_len(q))) & q->tab_mask;
 		skb = q->tab[*pidx];
 		if (skb)
 			return skb;
@@ -538,6 +545,64 @@ static void choke_destroy(struct Qdisc *sch)
 	tcf_destroy_chain(&q->filter_list);
 	choke_free(q->tab);
 }
+
+static struct Qdisc *choke_leaf(struct Qdisc *sch, unsigned long arg)
+{
+	return NULL;
+}
+
+static unsigned long choke_get(struct Qdisc *sch, u32 classid)
+{
+	return 0;
+}
+
+static void choke_put(struct Qdisc *q, unsigned long cl)
+{
+}
+
+static unsigned long choke_bind(struct Qdisc *sch, unsigned long parent,
+				u32 classid)
+{
+	return 0;
+}
+
+static struct tcf_proto **choke_find_tcf(struct Qdisc *sch, unsigned long cl)
+{
+	struct choke_sched_data *q = qdisc_priv(sch);
+
+	if (cl)
+		return NULL;
+	return &q->filter_list;
+}
+
+static int choke_dump_class(struct Qdisc *sch, unsigned long cl,
+			  struct sk_buff *skb, struct tcmsg *tcm)
+{
+	tcm->tcm_handle |= TC_H_MIN(cl);
+	return 0;
+}
+
+static void choke_walk(struct Qdisc *sch, struct qdisc_walker *arg)
+{
+	if (!arg->stop) {
+		if (arg->fn(sch, 1, arg) < 0) {
+			arg->stop = 1;
+			return;
+		}
+		arg->count++;
+	}
+}
+
+static const struct Qdisc_class_ops choke_class_ops = {
+	.leaf		=	choke_leaf,
+	.get		=	choke_get,
+	.put		=	choke_put,
+	.tcf_chain	=	choke_find_tcf,
+	.bind_tcf	=	choke_bind,
+	.unbind_tcf	=	choke_put,
+	.dump		=	choke_dump_class,
+	.walk		=	choke_walk,
+};
 
 static struct sk_buff *choke_peek_head(struct Qdisc *sch)
 {

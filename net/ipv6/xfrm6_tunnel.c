@@ -68,9 +68,9 @@ static DEFINE_SPINLOCK(xfrm6_tunnel_spi_lock);
 
 static struct kmem_cache *xfrm6_tunnel_spi_kmem __read_mostly;
 
-static inline unsigned int xfrm6_tunnel_spi_hash_byaddr(const xfrm_address_t *addr)
+static inline unsigned xfrm6_tunnel_spi_hash_byaddr(const xfrm_address_t *addr)
 {
-	unsigned int h;
+	unsigned h;
 
 	h = (__force u32)(addr->a6[0] ^ addr->a6[1] ^ addr->a6[2] ^ addr->a6[3]);
 	h ^= h >> 16;
@@ -80,7 +80,7 @@ static inline unsigned int xfrm6_tunnel_spi_hash_byaddr(const xfrm_address_t *ad
 	return h;
 }
 
-static inline unsigned int xfrm6_tunnel_spi_hash_byspi(u32 spi)
+static inline unsigned xfrm6_tunnel_spi_hash_byspi(u32 spi)
 {
 	return spi % XFRM6_TUNNEL_SPI_BYSPI_HSIZE;
 }
@@ -89,8 +89,9 @@ static struct xfrm6_tunnel_spi *__xfrm6_tunnel_spi_lookup(struct net *net, const
 {
 	struct xfrm6_tunnel_net *xfrm6_tn = xfrm6_tunnel_pernet(net);
 	struct xfrm6_tunnel_spi *x6spi;
+	struct hlist_node *pos;
 
-	hlist_for_each_entry_rcu(x6spi,
+	hlist_for_each_entry_rcu(x6spi, pos,
 			     &xfrm6_tn->spi_byaddr[xfrm6_tunnel_spi_hash_byaddr(saddr)],
 			     list_byaddr) {
 		if (memcmp(&x6spi->addr, saddr, sizeof(x6spi->addr)) == 0)
@@ -119,8 +120,9 @@ static int __xfrm6_tunnel_spi_check(struct net *net, u32 spi)
 	struct xfrm6_tunnel_net *xfrm6_tn = xfrm6_tunnel_pernet(net);
 	struct xfrm6_tunnel_spi *x6spi;
 	int index = xfrm6_tunnel_spi_hash_byspi(spi);
+	struct hlist_node *pos;
 
-	hlist_for_each_entry(x6spi,
+	hlist_for_each_entry(x6spi, pos,
 			     &xfrm6_tn->spi_byspi[index],
 			     list_byspi) {
 		if (x6spi->spi == spi)
@@ -201,11 +203,11 @@ static void xfrm6_tunnel_free_spi(struct net *net, xfrm_address_t *saddr)
 {
 	struct xfrm6_tunnel_net *xfrm6_tn = xfrm6_tunnel_pernet(net);
 	struct xfrm6_tunnel_spi *x6spi;
-	struct hlist_node *n;
+	struct hlist_node *pos, *n;
 
 	spin_lock_bh(&xfrm6_tunnel_spi_lock);
 
-	hlist_for_each_entry_safe(x6spi, n,
+	hlist_for_each_entry_safe(x6spi, pos, n,
 				  &xfrm6_tn->spi_byaddr[xfrm6_tunnel_spi_hash_byaddr(saddr)],
 				  list_byaddr)
 	{

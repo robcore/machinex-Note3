@@ -54,15 +54,15 @@ struct l2tp_tunnel;
  */
 struct l2tp_session_cfg {
 	enum l2tp_pwtype	pw_type;
-	unsigned int		data_seq:2;	/* data sequencing level
+	unsigned		data_seq:2;	/* data sequencing level
 						 * 0 => none, 1 => IP only,
 						 * 2 => all
 						 */
-	unsigned int		recv_seq:1;	/* expect receive packets with
+	unsigned		recv_seq:1;	/* expect receive packets with
 						 * sequence numbers? */
-	unsigned int		send_seq:1;	/* send packets with sequence
+	unsigned		send_seq:1;	/* send packets with sequence
 						 * numbers? */
-	unsigned int		lns_mode:1;	/* behave as LNS? LAC enables
+	unsigned		lns_mode:1;	/* behave as LNS? LAC enables
 						 * sequence numbers under
 						 * control of LNS. */
 	int			debug;		/* bitmask of debug message
@@ -107,15 +107,15 @@ struct l2tp_session {
 
 	char			name[32];	/* for logging */
 	char			ifname[IFNAMSIZ];
-	unsigned int		data_seq:2;	/* data sequencing level
+	unsigned		data_seq:2;	/* data sequencing level
 						 * 0 => none, 1 => IP only,
 						 * 2 => all
 						 */
-	unsigned int		recv_seq:1;	/* expect receive packets with
+	unsigned		recv_seq:1;	/* expect receive packets with
 						 * sequence numbers? */
-	unsigned int		send_seq:1;	/* send packets with sequence
+	unsigned		send_seq:1;	/* send packets with sequence
 						 * numbers? */
-	unsigned int		lns_mode:1;	/* behave as LNS? LAC enables
+	unsigned		lns_mode:1;	/* behave as LNS? LAC enables
 						 * sequence numbers under
 						 * control of LNS. */
 	int			debug;		/* bitmask of debug message

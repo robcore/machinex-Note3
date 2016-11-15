@@ -21,9 +21,8 @@
 #define CT_LE_W(v)	cpu_to_le16(v)
 #define CT_LE_L(v)	cpu_to_le32(v)
 
-#define MSDOS_ROOT_INO	 1	/* The root inode number */
-#define MSDOS_FSINFO_INO 2	/* Used for managing the FSINFO block */
 
+#define MSDOS_ROOT_INO	1	/* == MINIX_ROOT_INO */
 #define MSDOS_DIR_BITS	5	/* log2(sizeof(struct msdos_dir_entry)) */
 
 /* directory limit */
@@ -87,8 +86,6 @@
 #define IS_FSINFO(x)	(le32_to_cpu((x)->signature1) == FAT_FSINFO_SIG1 \
 			 && le32_to_cpu((x)->signature2) == FAT_FSINFO_SIG2)
 
-#define FAT_STATE_DIRTY 0x01
-
 struct __fat_dirent {
 	long		d_ino;
 	__kernel_off_t	d_off;
@@ -127,34 +124,14 @@ struct fat_boot_sector {
 	__le32	hidden;		/* hidden sectors (unused) */
 	__le32	total_sect;	/* number of sectors (if sectors == 0) */
 
-	union {
-		struct {
-			/*  Extended BPB Fields for FAT16 */
-			__u8	drive_number;	/* Physical drive number */
-			__u8	state;		/* undocumented, but used
-						   for mount state. */
-			/* other fiealds are not added here */
-		} fat16;
-
-		struct {
-			/* only used by FAT32 */
-			__le32	length;		/* sectors/FAT */
-			__le16	flags;		/* bit 8: fat mirroring,
-						   low 4: active fat */
-			__u8	version[2];	/* major, minor filesystem
-						   version */
-			__le32	root_cluster;	/* first cluster in
-						   root directory */
-			__le16	info_sector;	/* filesystem info sector */
-			__le16	backup_boot;	/* backup boot sector */
-			__le16	reserved2[6];	/* Unused */
-			/* Extended BPB Fields for FAT32 */
-			__u8	drive_number;   /* Physical drive number */
-			__u8    state;       	/* undocumented, but used
-						   for mount state. */
-			/* other fiealds are not added here */
-		} fat32;
-	};
+	/* The following fields are only used by FAT32 */
+	__le32	fat32_length;	/* sectors/FAT */
+	__le16	flags;		/* bit 8: fat mirroring, low 4: active fat */
+	__u8	version[2];	/* major, minor filesystem version */
+	__le32	root_cluster;	/* first cluster in root directory */
+	__le16	info_sector;	/* filesystem info sector */
+	__le16	backup_boot;	/* backup boot sector */
+	__le16	reserved2[6];	/* Unused */
 };
 
 struct fat_boot_fsinfo {
@@ -186,7 +163,7 @@ struct msdos_dir_entry {
 	__le16	cdate;		/* Creation date */
 	__le16	adate;		/* Last access date */
 	__le16	starthi;	/* High 16 bits of cluster in FAT32 */
-	__le16	time, date, start;/* time, date and first cluster */
+	__le16	time,date,start;/* time, date and first cluster */
 	__le32	size;		/* file size (in bytes) */
 };
 

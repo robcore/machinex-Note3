@@ -19,10 +19,8 @@
 
 void show_regs(struct pt_regs *regs)
 {
-	show_regs_print_info(KERN_INFO);
-
-	pr_info(" Registers dump: mode=%X\r\n", regs->pt_mode);
-	pr_info(" r1=%08lX, r2=%08lX, r3=%08lX, r4=%08lX\n",
+	printk(KERN_INFO " Registers dump: mode=%X\r\n", regs->pt_mode);
+	printk(KERN_INFO " r1=%08lX, r2=%08lX, r3=%08lX, r4=%08lX\n",
 				regs->r1, regs->r2, regs->r3, regs->r4);
 	printk(KERN_INFO " r5=%08lX, r6=%08lX, r7=%08lX, r8=%08lX\n",
 				regs->r5, regs->r6, regs->r7, regs->r8);
@@ -47,6 +45,18 @@ void (*pm_power_off)(void) = NULL;
 EXPORT_SYMBOL(pm_power_off);
 
 static int hlt_counter = 1;
+
+void disable_hlt(void)
+{
+	hlt_counter++;
+}
+EXPORT_SYMBOL(disable_hlt);
+
+void enable_hlt(void)
+{
+	hlt_counter--;
+}
+EXPORT_SYMBOL(enable_hlt);
 
 static int __init nohlt_setup(char *__unused)
 {

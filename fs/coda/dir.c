@@ -30,8 +30,8 @@
 #include "coda_int.h"
 
 /* dir inode-ops */
-static int coda_create(struct inode *dir, struct dentry *new, umode_t mode, bool excl);
-static struct dentry *coda_lookup(struct inode *dir, struct dentry *target, unsigned int flags);
+static int coda_create(struct inode *dir, struct dentry *new, umode_t mode, struct nameidata *nd);
+static struct dentry *coda_lookup(struct inode *dir, struct dentry *target, struct nameidata *nd);
 static int coda_link(struct dentry *old_dentry, struct inode *dir_inode, 
 		     struct dentry *entry);
 static int coda_unlink(struct inode *dir_inode, struct dentry *entry);
@@ -46,7 +46,7 @@ static int coda_rename(struct inode *old_inode, struct dentry *old_dentry,
 static int coda_readdir(struct file *file, void *buf, filldir_t filldir);
 
 /* dentry ops */
-static int coda_dentry_revalidate(struct dentry *de, unsigned int flags);
+static int coda_dentry_revalidate(struct dentry *de, struct nameidata *nd);
 static int coda_dentry_delete(const struct dentry *);
 
 /* support routines */
@@ -94,7 +94,7 @@ const struct file_operations coda_dir_operations = {
 
 /* inode operations for directories */
 /* access routines: lookup, readlink, permission */
-static struct dentry *coda_lookup(struct inode *dir, struct dentry *entry, unsigned int flags)
+static struct dentry *coda_lookup(struct inode *dir, struct dentry *entry, struct nameidata *nd)
 {
 	struct super_block *sb = dir->i_sb;
 	const char *name = entry->d_name.name;
@@ -188,7 +188,7 @@ static inline void coda_dir_drop_nlink(struct inode *dir)
 }
 
 /* creation routines: create, mknod, mkdir, link, symlink */
-static int coda_create(struct inode *dir, struct dentry *de, umode_t mode, bool excl)
+static int coda_create(struct inode *dir, struct dentry *de, umode_t mode, struct nameidata *nd)
 {
 	int error;
 	const char *name=de->d_name.name;
@@ -391,12 +391,13 @@ static int coda_readdir(struct file *coda_file, void *buf, filldir_t filldir)
 	if (!host_file->f_op)
 		return -ENOTDIR;
 
-	if (host_file->f_op->readdir) {
+	if (host_file->f_op->readdir)
+	{
 		/* potemkin case: we were handed a directory inode.
 		 * We can't use vfs_readdir because we have to keep the file
 		 * position in sync between the coda_file and the host_file.
 		 * and as such we need grab the inode mutex. */
-		struct inode *host_inode = file_inode(host_file);
+		struct inode *host_inode = host_file->f_path.dentry->d_inode;
 
 		mutex_lock(&host_inode->i_mutex);
 		host_file->f_pos = coda_file->f_pos;
@@ -409,20 +410,8 @@ static int coda_readdir(struct file *coda_file, void *buf, filldir_t filldir)
 
 		coda_file->f_pos = host_file->f_pos;
 		mutex_unlock(&host_inode->i_mutex);
-	} else if (host_file->f_op->iterate) {
-		struct inode *host_inode = file_inode(host_file);
-		struct dir_context *ctx = buf;
-
-		mutex_lock(&host_inode->i_mutex);
-		ret = -ENOENT;
-		if (!IS_DEADDIR(host_inode)) {
-			ret = host_file->f_op->iterate(host_file, ctx);
-			file_accessed(host_file);
-		}
-		mutex_unlock(&host_inode->i_mutex);
-
-		coda_file->f_pos = ctx->pos;
-	} else /* Venus: we must read Venus dirents from a file */
+	}
+	else /* Venus: we must read Venus dirents from a file */
 		ret = coda_venus_readdir(coda_file, buf, filldir);
 
 	return ret;
@@ -547,12 +536,12 @@ out:
 }
 
 /* called when a cache lookup succeeds */
-static int coda_dentry_revalidate(struct dentry *de, unsigned int flags)
+static int coda_dentry_revalidate(struct dentry *de, struct nameidata *nd)
 {
 	struct inode *inode;
 	struct coda_inode_info *cii;
 
-	if (flags & LOOKUP_RCU)
+	if (nd->flags & LOOKUP_RCU)
 		return -ECHILD;
 
 	inode = de->d_inode;

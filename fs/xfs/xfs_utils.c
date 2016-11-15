@@ -18,7 +18,9 @@
 #include "xfs.h"
 #include "xfs_fs.h"
 #include "xfs_types.h"
+#include "xfs_bit.h"
 #include "xfs_log.h"
+#include "xfs_inum.h"
 #include "xfs_trans.h"
 #include "xfs_sb.h"
 #include "xfs_ag.h"
@@ -65,6 +67,7 @@ xfs_dir_ialloc(
 	xfs_trans_t	*ntp;
 	xfs_inode_t	*ip;
 	xfs_buf_t	*ialloc_context = NULL;
+	boolean_t	call_again = B_FALSE;
 	int		code;
 	uint		log_res;
 	uint		log_count;
@@ -90,7 +93,7 @@ xfs_dir_ialloc(
 	 * the inode(s) that we've just allocated.
 	 */
 	code = xfs_ialloc(tp, dp, mode, nlink, rdev, prid, okalloc,
-			  &ialloc_context, &ip);
+			  &ialloc_context, &call_again, &ip);
 
 	/*
 	 * Return an error if we were unable to allocate a new inode.
@@ -101,18 +104,19 @@ xfs_dir_ialloc(
 		*ipp = NULL;
 		return code;
 	}
-	if (!ialloc_context && !ip) {
+	if (!call_again && (ip == NULL)) {
 		*ipp = NULL;
 		return XFS_ERROR(ENOSPC);
 	}
 
 	/*
-	 * If the AGI buffer is non-NULL, then we were unable to get an
+	 * If call_again is set, then we were unable to get an
 	 * inode in one operation.  We need to commit the current
 	 * transaction and call xfs_ialloc() again.  It is guaranteed
 	 * to succeed the second time.
 	 */
-	if (ialloc_context) {
+	if (call_again) {
+
 		/*
 		 * Normally, xfs_trans_commit releases all the locks.
 		 * We call bhold to hang on to the ialloc_context across
@@ -193,7 +197,7 @@ xfs_dir_ialloc(
 		 * this call should always succeed.
 		 */
 		code = xfs_ialloc(tp, dp, mode, nlink, rdev, prid,
-				  okalloc, &ialloc_context, &ip);
+				  okalloc, &ialloc_context, &call_again, &ip);
 
 		/*
 		 * If we get an error at this point, return to the caller
@@ -204,11 +208,12 @@ xfs_dir_ialloc(
 			*ipp = NULL;
 			return code;
 		}
-		ASSERT(!ialloc_context && ip);
+		ASSERT ((!call_again) && (ip != NULL));
 
 	} else {
-		if (committed != NULL)
+		if (committed != NULL) {
 			*committed = 0;
+		}
 	}
 
 	*ipp = ip;

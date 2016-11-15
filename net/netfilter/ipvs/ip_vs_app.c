@@ -313,7 +313,7 @@ vs_fix_ack_seq(const struct ip_vs_seq *vseq, struct tcphdr *th)
  *	Assumes already checked proto==IPPROTO_TCP and diff!=0.
  */
 static inline void vs_seq_update(struct ip_vs_conn *cp, struct ip_vs_seq *vseq,
-				 unsigned int flag, __u32 seq, int diff)
+				 unsigned flag, __u32 seq, int diff)
 {
 	/* spinlock is to keep updating cp->flags atomic */
 	spin_lock(&cp->lock);
@@ -586,5 +586,5 @@ int __net_init ip_vs_app_net_init(struct net *net)
 
 void __net_exit ip_vs_app_net_cleanup(struct net *net)
 {
-	remove_proc_entry("ip_vs_app", net->proc_net);
+	proc_net_remove(net, "ip_vs_app");
 }

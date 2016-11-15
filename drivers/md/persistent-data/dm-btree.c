@@ -240,16 +240,6 @@ static void unlock_all_frames(struct del_stack *s)
 	}
 }
 
-static void unlock_all_frames(struct del_stack *s)
-{
-	struct frame *f;
-
-	while (unprocessed_frames(s)) {
-		f = s->spine + s->top--;
-		dm_tm_unlock(s->tm, f->b);
-	}
-}
-
 int dm_btree_del(struct dm_btree_info *info, dm_block_t root)
 {
 	int r;

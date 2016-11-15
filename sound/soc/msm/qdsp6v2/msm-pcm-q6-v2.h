@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2008 Google, Inc.
  * Copyright (C) 2008 HTC Corporation
- * Copyright (c) 2012-2015 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2013 The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -52,22 +52,6 @@ struct audio_locks {
 	wait_queue_head_t flush_wait;
 };
 
-struct msm_audio_in_frame_info {
-	uint32_t size;
-	uint32_t offset;
-};
-
-#define PLAYBACK_MIN_NUM_PERIODS    2
-#define PLAYBACK_MAX_NUM_PERIODS    8
-#define PLAYBACK_MAX_PERIOD_SIZE    12288
-#define PLAYBACK_MIN_PERIOD_SIZE    128
-#define CAPTURE_MIN_NUM_PERIODS     2
-#define CAPTURE_MAX_NUM_PERIODS     8
-#define CAPTURE_MAX_PERIOD_SIZE     16384
-#define CAPTURE_MIN_PERIOD_SIZE     64
-#define CMD_EOS_MIN_TIMEOUT_LENGTH  50
-#define CMD_EOS_TIMEOUT_MULTIPLIER  (HZ * 50)
-
 struct msm_audio {
 	struct snd_pcm_substream *substream;
 	unsigned int pcm_size;
@@ -85,7 +69,7 @@ struct msm_audio {
 
 	int abort; /* set when error, like sample rate mismatch */
 
-	bool reset_event;
+        bool reset_event;
 	int enabled;
 	int close_ack;
 	int cmd_ack;
@@ -111,8 +95,6 @@ struct msm_audio {
 	int cmd_interrupt;
 	bool meta_data_mode;
 	uint32_t volume;
-	/* array of frame info */
-	struct msm_audio_in_frame_info in_frame_info[CAPTURE_MAX_NUM_PERIODS];
 };
 
 struct output_meta_data_st {

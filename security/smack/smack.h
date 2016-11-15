@@ -308,16 +308,6 @@ static inline char *smk_of_task_struct(const struct task_struct *t)
 	return skp;
 }
 
-static inline char *smk_of_task_struct(const struct task_struct *t)
-{
-	char *skp;
-
-	rcu_read_lock();
-	skp = smk_of_task(__task_cred(t)->security);
-	rcu_read_unlock();
-	return skp;
-}
-
 /*
  * logging functions
  */
@@ -339,7 +329,7 @@ void smack_log(char *subject_label, char *object_label,
 static inline void smk_ad_init(struct smk_audit_info *a, const char *func,
 			       char type)
 {
-	memset(&a->sad, 0, sizeof(a->sad));
+	memset(a, 0, sizeof(*a));
 	a->a.type = type;
 	a->a.smack_audit_data = &a->sad;
 	a->a.smack_audit_data->function = func;

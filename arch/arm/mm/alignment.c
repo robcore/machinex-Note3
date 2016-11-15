@@ -25,7 +25,6 @@
 #include <asm/cp15.h>
 #include <asm/system_info.h>
 #include <asm/unaligned.h>
-#include <asm/opcodes.h>
 
 #include "fault.h"
 
@@ -701,6 +700,7 @@ do_alignment_t32_to_handler(unsigned long *pinstr, struct pt_regs *regs,
 	unsigned long instr = *pinstr;
 	u16 tinst1 = (instr >> 16) & 0xffff;
 	u16 tinst2 = instr & 0xffff;
+	poffset->un = 0;
 
 	switch (tinst1 & 0xffe0) {
 	/* A6.3.5 Load/Store multiple */
@@ -744,40 +744,10 @@ do_alignment_t32_to_handler(unsigned long *pinstr, struct pt_regs *regs,
 	return NULL;
 }
 
-#ifdef CONFIG_FORCE_INSTRUCTION_ALIGNMENT
-static int
-do_ialignment(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
-{
-	/*
-	 * Branching to an address in ARM state which is not word aligned,
-	 * where this is defined to be UNPREDICTABLE,
-	 * can cause one of the following two behaviours:
-	 *     1. The unaligned location is forced to be aligned.
-	 *     2. Using the unaligned address generates a Prefetch Abort on
-	 *        the first instruction using the unaligned PC value.
-	 */
-	int isize = 4;
-
-	if (user_mode(regs) && !thumb_mode(regs)) {
-		ai_sys += 1;
-
-		/*
-		* Force align the instruction in software to be following
-		* a single behaviour for the unpredicatable cases.
-		*/
-		instruction_pointer(regs) &= ~(isize + (-1UL));
-		return 0;
-	}
-
-	ai_skipped += 1;
-	return 1;
-}
-#endif
-
 static int
 do_alignment(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 {
-	union offset_union uninitialized_var(offset);
+	union offset_union offset;
 	unsigned long instr = 0, instrptr;
 	int (*handler)(unsigned long addr, unsigned long instr, struct pt_regs *regs);
 	unsigned int type;
@@ -794,25 +764,21 @@ do_alignment(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 	if (thumb_mode(regs)) {
 		u16 *ptr = (u16 *)(instrptr & ~1);
 		fault = probe_kernel_address(ptr, tinstr);
-		tinstr = __mem_to_opcode_thumb16(tinstr);
 		if (!fault) {
 			if (cpu_architecture() >= CPU_ARCH_ARMv7 &&
 			    IS_T32(tinstr)) {
 				/* Thumb-2 32-bit */
 				u16 tinst2 = 0;
 				fault = probe_kernel_address(ptr + 1, tinst2);
-				tinst2 = __mem_to_opcode_thumb16(tinst2);
-				instr = __opcode_thumb32_compose(tinstr, tinst2);
+				instr = (tinstr << 16) | tinst2;
 				thumb2_32b = 1;
 			} else {
 				isize = 2;
 				instr = thumb2arm(tinstr);
 			}
 		}
-	} else {
+	} else
 		fault = probe_kernel_address(instrptr, instr);
-		instr = __mem_to_opcode_arm(instr);
-	}
 
 	if (fault) {
 		type = TYPE_FAULT;
@@ -888,12 +854,11 @@ do_alignment(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 		break;
 
 	case 0x08000000:	/* ldm or stm, or thumb-2 32bit instruction */
-		if (thumb2_32b) {
-			offset.un = 0;
+		if (thumb2_32b)
 			handler = do_alignment_t32_to_handler(&instr, regs, &offset);
-		} else {
-			offset.un = 0;
+		else {
 			handler = do_alignment_ldmstm;
+			offset.un = 0;
 		}
 		break;
 
@@ -999,22 +964,15 @@ static int __init alignment_init(void)
 		return -ENOMEM;
 #endif
 
-#ifdef CONFIG_CPU_CP15
 	if (cpu_is_v6_unaligned()) {
 		cr_alignment &= ~CR_A;
 		cr_no_alignment &= ~CR_A;
 		set_cr(cr_alignment);
 		ai_usermode = safe_usermode(ai_usermode, false);
 	}
-#endif
 
 	hook_fault_code(FAULT_CODE_ALIGNMENT, do_alignment, SIGBUS, BUS_ADRALN,
 			"alignment exception");
-
-#ifdef CONFIG_FORCE_INSTRUCTION_ALIGNMENT
-	hook_ifault_code(FAULT_CODE_ALIGNMENT, do_ialignment, SIGBUS,
-			BUS_ADRALN, "alignment exception");
-#endif
 
 	/*
 	 * ARMv6K and ARMv7 use fault status 3 (0b00011) as Access Flag section

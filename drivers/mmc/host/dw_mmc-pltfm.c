@@ -108,8 +108,7 @@ static int dw_mci_pltfm_resume(struct device *dev)
 static SIMPLE_DEV_PM_OPS(dw_mci_pltfm_pmops, dw_mci_pltfm_suspend, dw_mci_pltfm_resume);
 
 static struct platform_driver dw_mci_pltfm_driver = {
-	.probe		= dw_mci_pltfm_probe,
-	.remove		= dw_mci_pltfm_remove,
+	.remove		= __exit_p(dw_mci_pltfm_remove),
 	.driver		= {
 		.name		= "dw_mmc",
 		.pm		= &dw_mci_pltfm_pmops,

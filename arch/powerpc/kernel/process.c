@@ -514,6 +514,9 @@ struct task_struct *__switch_to(struct task_struct *prev,
 
 	local_irq_save(flags);
 
+	account_system_vtime(current);
+	account_process_vtime(current);
+
 	/*
 	 * We can't take a PMU exception inside _switch() since there is a
 	 * window where the kernel stack SLB and the kernel stack are out
@@ -639,8 +642,6 @@ void show_regs(struct pt_regs * regs)
 {
 	int i, trap;
 
-	show_regs_print_info(KERN_DEFAULT);
-
 	printk("NIP: "REG" LR: "REG" CTR: "REG"\n",
 	       regs->nip, regs->link, regs->ctr);
 	printk("REGS: %p TRAP: %04lx   %s  (%s)\n",
@@ -660,6 +661,12 @@ void show_regs(struct pt_regs * regs)
 #else
 		printk("DAR: "REG", DSISR: %08lx\n", regs->dar, regs->dsisr);
 #endif
+	printk("TASK = %p[%d] '%s' THREAD: %p",
+	       current, task_pid_nr(current), current->comm, task_thread_info(current));
+
+#ifdef CONFIG_SMP
+	printk(" CPU: %d", raw_smp_processor_id());
+#endif /* CONFIG_SMP */
 
 	for (i = 0;  i < 32;  i++) {
 		if ((i % REGS_PER_LINE) == 0)
@@ -1206,6 +1213,12 @@ void show_stack(struct task_struct *tsk, unsigned long *stack)
 	} while (count++ < kstack_depth_to_print);
 }
 
+void dump_stack(void)
+{
+	show_stack(current, NULL);
+}
+EXPORT_SYMBOL(dump_stack);
+
 #ifdef CONFIG_PPC64
 /* Called with hard IRQs off */
 void notrace __ppc64_runlatch_on(void)
@@ -1278,9 +1291,9 @@ static inline unsigned long brk_rnd(void)
 
 	/* 8MB for 32bit, 1GB for 64bit */
 	if (is_32bit_task())
-		rnd = (get_random_long() % (1UL<<(23-PAGE_SHIFT)));
+		rnd = (long)(get_random_int() % (1<<(23-PAGE_SHIFT)));
 	else
-		rnd = (get_random_long() % (1UL<<(30-PAGE_SHIFT)));
+		rnd = (long)(get_random_int() % (1<<(30-PAGE_SHIFT)));
 
 	return rnd << PAGE_SHIFT;
 }

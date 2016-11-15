@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1047,16 +1047,9 @@ static u32 sns_read_qtimer(void)
 	return (u32)val;
 }
 
-static int sensors_adsp_open(struct inode *ip, struct file *fp)
-{
-	return 0;
-}
-
-static int sensors_adsp_release(struct inode *inode, struct file *file)
-{
-	return 0;
-}
-
+/*
+ * IO Control - handle commands from client.
+ */
 static long sensors_adsp_ioctl(struct file *file,
 			unsigned int cmd, unsigned long arg)
 {
@@ -1145,6 +1138,38 @@ static int sensors_adsp_probe(struct platform_device *pdev)
 		goto cdev_add_err;
 	}
 
+	sns_ctl.sns_workqueue =
+			alloc_workqueue("sns_ocmem", WQ_NON_REENTRANT, 0);
+	if (!sns_ctl.sns_workqueue) {
+		pr_err("%s: Failed to create work queue\n",
+			__func__);
+		goto cdev_add_err;
+	}
+
+	sns_ctl.smd_wq =
+			alloc_workqueue("smd_wq", WQ_NON_REENTRANT, 0);
+	if (!sns_ctl.smd_wq) {
+		pr_err("%s: Failed to create work queue\n",
+			__func__);
+		goto cdev_add_err;
+	}
+
+	init_waitqueue_head(&sns_ctl.sns_wait);
+	spin_lock_init(&sns_ctl.sns_lock);
+
+	sns_ctl.ocmem_handle = NULL;
+	sns_ctl.buf = NULL;
+	sns_ctl.sns_ocmem_status = 0;
+	sns_ctl.ocmem_enabled = true;
+	sns_ctl.ocmem_nb.notifier_call = sns_ocmem_drv_cb;
+	sns_ctl.smd_ch = NULL;
+	sns_ctl.pdev = pdev;
+
+	INIT_WORK(&sns_ctl.sns_work, sns_ocmem_main);
+	INIT_WORK(&sns_ctl.smd_read_work, sns_ocmem_smd_read);
+
+	queue_work(sns_ctl.sns_workqueue, &sns_ctl.sns_work);
+
 	return 0;
 
 cdev_add_err:
@@ -1161,6 +1186,20 @@ res_err:
 
 static int sensors_adsp_remove(struct platform_device *pdev)
 {
+	struct msm_bus_scale_pdata *sns_ocmem_bus_scale_pdata = NULL;
+
+	sns_ocmem_bus_scale_pdata = (struct msm_bus_scale_pdata *)
+					dev_get_drvdata(&pdev->dev);
+
+	kfree(sns_ocmem_bus_scale_pdata->usecase->vectors);
+	kfree(sns_ocmem_bus_scale_pdata->usecase);
+	kfree(sns_ocmem_bus_scale_pdata);
+
+	ocmem_notifier_unregister(sns_ctl.ocmem_handle,
+					&sns_ctl.ocmem_nb);
+	destroy_workqueue(sns_ctl.sns_workqueue);
+	destroy_workqueue(sns_ctl.smd_wq);
+
 	cdev_del(sns_ctl.cdev);
 	kfree(sns_ctl.cdev);
 	sns_ctl.cdev = NULL;
@@ -1173,9 +1212,10 @@ static int sensors_adsp_remove(struct platform_device *pdev)
 
 static const struct of_device_id msm_adsp_sensors_dt_match[] = {
 	{.compatible = "qcom,msm-adsp-sensors"},
-	{},
+	{}
 };
 MODULE_DEVICE_TABLE(of, msm_adsp_sensors_dt_match);
+
 
 static struct platform_driver sensors_adsp_driver = {
 	.driver = {
@@ -1187,12 +1227,16 @@ static struct platform_driver sensors_adsp_driver = {
 	.remove = sensors_adsp_remove,
 };
 
-static int __init sensors_adsp_init(void)
+/*
+ * Module Init.
+ */
+static int sensors_adsp_init(void)
 {
 	int rc;
-
 	pr_debug("%s driver version %s.\n", DRV_NAME, DRV_VERSION);
+
 	rc = platform_driver_register(&sensors_adsp_driver);
+
 	if (rc) {
 		pr_err("%s: Failed to register sensors adsp driver\n",
 			__func__);
@@ -1202,12 +1246,16 @@ static int __init sensors_adsp_init(void)
 	return 0;
 }
 
-static void __exit sensors_adsp_exit(void)
+/*
+ * Module Exit.
+ */
+static void sensors_adsp_exit(void)
 {
 	platform_driver_unregister(&sensors_adsp_driver);
 }
 
 module_init(sensors_adsp_init);
 module_exit(sensors_adsp_exit);
+
 MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("Sensors ADSP driver");

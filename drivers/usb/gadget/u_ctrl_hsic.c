@@ -85,7 +85,7 @@ static int ghsic_ctrl_receive(void *dev, void *buf, size_t actual)
 	struct gctrl_port	*port = dev;
 	int retval = 0;
 
-	pr_debug_ratelimited("%s: read complete bytes read: %zu\n",
+	pr_debug_ratelimited("%s: read complete bytes read: %d\n",
 			__func__, actual);
 
 	/* send it to USB here */
@@ -127,7 +127,7 @@ ghsic_send_cpkt_tomodem(u8 portno, void *buf, size_t len)
 		return 0;
 	}
 
-	pr_debug("%s: ctrl_pkt:%zu bytes\n", __func__, len);
+	pr_debug("%s: ctrl_pkt:%d bytes\n", __func__, len);
 
 	ctrl_bridge_write(port->brdg.ch_id, cbuf, len);
 
@@ -160,8 +160,7 @@ ghsic_send_cbits_tomodem(void *gptr, u8 portno, int cbits)
 	if (!test_bit(CH_OPENED, &port->bridge_sts))
 		return;
 
-	pr_debug("%s: ctrl_tomodem:%d DTR:%d  RST:%d\n", __func__, cbits,
-		cbits & ACM_CTRL_DTR  ? 1 : 0, cbits & ACM_CTRL_RTS ? 1 : 0);
+	pr_debug("%s: ctrl_tomodem:%d\n", __func__, cbits);
 
 	ctrl_bridge_set_cbits(port->brdg.ch_id, cbits);
 }
@@ -534,9 +533,7 @@ int ghsic_ctrl_setup(unsigned int num_ports, enum gadget_type gtype)
 free_ports:
 	for (i = first_port_id; i < no_ctrl_ports; i++)
 		ghsic_ctrl_port_free(i);
-
-	no_ctrl_ports = first_port_id;
-
+		no_ctrl_ports = first_port_id;
 	return ret;
 }
 

@@ -43,10 +43,6 @@
 
 static struct workqueue_struct *wdog_wq;
 
-static struct workqueue_struct *wdog_wq;
-static struct msm_watchdog_data *wdog_data;
-static struct msm_watchdog_data *g_wdog_dd;
-
 struct msm_watchdog_data {
 	unsigned int __iomem phys_base;
 	size_t size;
@@ -68,7 +64,6 @@ struct msm_watchdog_data {
 	bool irq_ppi;
 	struct msm_watchdog_data __percpu **wdog_cpu_dd;
 	struct notifier_block panic_blk;
-	bool enabled;
 };
 
 #ifdef CONFIG_MACH_ATLANTICLTE_ATT
@@ -119,8 +114,6 @@ static int msm_watchdog_suspend(struct device *dev)
 	__raw_writel(1, wdog_dd->base + WDT0_RST);
 	__raw_writel(0, wdog_dd->base + WDT0_EN);
 	mb();
-	wdog_dd->enabled = false;
-	wdog_dd->last_pet = sched_clock();
 	return 0;
 }
 
@@ -133,64 +126,7 @@ static int msm_watchdog_resume(struct device *dev)
 	__raw_writel(1, wdog_dd->base + WDT0_EN);
 	__raw_writel(1, wdog_dd->base + WDT0_RST);
 	mb();
-	wdog_dd->enabled = true;
-	wdog_dd->last_pet = sched_clock();
 	return 0;
-}
-
-void msm_panic_wdt_set(unsigned int timeout)
-{
-	unsigned long flags;
-	void __iomem *msm_wdt_base;
-
-	local_irq_save(flags);
-
-	if (timeout > 60)
-		timeout = 60;
-
-	msm_wdt_base = g_wdog_dd->base;
-	__raw_writel(WDT_HZ * timeout, msm_wdt_base + WDT0_BARK_TIME);
-	__raw_writel(WDT_HZ * (timeout + 2), msm_wdt_base + WDT0_BITE_TIME);
-	__raw_writel(1, msm_wdt_base + WDT0_EN);
-	__raw_writel(1, msm_wdt_base + WDT0_RST);
-
-	local_irq_restore(flags);
-}
-void msm_watchdog_reset(unsigned int timeout)
-{
-	unsigned long flags;
-	void __iomem *msm_wdt_base;
-
-	local_irq_save(flags);
-
-	if (timeout > 60)
-		timeout = 60;
-
-	msm_wdt_base = g_wdog_dd->base;
-	__raw_writel(WDT_HZ * timeout, msm_wdt_base + WDT0_BARK_TIME);
-	__raw_writel(WDT_HZ * (timeout + 2), msm_wdt_base + WDT0_BITE_TIME);
-	__raw_writel(1, msm_wdt_base + WDT0_EN);
-	__raw_writel(1, msm_wdt_base + WDT0_RST);
-
-	for (timeout += 2; timeout > 0; timeout--)
-		mdelay(1000);
-
-	for (timeout = 2; timeout > 0; timeout--) {
-		__raw_writel(0, msm_wdt_base + WDT0_BARK_TIME);
-		__raw_writel(WDT_HZ, msm_wdt_base + WDT0_BITE_TIME);
-		__raw_writel(1, msm_wdt_base + WDT0_RST);
-		mdelay(1000);
-	}
-
-	for (timeout = 2; timeout > 0; timeout--) {
-		__raw_writel(WDT_HZ, msm_wdt_base + WDT0_BARK_TIME);
-		__raw_writel(0, msm_wdt_base + WDT0_BITE_TIME);
-		__raw_writel(1, msm_wdt_base + WDT0_RST);
-		mdelay(1000);
-	}
-	pr_err("Watchdog reset has failed\n");
-
-	local_irq_restore(flags);
 }
 
 static int panic_wdog_handler(struct notifier_block *this,
@@ -202,9 +138,9 @@ static int panic_wdog_handler(struct notifier_block *this,
 		__raw_writel(0, wdog_dd->base + WDT0_EN);
 		mb();
 	} else {
-		__raw_writel(WDT_HZ * (panic_timeout + 10),
+		__raw_writel(WDT_HZ * (panic_timeout + 4),
 				wdog_dd->base + WDT0_BARK_TIME);
-		__raw_writel(WDT_HZ * (panic_timeout + 10),
+		__raw_writel(WDT_HZ * (panic_timeout + 4),
 				wdog_dd->base + WDT0_BITE_TIME);
 		__raw_writel(1, wdog_dd->base + WDT0_RST);
 	}
@@ -229,7 +165,6 @@ static void wdog_disable(struct msm_watchdog_data *wdog_dd)
 	/* may be suspended after the first write above */
 	__raw_writel(0, wdog_dd->base + WDT0_EN);
 	mb();
-	wdog_dd->enabled = false;
 	pr_info("MSM Apps Watchdog deactivated.\n");
 }
 
@@ -349,11 +284,6 @@ static void pet_watchdog(struct msm_watchdog_data *wdog_dd)
 
 }
 
-void g_pet_watchdog(void)
-{
-	pet_watchdog(g_wdog_dd);
-}
-
 static void keep_alive_response(void *info)
 {
 	int cpu = smp_processor_id();
@@ -382,12 +312,6 @@ static void pet_watchdog_work(struct work_struct *work)
 	struct msm_watchdog_data *wdog_dd = container_of(delayed_work,
 						struct msm_watchdog_data,
 							dogwork_struct);
-
-	if (test_taint(TAINT_DIE) || oops_in_progress) {
-		pr_info("MSM Watchdog Skip Pet Work.\n");
-		return;
-	}
-
 	delay_time = msecs_to_jiffies(wdog_dd->pet_time);
 	if (enable) {
 		if (wdog_dd->do_ipi_ping)
@@ -445,17 +369,9 @@ static irqreturn_t wdog_bark_handler(int irq, void *dev_id)
 	unsigned long nanosec_rem;
 	unsigned long long t = sched_clock();
 
-#ifdef CONFIG_MACH_LGE
-	/* do not bark on your self! watchdog uses IRQ 35 with LG G2 */
-	if (irq == 35) {
-		wdog_dd->last_pet = sched_clock();
-		return IRQ_HANDLED;
-	}
-#endif
-
 	nanosec_rem = do_div(t, 1000000000);
-	printk(KERN_INFO "Watchdog bark! Now = %lu.%06lu (IRQ %d)\n",
-		(unsigned long) t, nanosec_rem / 1000, irq);
+	printk(KERN_INFO "Watchdog bark! Now = %lu.%06lu\n", (unsigned long) t,
+		nanosec_rem / 1000);
 
 	nanosec_rem = do_div(wdog_dd->last_pet, 1000000000);
 	printk(KERN_INFO "Watchdog last pet at %lu.%06lu\n", (unsigned long)
@@ -621,7 +537,7 @@ static void __devinit dump_pdata(struct msm_watchdog_data *pdata)
 	dev_dbg(pdata->dev, "wdog bark_time %d", pdata->bark_time);
 	dev_dbg(pdata->dev, "wdog pet_time %d", pdata->pet_time);
 	dev_dbg(pdata->dev, "wdog perform ipi ping %d", pdata->do_ipi_ping);
-	dev_dbg(pdata->dev, "wdog base address is 0x%lx\n", (unsigned long)
+	dev_dbg(pdata->dev, "wdog base address is 0x%x\n", (unsigned int)
 								pdata->base);
 }
 
@@ -633,8 +549,6 @@ static int __devinit msm_wdog_dt_to_pdata(struct platform_device *pdev,
 	int ret;
 
 	wdog_resource = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (!wdog_resource)
-		return -ENODEV;
 	pdata->size = resource_size(wdog_resource);
 	pdata->phys_base = wdog_resource->start;
 	if (unlikely(!(devm_request_mem_region(&pdev->dev, pdata->phys_base,
@@ -694,12 +608,6 @@ static int __devinit msm_watchdog_probe(struct platform_device *pdev)
 		return -EIO;
 	}
 
-	wdog_wq = alloc_workqueue("wdog", WQ_HIGHPRI, 0);
-	if (!wdog_wq) {
-		pr_err("Failed to allocate watchdog workqueue\n");
-		return -EIO;
-	}
-
 	if (!pdev->dev.of_node || !enable)
 		return -ENODEV;
 	wdog_dd = kzalloc(sizeof(struct msm_watchdog_data), GFP_KERNEL);
@@ -716,9 +624,7 @@ static int __devinit msm_watchdog_probe(struct platform_device *pdev)
 	cpumask_clear(&wdog_dd->alive_mask);
 	INIT_WORK(&wdog_dd->init_dogwork_struct, init_watchdog_work);
 	INIT_DELAYED_WORK(&wdog_dd->dogwork_struct, pet_watchdog_work);
-	g_wdog_dd = wdog_dd;
 	queue_work_on(0, wdog_wq, &wdog_dd->init_dogwork_struct);
-	wdog_data = wdog_dd;
 	return 0;
 err:
 	destroy_workqueue(wdog_wq);

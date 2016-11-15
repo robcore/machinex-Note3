@@ -37,17 +37,17 @@ void generic_fillattr(struct inode *inode, struct kstat *stat)
 
 EXPORT_SYMBOL(generic_fillattr);
 
-int vfs_getattr(struct path *path, struct kstat *stat)
+int vfs_getattr(struct vfsmount *mnt, struct dentry *dentry, struct kstat *stat)
 {
-	struct inode *inode = path->dentry->d_inode;
+	struct inode *inode = dentry->d_inode;
 	int retval;
 
-	retval = security_inode_getattr(path->mnt, path->dentry);
+	retval = security_inode_getattr(mnt, dentry);
 	if (retval)
 		return retval;
 
 	if (inode->i_op->getattr)
-		return inode->i_op->getattr(path->mnt, path->dentry, stat);
+		return inode->i_op->getattr(mnt, dentry, stat);
 
 	generic_fillattr(inode, stat);
 	return 0;
@@ -57,12 +57,13 @@ EXPORT_SYMBOL(vfs_getattr);
 
 int vfs_fstat(unsigned int fd, struct kstat *stat)
 {
-	struct fd f = fdget_raw(fd);
+	int fput_needed;
+	struct file *f = fget_raw_light(fd, &fput_needed);
 	int error = -EBADF;
 
-	if (f.file) {
-		error = vfs_getattr(&f.file->f_path, stat);
-		fdput(f);
+	if (f) {
+		error = vfs_getattr(f->f_path.mnt, f->f_path.dentry, stat);
+		fput_light(f, fput_needed);
 	}
 	return error;
 }
@@ -73,7 +74,7 @@ int vfs_fstatat(int dfd, const char __user *filename, struct kstat *stat,
 {
 	struct path path;
 	int error = -EINVAL;
-	unsigned int lookup_flags = 0;
+	int lookup_flags = 0;
 
 	if ((flag & ~(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT |
 		      AT_EMPTY_PATH)) != 0)
@@ -83,17 +84,13 @@ int vfs_fstatat(int dfd, const char __user *filename, struct kstat *stat,
 		lookup_flags |= LOOKUP_FOLLOW;
 	if (flag & AT_EMPTY_PATH)
 		lookup_flags |= LOOKUP_EMPTY;
-retry:
+
 	error = user_path_at(dfd, filename, lookup_flags, &path);
 	if (error)
 		goto out;
 
-	error = vfs_getattr(&path, stat);
+	error = vfs_getattr(path.mnt, path.dentry, stat);
 	path_put(&path);
-	if (retry_estale(error, lookup_flags)) {
-		lookup_flags |= LOOKUP_REVAL;
-		goto retry;
-	}
 out:
 	return error;
 }
@@ -299,13 +296,11 @@ SYSCALL_DEFINE4(readlinkat, int, dfd, const char __user *, pathname,
 	struct path path;
 	int error;
 	int empty = 0;
-	unsigned int lookup_flags = LOOKUP_EMPTY;
 
 	if (bufsiz <= 0)
 		return -EINVAL;
 
-retry:
-	error = user_path_at_empty(dfd, pathname, lookup_flags, &path, &empty);
+	error = user_path_at_empty(dfd, pathname, LOOKUP_EMPTY, &path, &empty);
 	if (!error) {
 		struct inode *inode = path.dentry->d_inode;
 
@@ -319,10 +314,6 @@ retry:
 			}
 		}
 		path_put(&path);
-		if (retry_estale(error, lookup_flags)) {
-			lookup_flags |= LOOKUP_REVAL;
-			goto retry;
-		}
 	}
 	return error;
 }
@@ -335,7 +326,7 @@ SYSCALL_DEFINE3(readlink, const char __user *, path, char __user *, buf,
 
 
 /* ---------- LFS-64 ----------- */
-#if defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_COMPAT_STAT64)
+#ifdef __ARCH_WANT_STAT64
 
 #ifndef INIT_STRUCT_STAT64_PADDING
 #  define INIT_STRUCT_STAT64_PADDING(st) memset(&st, 0, sizeof(st))
@@ -424,7 +415,7 @@ SYSCALL_DEFINE4(fstatat64, int, dfd, const char __user *, filename,
 		return error;
 	return cp_new_stat64(&stat, statbuf);
 }
-#endif /* __ARCH_WANT_STAT64 || __ARCH_WANT_COMPAT_STAT64 */
+#endif /* __ARCH_WANT_STAT64 */
 
 /* Caller is here responsible for sufficient locking (ie. inode->i_lock) */
 void __inode_add_bytes(struct inode *inode, loff_t bytes)
@@ -447,8 +438,9 @@ void inode_add_bytes(struct inode *inode, loff_t bytes)
 
 EXPORT_SYMBOL(inode_add_bytes);
 
-void __inode_sub_bytes(struct inode *inode, loff_t bytes)
+void inode_sub_bytes(struct inode *inode, loff_t bytes)
 {
+	spin_lock(&inode->i_lock);
 	inode->i_blocks -= bytes >> 9;
 	bytes &= 511;
 	if (inode->i_bytes < bytes) {
@@ -456,14 +448,6 @@ void __inode_sub_bytes(struct inode *inode, loff_t bytes)
 		inode->i_bytes += 512;
 	}
 	inode->i_bytes -= bytes;
-}
-
-EXPORT_SYMBOL(__inode_sub_bytes);
-
-void inode_sub_bytes(struct inode *inode, loff_t bytes)
-{
-	spin_lock(&inode->i_lock);
-	__inode_sub_bytes(inode, bytes);
 	spin_unlock(&inode->i_lock);
 }
 

@@ -532,10 +532,12 @@ static int ip6_frag_reasm(struct frag_queue *fq, struct sk_buff *prev,
 	return 1;
 
 out_oversize:
-	net_dbg_ratelimited("ip6_frag_reasm: payload len = %d\n", payload_len);
+	if (net_ratelimit())
+		printk(KERN_DEBUG "ip6_frag_reasm: payload len = %d\n", payload_len);
 	goto out_fail;
 out_oom:
-	net_dbg_ratelimited("ip6_frag_reasm: no memory for reassembly\n");
+	if (net_ratelimit())
+		printk(KERN_DEBUG "ip6_frag_reasm: no memory for reassembly\n");
 out_fail:
 	rcu_read_lock();
 	IP6_INC_STATS_BH(net, __in6_dev_get(dev), IPSTATS_MIB_REASMFAILS);

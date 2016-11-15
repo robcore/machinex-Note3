@@ -20,7 +20,6 @@
 #include <linux/io.h>
 #include <linux/ktime.h>
 #include <linux/smp.h>
-#include <linux/sched.h>
 #include <linux/tick.h>
 #include <linux/sched.h>
 #include <linux/delay.h>
@@ -574,7 +573,7 @@ static bool __ref msm_pm_spm_power_collapse(
 #endif
 
 	collapsed = save_cpu_regs ?
-		!__cpu_suspend(0, msm_pm_collapse) : msm_pm_pc_hotplug();
+		!cpu_suspend(0, msm_pm_collapse) : msm_pm_pc_hotplug();
 
 
 #ifdef CONFIG_SEC_PM_DEBUG
@@ -701,7 +700,6 @@ static enum msm_pm_time_stats_id msm_pm_power_collapse(bool from_idle)
 	if (MSM_PM_DEBUG_POWER_COLLAPSE & msm_pm_debug_mask)
 		pr_info("CPU%u: %s: pre power down\n", cpu, __func__);
 
-#ifdef CONFIG_HW_PERF_EVENTS
 	/* This spews a lot of messages when a core is hotplugged. This
 	 * information is most useful from last core going down during
 	 * power collapse
@@ -709,7 +707,6 @@ static enum msm_pm_time_stats_id msm_pm_power_collapse(bool from_idle)
 	if ((!from_idle && cpu_online(cpu))
 			|| (MSM_PM_DEBUG_IDLE_CLK & msm_pm_debug_mask))
 		clock_debug_print_enabled();
-#endif
 
 	avsdscr = avs_get_avsdscr();
 	avscsr = avs_get_avscsr();
@@ -1095,7 +1092,7 @@ static inline u32 msm_pc_debug_counters_read_register(
 	return readl_relaxed(reg + (index * 4 + offset) * 4);
 }
 
-char *counter_name[MSM_PC_NUM_COUNTERS] = {
+static char *counter_name[] = {
 		"PC Entry Counter",
 		"Warmboot Entry Counter",
 		"PC Bailout Counter"
@@ -1107,24 +1104,19 @@ static int msm_pc_debug_counters_copy(
 	int j;
 	u32 stat;
 	unsigned int cpu;
-	unsigned int len;
 
 	for_each_possible_cpu(cpu) {
-		len = scnprintf(data->buf + data->len,
+		data->len += scnprintf(data->buf + data->len,
 				sizeof(data->buf)-data->len,
 				"CPU%d\n", cpu);
 
-		data->len += len;
-
 		for (j = 0; j < MSM_PC_NUM_COUNTERS; j++) {
 			stat = msm_pc_debug_counters_read_register(
-				data->reg, cpu, j);
-			 len = scnprintf(data->buf + data->len,
-					 sizeof(data->buf) - data->len,
-					"\t%s: %d", counter_name[j], stat);
-
-			 data->len += len;
-
+					data->reg, cpu, j);
+			data->len += scnprintf(data->buf + data->len,
+					sizeof(data->buf)-data->len,
+					"\t%s : %d\n", counter_name[j],
+					stat);
 		}
 
 	}
@@ -1132,7 +1124,7 @@ static int msm_pc_debug_counters_copy(
 	return data->len;
 }
 
-static ssize_t msm_pc_debug_counters_file_read(struct file *file,
+static int msm_pc_debug_counters_file_read(struct file *file,
 		char __user *bufu, size_t count, loff_t *ppos)
 {
 	struct msm_pc_debug_counters_buffer *data;
@@ -1170,7 +1162,7 @@ static int msm_pc_debug_counters_file_open(struct inode *inode,
 		sizeof(struct msm_pc_debug_counters_buffer), GFP_KERNEL);
 
 	if (!file->private_data) {
-		pr_err("%s: ERROR kmalloc failed to allocate %zu bytes\n",
+		pr_err("%s: ERROR kmalloc failed to allocate %d bytes\n",
 		__func__, sizeof(struct msm_pc_debug_counters_buffer));
 
 		return -ENOMEM;
@@ -1334,25 +1326,15 @@ static int __init msm_cpu_pm_init(void)
 
 	rc = platform_driver_register(&msm_cpu_pm_snoc_client_driver);
 
-	if (rc)
+	if (rc) {
 		pr_err("%s(): failed to register driver %s\n", __func__,
 				msm_cpu_pm_snoc_client_driver.driver.name);
-	return rc;
+		return rc;
+	}
+
+	return platform_driver_register(&msm_cpu_pm_driver);
 }
 device_initcall(msm_cpu_pm_init);
-
-static int __init msm_pm_debug_counters_init(void)
-{
-	int rc;
-
-	rc = platform_driver_register(&msm_cpu_pm_driver);
-
-	if (rc)
-		pr_err("%s(): failed to register driver %s\n", __func__,
-				msm_cpu_pm_driver.driver.name);
-	return rc;
-}
-fs_initcall(msm_pm_debug_counters_init);
 
 void __init msm_pm_sleep_status_init(void)
 {

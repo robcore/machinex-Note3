@@ -51,13 +51,13 @@ asmlinkage long __sys_execve(const char __user *filename,
 			  struct pt_regs *regs)
 {
 	int error;
-	struct filename *fn;
+	char *fn;
 
 	fn = getname(filename);
 	error = PTR_ERR(fn);
 	if (IS_ERR(fn))
 		goto out;
-	error = do_execve(fn->name, argv, envp, regs);
+	error = do_execve(fn, argv, envp, regs);
 	putname(fn);
 out:
 	return error;
@@ -104,6 +104,7 @@ int kernel_execve(const char *filename,
  out:
 	return ret;
 }
+EXPORT_SYMBOL(kernel_execve);
 
 /* Note: used by the compat code even in 64-bit Linux. */
 SYSCALL_DEFINE6(mmap2, unsigned long, addr, unsigned long, len,

@@ -21,8 +21,7 @@
 #define PENALTY_FOR_NODE_WITH_CPUS 255
 
 /*
- * Nodes within this distance are eligible for reclaim by zone_reclaim() when
- * zone_reclaim_mode is enabled.
+ * Distance above which we begin to use zone reclaim
  */
 #define RECLAIM_DISTANCE 15
 
@@ -68,6 +67,31 @@ void build_cpu_to_node_map(void);
 				| SD_WAKE_AFFINE,	\
 	.last_balance		= jiffies,		\
 	.balance_interval	= 1,			\
+	.nr_balance_failed	= 0,			\
+}
+
+/* sched_domains SD_NODE_INIT for IA64 NUMA machines */
+#define SD_NODE_INIT (struct sched_domain) {		\
+	.parent			= NULL,			\
+	.child			= NULL,			\
+	.groups			= NULL,			\
+	.min_interval		= 8,			\
+	.max_interval		= 8*(min(num_online_cpus(), 32U)), \
+	.busy_factor		= 64,			\
+	.imbalance_pct		= 125,			\
+	.cache_nice_tries	= 2,			\
+	.busy_idx		= 3,			\
+	.idle_idx		= 2,			\
+	.newidle_idx		= 0,			\
+	.wake_idx		= 0,			\
+	.forkexec_idx		= 0,			\
+	.flags			= SD_LOAD_BALANCE	\
+				| SD_BALANCE_NEWIDLE	\
+				| SD_BALANCE_EXEC	\
+				| SD_BALANCE_FORK	\
+				| SD_SERIALIZE,		\
+	.last_balance		= jiffies,		\
+	.balance_interval	= 64,			\
 	.nr_balance_failed	= 0,			\
 }
 

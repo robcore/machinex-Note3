@@ -10,7 +10,6 @@
 #include <linux/sched.h>
 #include <linux/serial_8250.h>
 #include <linux/io.h>
-#include <linux/cpu.h>
 
 #include <asm/setup.h>
 #include <asm/mach-types.h>
@@ -153,7 +152,7 @@ static struct sys_timer shark_timer = {
 
 static void shark_init_early(void)
 {
-	cpu_idle_poll_ctrl(true);
+	disable_hlt();
 }
 
 MACHINE_START(SHARK, "Shark")

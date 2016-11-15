@@ -13,9 +13,5 @@ void snd_usb_mixer_fu_apply_quirk(struct usb_mixer_interface *mixer,
 				  struct usb_mixer_elem_info *cval, int unitid,
 				  struct snd_kcontrol *kctl);
 
-void snd_usb_mixer_fu_apply_quirk(struct usb_mixer_interface *mixer,
-				  struct usb_mixer_elem_info *cval, int unitid,
-				  struct snd_kcontrol *kctl);
-
 #endif /* SND_USB_MIXER_QUIRKS_H */
 

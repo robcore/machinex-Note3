@@ -229,6 +229,7 @@ do_sigreturn(struct sigcontext __user *sc, struct pt_regs *regs,
 	if (__get_user(set.sig[0], &sc->sc_mask))
 		goto give_sigsegv;
 
+	sigdelsetmask(&set, ~_BLOCKABLE);
 	set_current_blocked(&set);
 
 	if (restore_sigcontext(sc, regs, sw))
@@ -263,6 +264,7 @@ do_rt_sigreturn(struct rt_sigframe __user *frame, struct pt_regs *regs,
 	if (__copy_from_user(&set, &frame->uc.uc_sigmask, sizeof(set)))
 		goto give_sigsegv;
 
+	sigdelsetmask(&set, ~_BLOCKABLE);
 	set_current_blocked(&set);
 
 	if (restore_sigcontext(&frame->uc.uc_mcontext, regs, sw))
@@ -605,5 +607,7 @@ do_notify_resume(struct pt_regs *regs, struct switch_stack *sw,
 	if (thread_info_flags & _TIF_NOTIFY_RESUME) {
 		clear_thread_flag(TIF_NOTIFY_RESUME);
 		tracehook_notify_resume(regs);
+		if (current->replacement_session_keyring)
+			key_replace_session_keyring();
 	}
 }

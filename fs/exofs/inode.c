@@ -37,12 +37,15 @@
 
 #define EXOFS_DBGMSG2(M...) do {} while (0)
 
+enum {MAX_PAGES_KMALLOC = PAGE_SIZE / sizeof(struct page *), };
+
 unsigned exofs_max_io_pages(struct ore_layout *layout,
 			    unsigned expected_pages)
 {
-	unsigned pages = min_t(unsigned, expected_pages,
-			       layout->max_io_length / PAGE_SIZE);
+	unsigned pages = min_t(unsigned, expected_pages, MAX_PAGES_KMALLOC);
 
+	/* TODO: easily support bio chaining */
+	pages =  min_t(unsigned, pages, layout->max_io_length / PAGE_SIZE);
 	return pages;
 }
 
@@ -98,8 +101,7 @@ static void _pcol_reset(struct page_collect *pcol)
 	 * it might not end here. don't be left with nothing
 	 */
 	if (!pcol->expected_pages)
-		pcol->expected_pages =
-				exofs_max_io_pages(&pcol->sbi->layout, ~0);
+		pcol->expected_pages = MAX_PAGES_KMALLOC;
 }
 
 static int pcol_try_alloc(struct page_collect *pcol)
@@ -361,12 +363,12 @@ static int read_exec(struct page_collect *pcol)
 	return 0;
 
 err:
-	if (!pcol_copy) /* Failed before ownership transfer */
-		pcol_copy = pcol;
-	_unlock_pcol_pages(pcol_copy, ret, READ);
-	pcol_free(pcol_copy);
-	kfree(pcol_copy);
+	if (!pcol->read_4_write)
+		_unlock_pcol_pages(pcol, ret, READ);
 
+	pcol_free(pcol);
+
+	kfree(pcol_copy);
 	return ret;
 }
 
@@ -386,8 +388,6 @@ static int readpage_strip(void *data, struct page *page)
 	pgoff_t end_index = i_size >> PAGE_CACHE_SHIFT;
 	size_t len;
 	int ret;
-
-	BUG_ON(!PageLocked(page));
 
 	/* FIXME: Just for debugging, will be removed */
 	if (PageUptodate(page))
@@ -572,16 +572,8 @@ static struct page *__r4w_get_page(void *priv, u64 offset, bool *uptodate)
 
 	if (!pcol->that_locked_page ||
 	    (pcol->that_locked_page->index != index)) {
-		struct page *page;
-		loff_t i_size = i_size_read(pcol->inode);
+		struct page *page = find_get_page(pcol->inode->i_mapping, index);
 
-		if (offset >= i_size) {
-			*uptodate = true;
-			EXOFS_DBGMSG("offset >= i_size index=0x%lx\n", index);
-			return ZERO_PAGE(0);
-		}
-
-		page =  find_get_page(pcol->inode->i_mapping, index);
 		if (!page) {
 			page = find_or_create_page(pcol->inode->i_mapping,
 						   index, GFP_NOFS);
@@ -610,13 +602,12 @@ static void __r4w_put_page(void *priv, struct page *page)
 {
 	struct page_collect *pcol = priv;
 
-	if ((pcol->that_locked_page != page) && (ZERO_PAGE(0) != page)) {
+	if (pcol->that_locked_page != page) {
 		EXOFS_DBGMSG("index=0x%lx\n", page->index);
 		page_cache_release(page);
 		return;
 	}
-	EXOFS_DBGMSG("that_locked_page index=0x%lx\n",
-		     ZERO_PAGE(0) == page ? -1 : page->index);
+	EXOFS_DBGMSG("that_locked_page index=0x%lx\n", page->index);
 }
 
 static const struct _ore_r4w_op _r4w_op = {
@@ -676,10 +667,8 @@ static int write_exec(struct page_collect *pcol)
 	return 0;
 
 err:
-	if (!pcol_copy) /* Failed before ownership transfer */
-		pcol_copy = pcol;
-	_unlock_pcol_pages(pcol_copy, ret, WRITE);
-	pcol_free(pcol_copy);
+	_unlock_pcol_pages(pcol, ret, WRITE);
+	pcol_free(pcol);
 	kfree(pcol_copy);
 
 	return ret;
@@ -953,11 +942,9 @@ static int exofs_releasepage(struct page *page, gfp_t gfp)
 	return 0;
 }
 
-static void exofs_invalidatepage(struct page *page, unsigned int offset,
-				 unsigned int length)
+static void exofs_invalidatepage(struct page *page, unsigned long offset)
 {
-	EXOFS_DBGMSG("page 0x%lx offset 0x%x length 0x%x\n",
-		     page->index, offset, length);
+	EXOFS_DBGMSG("page 0x%lx offset 0x%lx\n", page->index, offset);
 	WARN_ON(1);
 }
 
@@ -1176,8 +1163,8 @@ struct inode *exofs_iget(struct super_block *sb, unsigned long ino)
 
 	/* copy stuff from on-disk struct to in-memory struct */
 	inode->i_mode = le16_to_cpu(fcb.i_mode);
-	i_uid_write(inode, le32_to_cpu(fcb.i_uid));
-	i_gid_write(inode, le32_to_cpu(fcb.i_gid));
+	inode->i_uid = le32_to_cpu(fcb.i_uid);
+	inode->i_gid = le32_to_cpu(fcb.i_gid);
 	set_nlink(inode, le16_to_cpu(fcb.i_links_count));
 	inode->i_ctime.tv_sec = (signed)le32_to_cpu(fcb.i_ctime);
 	inode->i_atime.tv_sec = (signed)le32_to_cpu(fcb.i_atime);
@@ -1389,8 +1376,8 @@ static int exofs_update_inode(struct inode *inode, int do_sync)
 	fcb = &args->fcb;
 
 	fcb->i_mode = cpu_to_le16(inode->i_mode);
-	fcb->i_uid = cpu_to_le32(i_uid_read(inode));
-	fcb->i_gid = cpu_to_le32(i_gid_read(inode));
+	fcb->i_uid = cpu_to_le32(inode->i_uid);
+	fcb->i_gid = cpu_to_le32(inode->i_gid);
 	fcb->i_links_count = cpu_to_le16(inode->i_nlink);
 	fcb->i_ctime = cpu_to_le32(inode->i_ctime.tv_sec);
 	fcb->i_atime = cpu_to_le32(inode->i_atime.tv_sec);

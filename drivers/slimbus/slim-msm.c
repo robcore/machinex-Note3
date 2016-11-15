@@ -94,16 +94,15 @@ irqreturn_t msm_slim_port_irq_handler(struct msm_slim_ctrl *dev, u32 pstat)
 	 */
 	if ((pstat & int_en) == 0)
 		return IRQ_HANDLED;
-	for (i = 0; i < dev->port_nums; i++) {
-		struct msm_slim_endp *endpoint = &dev->pipes[i];
-		if (pstat & (1 << endpoint->port_b)) {
+	for (i = dev->port_b; i < MSM_SLIM_NPORTS; i++) {
+		if (pstat & (1 << i)) {
 			u32 val = readl_relaxed(PGD_PORT(PGD_PORT_STATn,
-					endpoint->port_b, dev->ver));
+						i, dev->ver));
 			if (val & MSM_PORT_OVERFLOW) {
-				dev->ctrl.ports[i].err =
+				dev->ctrl.ports[i-dev->port_b].err =
 						SLIM_P_OVERFLOW;
 			} else if (val & MSM_PORT_UNDERFLOW) {
-				dev->ctrl.ports[i].err =
+				dev->ctrl.ports[i-dev->port_b].err =
 					SLIM_P_UNDERFLOW;
 			}
 		}
@@ -204,7 +203,7 @@ static void msm_slim_disconn_pipe_port(struct msm_slim_ctrl *dev, u8 pn)
 {
 	struct msm_slim_endp *endpoint = &dev->pipes[pn];
 	struct sps_register_event sps_event;
-	writel_relaxed(0, PGD_PORT(PGD_PORT_CFGn, (endpoint->port_b),
+	writel_relaxed(0, PGD_PORT(PGD_PORT_CFGn, (pn + dev->port_b),
 					dev->ver));
 	/* Make sure port register is updated */
 	mb();
@@ -219,13 +218,7 @@ int msm_slim_connect_pipe_port(struct msm_slim_ctrl *dev, u8 pn)
 	struct msm_slim_endp *endpoint = &dev->pipes[pn];
 	struct sps_connect *cfg = &endpoint->config;
 	u32 stat;
-	int ret;
-
-	if (pn >= dev->port_nums)
-		return -ENODEV;
-
-	endpoint = &dev->pipes[pn];
-	ret = sps_get_config(dev->pipes[pn].sps, cfg);
+	int ret = sps_get_config(dev->pipes[pn].sps, cfg);
 	if (ret) {
 		dev_err(dev->dev, "sps pipe-port get config error%x\n", ret);
 		return ret;
@@ -237,8 +230,8 @@ int msm_slim_connect_pipe_port(struct msm_slim_ctrl *dev, u8 pn)
 			dev->ctrl.ports[pn].state == SLIM_P_CFG) {
 		return -EISCONN;
 	} else if (dev->pipes[pn].connected) {
-		writel_relaxed(0, PGD_PORT(PGD_PORT_CFGn,
-			(endpoint->port_b), dev->ver));
+		writel_relaxed(0, PGD_PORT(PGD_PORT_CFGn, (pn + dev->port_b),
+						dev->ver));
 		/* Make sure port disabling goes through */
 		mb();
 		/* Is pipe already connected in desired direction */
@@ -246,13 +239,13 @@ int msm_slim_connect_pipe_port(struct msm_slim_ctrl *dev, u8 pn)
 			cfg->mode == SPS_MODE_DEST) ||
 			(dev->ctrl.ports[pn].flow == SLIM_SINK &&
 			 cfg->mode == SPS_MODE_SRC)) {
-			msm_hw_set_port(dev, endpoint->port_b);
+			msm_hw_set_port(dev, pn + dev->port_b);
 			return 0;
 		}
 		msm_slim_disconn_pipe_port(dev, pn);
 	}
 
-	stat = readl_relaxed(PGD_PORT(PGD_PORT_STATn, endpoint->port_b,
+	stat = readl_relaxed(PGD_PORT(PGD_PORT_STATn, (pn + dev->port_b),
 					dev->ver));
 	if (dev->ctrl.ports[pn].flow == SLIM_SRC) {
 		cfg->destination = dev->bam.hdl;
@@ -281,7 +274,7 @@ int msm_slim_connect_pipe_port(struct msm_slim_ctrl *dev, u8 pn)
 
 	if (!ret) {
 		dev->pipes[pn].connected = true;
-		msm_hw_set_port(dev, endpoint->port_b);
+		msm_hw_set_port(dev, pn + dev->port_b);
 	}
 	return ret;
 }
@@ -294,7 +287,7 @@ int msm_alloc_port(struct slim_controller *ctrl, u8 pn)
 	if (ctrl->ports[pn].req == SLIM_REQ_HALF_DUP ||
 		ctrl->ports[pn].req == SLIM_REQ_MULTI_CH)
 		return -EPROTONOSUPPORT;
-	if (pn >= dev->port_nums)
+	if (pn >= (MSM_SLIM_NPORTS - dev->port_b))
 		return -ENODEV;
 
 	endpoint = &dev->pipes[pn];
@@ -307,7 +300,7 @@ void msm_dealloc_port(struct slim_controller *ctrl, u8 pn)
 {
 	struct msm_slim_ctrl *dev = slim_get_ctrldata(ctrl);
 	struct msm_slim_endp *endpoint;
-	if (pn >= dev->port_nums)
+	if (pn >= (MSM_SLIM_NPORTS - dev->port_b))
 		return;
 	endpoint = &dev->pipes[pn];
 	if (dev->pipes[pn].connected)
@@ -367,11 +360,9 @@ int msm_slim_port_xfer(struct slim_controller *ctrl, u8 pn, phys_addr_t iobuf,
 	struct sps_register_event sreg;
 	int ret;
 	struct msm_slim_ctrl *dev = slim_get_ctrldata(ctrl);
-	if (pn >= dev->port_nums)
+	if (pn >= 7)
 		return -ENODEV;
 
-	if (!dev->pipes[pn].connected)
-		return -ENOTCONN;
 
 	sreg.options = (SPS_EVENT_DESC_DONE|SPS_EVENT_ERROR);
 	sreg.mode = SPS_TRIGGER_WAIT;
@@ -390,9 +381,8 @@ int msm_slim_port_xfer(struct slim_controller *ctrl, u8 pn, phys_addr_t iobuf,
 		/* Enable port interrupts */
 		u32 int_port = readl_relaxed(PGD_THIS_EE(PGD_PORT_INT_EN_EEn,
 						dev->ver));
-		if (!(int_port & (1 << (dev->pipes[pn].port_b))))
-			writel_relaxed((int_port |
-				(1 << dev->pipes[pn].port_b)),
+		if (!(int_port & (1 << (dev->port_b + pn))))
+			writel_relaxed((int_port | (1 << (dev->port_b + pn))),
 				PGD_THIS_EE(PGD_PORT_INT_EN_EEn, dev->ver));
 		/* Make sure that port registers are updated before returning */
 		mb();
@@ -758,25 +748,11 @@ sps_init_endpoint_failed:
 	return ret;
 }
 
-static int msm_slim_data_port_assign(struct msm_slim_ctrl *dev)
-{
-	int i, data_ports = 0;
-	/* First 7 bits are for message Qs */
-	for (i = 7; i < 32; i++) {
-		/* Check what pipes are owned by Apps. */
-		if ((dev->pdata.apps_pipes >> i) & 0x1) {
-			if (dev->pipes)
-				dev->pipes[data_ports].port_b = i - 7;
-			data_ports++;
-		}
-	}
-	return data_ports;
-}
 /* Registers BAM h/w resource with SPS driver and initializes msgq endpoints */
 int msm_slim_sps_init(struct msm_slim_ctrl *dev, struct resource *bam_mem,
 			u32 pipe_reg, bool remote)
 {
-	int ret;
+	int i, ret;
 	u32 bam_handle;
 	struct sps_bam_props bam_props = {0};
 
@@ -799,7 +775,7 @@ int msm_slim_sps_init(struct msm_slim_ctrl *dev, struct resource *bam_mem,
 
 	if (dev->bam.hdl) {
 		bam_handle = dev->bam.hdl;
-		goto init_pipes;
+		goto init_msgq;
 	}
 	bam_props.ee = dev->ee;
 	bam_props.virt_addr = dev->bam.base;
@@ -824,6 +800,14 @@ int msm_slim_sps_init(struct msm_slim_ctrl *dev, struct resource *bam_mem,
 	if (dev->pdata.apps_pipes)
 		sec_props.ees[dev->ee].pipe_mask = dev->pdata.apps_pipes;
 
+	/* First 7 bits are for message Qs */
+	for (i = 7; i < 32; i++) {
+		/* Check what pipes are owned by Apps. */
+		if ((sec_props.ees[dev->ee].pipe_mask >> i) & 0x1)
+			break;
+	}
+	dev->port_b = i - 7;
+
 	/* Register the BAM device with the SPS driver */
 	ret = sps_register_bam_device(&bam_props, &bam_handle);
 	if (ret) {
@@ -834,25 +818,6 @@ int msm_slim_sps_init(struct msm_slim_ctrl *dev, struct resource *bam_mem,
 	}
 	dev->bam.hdl = bam_handle;
 	dev_dbg(dev->dev, "SLIM BAM registered, handle = 0x%x\n", bam_handle);
-
-init_pipes:
-	if (dev->port_nums)
-		goto init_msgq;
-
-	/* get the # of ports first */
-	dev->port_nums = msm_slim_data_port_assign(dev);
-	if (dev->port_nums && !dev->pipes) {
-		dev->pipes = kzalloc(sizeof(struct msm_slim_endp) *
-					dev->port_nums,
-					GFP_KERNEL);
-		if (IS_ERR_OR_NULL(dev->pipes)) {
-			dev_err(dev->dev, "no memory for data ports");
-			sps_deregister_bam_device(bam_handle);
-			return PTR_ERR(dev->pipes);
-		}
-		/* assign the ports now */
-		msm_slim_data_port_assign(dev);
-	}
 
 init_msgq:
 	ret = msm_slim_init_rx_msgq(dev, pipe_reg);
@@ -911,6 +876,7 @@ void msm_slim_sps_exit(struct msm_slim_ctrl *dev, bool dereg)
 	if (dev->use_tx_msgqs >= MSM_MSGQ_ENABLED)
 		msm_slim_remove_ep(dev, &dev->tx_msgq, &dev->use_tx_msgqs);
 	if (dereg) {
+		int i;
 		for (i = dev->port_b; i < MSM_SLIM_NPORTS; i++) {
 			if (dev->pipes[i - dev->port_b].connected)
 				msm_dealloc_port(&dev->ctrl,
@@ -919,7 +885,6 @@ void msm_slim_sps_exit(struct msm_slim_ctrl *dev, bool dereg)
 		sps_deregister_bam_device(dev->bam.hdl);
 		dev->bam.hdl = 0L;
 	}
-	dev->port_b = MSM_SLIM_NPORTS;
 }
 
 /* Slimbus QMI Messaging */

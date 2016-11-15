@@ -429,15 +429,13 @@ int btrfs_save_ino_cache(struct btrfs_root *root,
 	num_bytes = trans->bytes_reserved;
 	/*
 	 * 1 item for inode item insertion if need
-	 * 4 items for inode item update (in the worst case)
-	 * 1 items for slack space if we need do truncation
+	 * 3 items for inode item update (in the worst case)
 	 * 1 item for free space object
 	 * 3 items for pre-allocation
 	 */
-	trans->bytes_reserved = btrfs_calc_trans_metadata_size(root, 10);
-	ret = btrfs_block_rsv_add(root, trans->block_rsv,
-				  trans->bytes_reserved,
-				  BTRFS_RESERVE_NO_FLUSH);
+	trans->bytes_reserved = btrfs_calc_trans_metadata_size(root, 8);
+	ret = btrfs_block_rsv_add_noflush(root, trans->block_rsv,
+					  trans->bytes_reserved);
 	if (ret)
 		goto out;
 	trace_btrfs_space_reservation(root->fs_info, "ino_cache",
@@ -469,8 +467,7 @@ again:
 	if (i_size_read(inode) > 0) {
 		ret = btrfs_truncate_free_space_cache(root, trans, path, inode);
 		if (ret) {
-			if (ret != -ENOSPC)
-				btrfs_abort_transaction(trans, root, ret);
+			btrfs_abort_transaction(trans, root, ret);
 			goto out_put;
 		}
 	}

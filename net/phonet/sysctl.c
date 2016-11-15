@@ -46,8 +46,7 @@ static void set_local_port_range(int range[2])
 
 void phonet_get_local_port_range(int *min, int *max)
 {
-	unsigned int seq;
-
+	unsigned seq;
 	do {
 		seq = read_seqbegin(&local_port_range_lock);
 		if (min)

@@ -6,6 +6,8 @@
  *	Distribute under GPLv2.
  *
  *	Rewritten. Old one was good in 2.2, but in 2.3 it was immoral. --ANK (990903)
+ *
+ *	Remote softirq infrastructure is by Jens Axboe.
  */
 
 #include <linux/export.h>
@@ -129,17 +131,19 @@ static inline void __local_bh_disable(unsigned long ip, unsigned int cnt)
 
 void local_bh_disable(void)
 {
-	__local_bh_disable(_RET_IP_, SOFTIRQ_DISABLE_OFFSET);
+	__local_bh_disable((unsigned long)__builtin_return_address(0),
+				SOFTIRQ_DISABLE_OFFSET);
 }
 
 EXPORT_SYMBOL(local_bh_disable);
 
 static void __local_bh_enable(unsigned int cnt)
 {
+	WARN_ON_ONCE(in_irq());
 	WARN_ON_ONCE(!irqs_disabled());
 
 	if (softirq_count() == cnt)
-		trace_softirqs_on(_RET_IP_);
+		trace_softirqs_on((unsigned long)__builtin_return_address(0));
 	sub_preempt_count(cnt);
 }
 
@@ -150,7 +154,6 @@ static void __local_bh_enable(unsigned int cnt)
  */
 void _local_bh_enable(void)
 {
-	WARN_ON_ONCE(in_irq());
 	__local_bh_enable(SOFTIRQ_DISABLE_OFFSET);
 }
 
@@ -185,7 +188,7 @@ static inline void _local_bh_enable_ip(unsigned long ip)
 
 void local_bh_enable(void)
 {
-	_local_bh_enable_ip(_RET_IP_);
+	_local_bh_enable_ip((unsigned long)__builtin_return_address(0));
 }
 EXPORT_SYMBOL(local_bh_enable);
 
@@ -220,9 +223,10 @@ asmlinkage void __do_softirq(void)
 	int max_restart = MAX_SOFTIRQ_RESTART;
 
 	pending = local_softirq_pending();
-	account_irq_enter_time(current);
+	account_system_vtime(current);
 
-	__local_bh_disable(_RET_IP_, SOFTIRQ_OFFSET);
+	__local_bh_disable((unsigned long)__builtin_return_address(0),
+				SOFTIRQ_OFFSET);
 	lockdep_softirq_enter();
 
 	cpu = smp_processor_id();
@@ -278,7 +282,7 @@ restart:
 
 	lockdep_softirq_exit();
 
-	account_irq_exit_time(current);
+	account_system_vtime(current);
 	__local_bh_enable(SOFTIRQ_OFFSET);
 }
 
@@ -309,6 +313,8 @@ asmlinkage void do_softirq(void)
  */
 void irq_enter(void)
 {
+	int cpu = smp_processor_id();
+
 	rcu_irq_enter();
 	if (is_idle_task(current) && !in_interrupt()) {
 		/*
@@ -316,7 +322,7 @@ void irq_enter(void)
 		 * here, as softirq will be serviced on return from interrupt.
 		 */
 		local_bh_disable();
-		tick_check_idle();
+		tick_check_idle(cpu);
 		_local_bh_enable();
 	}
 
@@ -326,31 +332,17 @@ void irq_enter(void)
 static inline void invoke_softirq(void)
 {
 	if (!force_irqthreads) {
-		/*
-		 * We can safely execute softirq on the current stack if
-		 * it is the irq stack, because it should be near empty
-		 * at this stage. But we have no way to know if the arch
-		 * calls irq_exit() on the irq stack. So call softirq
-		 * in its own stack to prevent from any overrun on top
-		 * of a potentially deep task stack.
-		 */
+#ifdef __ARCH_IRQ_EXIT_IRQS_DISABLED
+		__do_softirq();
+#else
 		do_softirq();
-	} else {
-		wakeup_softirqd();
-	}
-}
-
-static inline void tick_irq_exit(void)
-{
-#ifdef CONFIG_NO_HZ_COMMON
-	int cpu = smp_processor_id();
-
-	/* Make sure that timer wheel updates are propagated */
-	if ((idle_cpu(cpu) && !need_resched()) || tick_nohz_full_cpu(cpu)) {
-		if (!in_interrupt())
-			tick_nohz_irq_exit();
-	}
 #endif
+	} else {
+		__local_bh_disable((unsigned long)__builtin_return_address(0),
+				SOFTIRQ_OFFSET);
+		wakeup_softirqd();
+		__local_bh_enable(SOFTIRQ_OFFSET);
+	}
 }
 
 /*
@@ -358,13 +350,7 @@ static inline void tick_irq_exit(void)
  */
 void irq_exit(void)
 {
-#ifndef __ARCH_IRQ_EXIT_IRQS_DISABLED
-	local_irq_disable();
-#else
-	WARN_ON_ONCE(!irqs_disabled());
-#endif
-
-	account_irq_exit_time(current);
+	account_system_vtime(current);
 	trace_hardirq_exit();
 #ifdef CONFIG_SEC_DEBUG
 	secdbg_msg("hardirq exit");
@@ -374,12 +360,13 @@ void irq_exit(void)
 	if (!in_interrupt() && local_softirq_pending())
 		invoke_softirq();
 
-	tick_irq_exit();
+#ifdef CONFIG_NO_HZ_COMMON
+	/* Make sure that timer wheel updates are propagated */
+	if (idle_cpu(smp_processor_id()) && !in_interrupt() && !need_resched())
+		tick_nohz_irq_exit();
+#endif
 	rcu_irq_exit();
 	sched_preempt_enable_no_resched();
-#ifndef __ARCH_IRQ_EXIT_IRQS_DISABLED
-	local_irq_restore(flags);
-#endif
 }
 
 /*
@@ -654,7 +641,8 @@ static void remote_softirq_receive(void *data)
 	unsigned long flags;
 	int softirq;
 
-	softirq = *(int *)cp->info;
+	softirq = cp->priv;
+
 	local_irq_save(flags);
 	__local_trigger(cp, softirq);
 	local_irq_restore(flags);
@@ -664,8 +652,9 @@ static int __try_remote_softirq(struct call_single_data *cp, int cpu, int softir
 {
 	if (cpu_online(cpu)) {
 		cp->func = remote_softirq_receive;
-		cp->info = &softirq;
+		cp->info = cp;
 		cp->flags = 0;
+		cp->priv = softirq;
 
 		__smp_call_function_single(cpu, cp, 0);
 		return 0;
@@ -755,15 +744,6 @@ static struct notifier_block __cpuinitdata remote_softirq_cpu_notifier = {
 void __init softirq_init(void)
 {
 	int cpu;
-	unsigned long old_flags = current->flags;
-	int max_restart = MAX_SOFTIRQ_RESTART;
-
-	/*
-	 * Mask out PF_MEMALLOC s current task context is borrowed for the
-	 * softirq. A softirq handled such as network RX might set PF_MEMALLOC
-	 * again if the socket is related to swap
-	 */
-	current->flags &= ~PF_MEMALLOC;
 
 	for_each_possible_cpu(cpu) {
 		int i;
@@ -792,13 +772,9 @@ static void run_ksoftirqd(unsigned int cpu)
 	local_irq_disable();
 	if (local_softirq_pending()) {
 		__do_softirq();
+		rcu_note_context_switch(cpu);
 		local_irq_enable();
 		cond_resched();
-
-		preempt_disable();
-		rcu_note_context_switch(cpu);
-		preempt_enable();
-
 		return;
 	}
 	local_irq_enable();
@@ -909,6 +885,7 @@ int __init __weak early_irq_init(void)
 	return 0;
 }
 
+#ifdef CONFIG_GENERIC_HARDIRQS
 int __init __weak arch_probe_nr_irqs(void)
 {
 	return NR_IRQS_LEGACY;
@@ -918,3 +895,4 @@ int __init __weak arch_early_irq_init(void)
 {
 	return 0;
 }
+#endif

@@ -46,17 +46,20 @@ extern int ___ratelimit(struct ratelimit_state *rs, const char *func);
 #define WARN_ON_RATELIMIT(condition, state)			\
 		WARN_ON((condition) && __ratelimit(state))
 
-#define WARN_RATELIMIT(condition, format, ...)			\
+#define __WARN_RATELIMIT(condition, state, format...)		\
+({								\
+	int rtn = 0;						\
+	if (unlikely(__ratelimit(state)))			\
+		rtn = WARN(condition, format);			\
+	rtn;							\
+})
+
+#define WARN_RATELIMIT(condition, format...)			\
 ({								\
 	static DEFINE_RATELIMIT_STATE(_rs,			\
 				      DEFAULT_RATELIMIT_INTERVAL,	\
 				      DEFAULT_RATELIMIT_BURST);	\
-	int rtn = !!(condition);				\
-								\
-	if (unlikely(rtn && __ratelimit(&_rs)))			\
-		WARN(rtn, format, ##__VA_ARGS__);		\
-								\
-	rtn;							\
+	__WARN_RATELIMIT(condition, &_rs, format);		\
 })
 
 #else
@@ -64,9 +67,15 @@ extern int ___ratelimit(struct ratelimit_state *rs, const char *func);
 #define WARN_ON_RATELIMIT(condition, state)			\
 	WARN_ON(condition)
 
-#define WARN_RATELIMIT(condition, format, ...)			\
+#define __WARN_RATELIMIT(condition, state, format...)		\
 ({								\
-	int rtn = WARN(condition, format, ##__VA_ARGS__);	\
+	int rtn = WARN(condition, format);			\
+	rtn;							\
+})
+
+#define WARN_RATELIMIT(condition, format...)			\
+({								\
+	int rtn = WARN(condition, format);			\
 	rtn;							\
 })
 

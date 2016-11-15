@@ -2325,17 +2325,6 @@ static int domain_add_dev_info(struct dmar_domain *domain,
 		return ret;
 	}
 
-	ret = domain_context_mapping(domain, pdev, translation);
-	if (ret) {
-		spin_lock_irqsave(&device_domain_lock, flags);
-		list_del(&info->link);
-		list_del(&info->global);
-		pdev->dev.archdata.iommu = NULL;
-		spin_unlock_irqrestore(&device_domain_lock, flags);
-		free_devinfo_mem(info);
-		return ret;
-	}
-
 	return 0;
 }
 

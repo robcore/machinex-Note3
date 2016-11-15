@@ -152,11 +152,13 @@ static void set_timeout(unsigned long time)
 {
 	unsigned long delay;
 
+	cancel_delayed_work(&work);
+
 	delay = time - jiffies;
 	if ((long)delay <= 0)
 		delay = 1;
 
-	mod_delayed_work(addr_wq, &work, delay);
+	queue_delayed_work(addr_wq, &work, delay);
 }
 
 static void queue_req(struct addr_req *req)

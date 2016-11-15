@@ -137,10 +137,4 @@ extern struct dm_block_validator btree_node_validator;
 extern void init_le64_type(struct dm_transaction_manager *tm,
 			   struct dm_btree_value_type *vt);
 
-/*
- * Value type for upper levels of multi-level btrees.
- */
-extern void init_le64_type(struct dm_transaction_manager *tm,
-			   struct dm_btree_value_type *vt);
-
 #endif	/* DM_BTREE_INTERNAL_H */

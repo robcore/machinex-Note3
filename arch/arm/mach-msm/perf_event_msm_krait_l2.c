@@ -443,11 +443,6 @@ static int msm_l2_test_set_ev_constraint(struct perf_event *event)
 		goto out;
 	}
 
-	if (shift_idx >= PMU_CODES_SIZE) {
-		err =  -EINVAL;
-		goto out;
-	}
-
 	bitmap_t = 1 << shift_idx;
 
 	if (!(l2_pmu_constraints.pmu_bitmap & bitmap_t)) {
@@ -472,7 +467,6 @@ static int msm_l2_test_set_ev_constraint(struct perf_event *event)
 			if (!(event->cpu < 0)) {
 				event->state = PERF_EVENT_STATE_OFF;
 				event->attr.constraint_duplicate = 1;
-				err = -EPERM;
 			}
 	}
 out:
@@ -502,10 +496,6 @@ static int msm_l2_clear_ev_constraint(struct perf_event *event)
 		goto out;
 	}
 
-	if (shift_idx >= PMU_CODES_SIZE) {
-		err = -EINVAL;
-		goto out;
-	}
 	bitmap_t = 1 << shift_idx;
 
 	/* Clear constraint bit. */

@@ -79,7 +79,6 @@
 #include <linux/device.h>
 #include <linux/slab.h>
 #include <linux/pstore.h>
-#include <linux/magic.h>
 
 #include <asm/uaccess.h>
 

@@ -106,6 +106,8 @@ static inline struct thread_info *current_thread_info(void)
 /* thread information allocation */
 #endif /* __ASSEMBLY__ */
 
+#define PREEMPT_ACTIVE		0x10000000
+
 /*
  * thread information flags
  * - these are process state flags that various assembly files may
@@ -164,23 +166,7 @@ static inline void set_restore_sigmask(void)
 {
 	struct thread_info *ti = current_thread_info();
 	ti->status |= TS_RESTORE_SIGMASK;
-	WARN_ON(!test_bit(TIF_SIGPENDING, (unsigned long *)&ti->flags));
-}
-static inline void clear_restore_sigmask(void)
-{
-	current_thread_info()->status &= ~TS_RESTORE_SIGMASK;
-}
-static inline bool test_restore_sigmask(void)
-{
-	return current_thread_info()->status & TS_RESTORE_SIGMASK;
-}
-static inline bool test_and_clear_restore_sigmask(void)
-{
-	struct thread_info *ti = current_thread_info();
-	if (!(ti->status & TS_RESTORE_SIGMASK))
-		return false;
-	ti->status &= ~TS_RESTORE_SIGMASK;
-	return true;
+	set_bit(TIF_SIGPENDING, (unsigned long *)&ti->flags);
 }
 #endif
 

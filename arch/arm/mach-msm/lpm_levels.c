@@ -25,7 +25,6 @@
 #include <linux/tick.h>
 #include <linux/suspend.h>
 #include <linux/pm_qos.h>
-#include <linux/quickwakeup.h>
 #include <linux/of_platform.h>
 #include <linux/of_gpio.h>
 #include <mach/mpm.h>
@@ -294,8 +293,7 @@ static int lpm_system_mode_select(
 	int i;
 	uint32_t best_level_pwr = ~0U;
 	uint32_t pwr;
-	uint32_t latency_us = pm_qos_request_for_cpu(PM_QOS_CPU_DMA_LATENCY,
-							smp_processor_id());
+	uint32_t latency_us = pm_qos_request(PM_QOS_CPU_DMA_LATENCY);
 
 	if (!system_state->system_level)
 		return -EINVAL;
@@ -356,7 +354,8 @@ static void lpm_system_prepare(struct lpm_system_state *system_state,
 {
 	struct lpm_system_level *lvl;
 	struct clock_event_device *bc = tick_get_broadcast_device()->evtdev;
-	uint64_t us = (~0ULL);
+	uint32_t sclk;
+	int64_t us = (~0ULL);
 	int dbg_mask;
 	int ret;
 	const struct cpumask *nextcpu;
@@ -400,7 +399,8 @@ static void lpm_system_prepare(struct lpm_system_state *system_state,
 			us = USEC_PER_SEC * suspend_wake_time;
 
 		do_div(us, USEC_PER_SEC/SCLK_HZ);
-		msm_mpm_enter_sleep(us, from_idle, nextcpu);
+		sclk = (uint32_t)us;
+		msm_mpm_enter_sleep(sclk, from_idle, nextcpu);
 	}
 	system_state->last_entered_cluster_index = index;
 	spin_unlock(&system_state->sync_lock);
@@ -489,21 +489,6 @@ void lpm_suspend_wake_time(uint64_t wakeup_time)
 }
 EXPORT_SYMBOL(lpm_suspend_wake_time);
 
-void lpm_suspend_wake_time(uint64_t wakeup_time)
-{
-	if (wakeup_time <= 0) {
-		suspend_wake_time = msm_pm_sleep_time_override;
-		return;
-	}
-
-	if (msm_pm_sleep_time_override &&
-		(msm_pm_sleep_time_override < wakeup_time))
-		suspend_wake_time = msm_pm_sleep_time_override;
-	else
-		suspend_wake_time = wakeup_time;
-}
-EXPORT_SYMBOL(lpm_suspend_wake_time);
-
 static int lpm_cpu_callback(struct notifier_block *cpu_nb,
 	unsigned long action, void *hcpu)
 {
@@ -544,8 +529,7 @@ static noinline int lpm_cpu_power_select(struct cpuidle_device *dev, int *index)
 {
 	int best_level = -1;
 	uint32_t best_level_pwr = ~0U;
-	uint32_t latency_us = pm_qos_request_for_cpu(PM_QOS_CPU_DMA_LATENCY,
-							dev->cpu);
+	uint32_t latency_us = pm_qos_request(PM_QOS_CPU_DMA_LATENCY);
 	uint32_t sleep_us =
 		(uint32_t)(ktime_to_us(tick_nohz_get_sleep_length()));
 	uint32_t modified_time_us = 0;
@@ -556,7 +540,8 @@ static noinline int lpm_cpu_power_select(struct cpuidle_device *dev, int *index)
 	if (!sys_state.cpu_level)
 		return -EINVAL;
 
-	next_event_us = (uint32_t)(ktime_to_us(get_next_event_time(dev->cpu)));
+	if (!dev->cpu)
+		next_event_us = (uint32_t)(ktime_to_us(get_next_event_time()));
 
 	for (i = 0; i < sys_state.num_cpu_levels; i++) {
 		struct lpm_cpu_level *level = &sys_state.cpu_level[i];
@@ -608,7 +593,7 @@ static noinline int lpm_cpu_power_select(struct cpuidle_device *dev, int *index)
 		if (best_level_pwr >= power) {
 			best_level = i;
 			best_level_pwr = power;
-			if (next_event_us && next_event_us < sleep_us &&
+			if (next_event_us < sleep_us &&
 				(mode != MSM_PM_SLEEP_MODE_WAIT_FOR_INTERRUPT))
 				modified_time_us = next_event_us
 							- pwr->latency_us;
@@ -617,7 +602,7 @@ static noinline int lpm_cpu_power_select(struct cpuidle_device *dev, int *index)
 		}
 	}
 
-	if (modified_time_us)
+	if (modified_time_us && !dev->cpu)
 		msm_pm_set_timer(modified_time_us);
 
 	return best_level;
@@ -774,6 +759,8 @@ static void lpm_enter_low_power(struct lpm_system_state *system_state,
 	int idx;
 	struct lpm_cpu_level *cpu_level = &system_state->cpu_level[cpu_index];
 
+	cpu_level = &system_state->cpu_level[cpu_index];
+
 	lpm_cpu_prepare(system_state, cpu_index, from_idle);
 
 	idx = lpm_system_select(system_state, cpu_index, from_idle);
@@ -892,7 +879,6 @@ static const struct platform_suspend_ops lpm_suspend_ops = {
 	.valid = suspend_valid_only_mem,
 	.prepare_late = lpm_suspend_prepare,
 	.wake = lpm_suspend_wake,
-	.suspend_again = quickwakeup_suspend_again,
 };
 
 static void setup_broadcast_timer(void *arg)

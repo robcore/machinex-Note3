@@ -514,10 +514,6 @@ static int jffs2_scan_eraseblock (struct jffs2_sb_info *c, struct jffs2_eraseblo
 				if (sumlen > c->sector_size)
 					goto full_scan;
 
-				/* sm->offset maybe wrong but MAGIC maybe right */
-				if (sumlen > c->sector_size)
-					goto full_scan;
-
 				/* Now, make sure the summary itself is available */
 				if (sumlen > buf_size) {
 					/* Need to kmalloc for this. */

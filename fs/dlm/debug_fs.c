@@ -344,45 +344,6 @@ static int print_format3(struct dlm_rsb *r, struct seq_file *s)
 	return rv;
 }
 
-static int print_format4(struct dlm_rsb *r, struct seq_file *s)
-{
-	int our_nodeid = dlm_our_nodeid();
-	int print_name = 1;
-	int i, rv;
-
-	lock_rsb(r);
-
-	rv = seq_printf(s, "rsb %p %d %d %d %d %lu %lx %d ",
-			r,
-			r->res_nodeid,
-			r->res_master_nodeid,
-			r->res_dir_nodeid,
-			our_nodeid,
-			r->res_toss_time,
-			r->res_flags,
-			r->res_length);
-	if (rv)
-		goto out;
-
-	for (i = 0; i < r->res_length; i++) {
-		if (!isascii(r->res_name[i]) || !isprint(r->res_name[i]))
-			print_name = 0;
-	}
-
-	seq_printf(s, "%s", print_name ? "str " : "hex");
-
-	for (i = 0; i < r->res_length; i++) {
-		if (print_name)
-			seq_printf(s, "%c", r->res_name[i]);
-		else
-			seq_printf(s, " %02x", (unsigned char)r->res_name[i]);
-	}
-	rv = seq_printf(s, "\n");
- out:
-	unlock_rsb(r);
-	return rv;
-}
-
 struct rsbtbl_iter {
 	struct dlm_rsb *rsb;
 	unsigned bucket;
@@ -421,13 +382,6 @@ static int table_seq_show(struct seq_file *seq, void *iter_ptr)
 		}
 		rv = print_format3(ri->rsb, seq);
 		break;
-	case 4:
-		if (ri->header) {
-			seq_printf(seq, "version 4 rsb 2\n");
-			ri->header = 0;
-		}
-		rv = print_format4(ri->rsb, seq);
-		break;
 	}
 
 	return rv;
@@ -436,18 +390,15 @@ static int table_seq_show(struct seq_file *seq, void *iter_ptr)
 static const struct seq_operations format1_seq_ops;
 static const struct seq_operations format2_seq_ops;
 static const struct seq_operations format3_seq_ops;
-static const struct seq_operations format4_seq_ops;
 
 static void *table_seq_start(struct seq_file *seq, loff_t *pos)
 {
-	struct rb_root *tree;
 	struct rb_node *node;
 	struct dlm_ls *ls = seq->private;
 	struct rsbtbl_iter *ri;
 	struct dlm_rsb *r;
 	loff_t n = *pos;
 	unsigned bucket, entry;
-	int toss = (seq->op == &format4_seq_ops);
 
 	bucket = n >> 32;
 	entry = n & ((1LL << 32) - 1);
@@ -466,14 +417,11 @@ static void *table_seq_start(struct seq_file *seq, loff_t *pos)
 		ri->format = 2;
 	if (seq->op == &format3_seq_ops)
 		ri->format = 3;
-	if (seq->op == &format4_seq_ops)
-		ri->format = 4;
-
-	tree = toss ? &ls->ls_rsbtbl[bucket].toss : &ls->ls_rsbtbl[bucket].keep;
 
 	spin_lock(&ls->ls_rsbtbl[bucket].lock);
-	if (!RB_EMPTY_ROOT(tree)) {
-		for (node = rb_first(tree); node; node = rb_next(node)) {
+	if (!RB_EMPTY_ROOT(&ls->ls_rsbtbl[bucket].keep)) {
+		for (node = rb_first(&ls->ls_rsbtbl[bucket].keep); node;
+		     node = rb_next(node)) {
 			r = rb_entry(node, struct dlm_rsb, res_hashnode);
 			if (!entry--) {
 				dlm_hold_rsb(r);
@@ -501,11 +449,10 @@ static void *table_seq_start(struct seq_file *seq, loff_t *pos)
 			kfree(ri);
 			return NULL;
 		}
-		tree = toss ? &ls->ls_rsbtbl[bucket].toss : &ls->ls_rsbtbl[bucket].keep;
 
 		spin_lock(&ls->ls_rsbtbl[bucket].lock);
-		if (!RB_EMPTY_ROOT(tree)) {
-			node = rb_first(tree);
+		if (!RB_EMPTY_ROOT(&ls->ls_rsbtbl[bucket].keep)) {
+			node = rb_first(&ls->ls_rsbtbl[bucket].keep);
 			r = rb_entry(node, struct dlm_rsb, res_hashnode);
 			dlm_hold_rsb(r);
 			ri->rsb = r;
@@ -522,12 +469,10 @@ static void *table_seq_next(struct seq_file *seq, void *iter_ptr, loff_t *pos)
 {
 	struct dlm_ls *ls = seq->private;
 	struct rsbtbl_iter *ri = iter_ptr;
-	struct rb_root *tree;
 	struct rb_node *next;
 	struct dlm_rsb *r, *rp;
 	loff_t n = *pos;
 	unsigned bucket;
-	int toss = (seq->op == &format4_seq_ops);
 
 	bucket = n >> 32;
 
@@ -566,11 +511,10 @@ static void *table_seq_next(struct seq_file *seq, void *iter_ptr, loff_t *pos)
 			kfree(ri);
 			return NULL;
 		}
-		tree = toss ? &ls->ls_rsbtbl[bucket].toss : &ls->ls_rsbtbl[bucket].keep;
 
 		spin_lock(&ls->ls_rsbtbl[bucket].lock);
-		if (!RB_EMPTY_ROOT(tree)) {
-			next = rb_first(tree);
+		if (!RB_EMPTY_ROOT(&ls->ls_rsbtbl[bucket].keep)) {
+			next = rb_first(&ls->ls_rsbtbl[bucket].keep);
 			r = rb_entry(next, struct dlm_rsb, res_hashnode);
 			dlm_hold_rsb(r);
 			ri->rsb = r;
@@ -614,17 +558,9 @@ static const struct seq_operations format3_seq_ops = {
 	.show  = table_seq_show,
 };
 
-static const struct seq_operations format4_seq_ops = {
-	.start = table_seq_start,
-	.next  = table_seq_next,
-	.stop  = table_seq_stop,
-	.show  = table_seq_show,
-};
-
 static const struct file_operations format1_fops;
 static const struct file_operations format2_fops;
 static const struct file_operations format3_fops;
-static const struct file_operations format4_fops;
 
 static int table_open(struct inode *inode, struct file *file)
 {
@@ -637,8 +573,6 @@ static int table_open(struct inode *inode, struct file *file)
 		ret = seq_open(file, &format2_seq_ops);
 	else if (file->f_op == &format3_fops)
 		ret = seq_open(file, &format3_seq_ops);
-	else if (file->f_op == &format4_fops)
-		ret = seq_open(file, &format4_seq_ops);
 
 	if (ret)
 		return ret;
@@ -665,14 +599,6 @@ static const struct file_operations format2_fops = {
 };
 
 static const struct file_operations format3_fops = {
-	.owner   = THIS_MODULE,
-	.open    = table_open,
-	.read    = seq_read,
-	.llseek  = seq_lseek,
-	.release = seq_release
-};
-
-static const struct file_operations format4_fops = {
 	.owner   = THIS_MODULE,
 	.open    = table_open,
 	.read    = seq_read,
@@ -726,8 +652,6 @@ void dlm_delete_debug_file(struct dlm_ls *ls)
 		debugfs_remove(ls->ls_debug_locks_dentry);
 	if (ls->ls_debug_all_dentry)
 		debugfs_remove(ls->ls_debug_all_dentry);
-	if (ls->ls_debug_toss_dentry)
-		debugfs_remove(ls->ls_debug_toss_dentry);
 }
 
 int dlm_create_debug_file(struct dlm_ls *ls)
@@ -768,19 +692,6 @@ int dlm_create_debug_file(struct dlm_ls *ls)
 						      ls,
 						      &format3_fops);
 	if (!ls->ls_debug_all_dentry)
-		goto fail;
-
-	/* format 4 */
-
-	memset(name, 0, sizeof(name));
-	snprintf(name, DLM_LOCKSPACE_LEN+8, "%s_toss", ls->ls_name);
-
-	ls->ls_debug_toss_dentry = debugfs_create_file(name,
-						       S_IFREG | S_IRUGO,
-						       dlm_root,
-						       ls,
-						       &format4_fops);
-	if (!ls->ls_debug_toss_dentry)
 		goto fail;
 
 	memset(name, 0, sizeof(name));

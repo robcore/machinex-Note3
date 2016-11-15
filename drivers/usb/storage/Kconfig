@@ -194,7 +194,7 @@ config USB_STORAGE_ENE_UB6250
 	depends on USB_STORAGE
 	---help---
 	  Say Y here if you wish to control a ENE SD/MS Card reader.
-	  Note that this driver does not support SM cards.
+	  To use SM card, please build driver/staging/keucr/keucr.ko
 
 	  This option depends on 'SCSI' support being enabled, but you
 	  probably also need 'SCSI device support: SCSI disk support'

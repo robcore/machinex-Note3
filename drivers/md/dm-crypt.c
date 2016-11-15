@@ -50,7 +50,7 @@ struct convert_context {
  * per bio private data
  */
 struct dm_crypt_io {
-	struct crypt_config *cc;
+	struct dm_target *target;
 	struct bio *base_bio;
 	struct work_struct work;
 
@@ -753,10 +753,11 @@ static int crypt_convert(struct crypt_config *cc,
 
 		switch (r) {
 		/* async */
-		case -EINPROGRESS:
 		case -EBUSY:
 			wait_for_completion(&ctx->restart);
 			INIT_COMPLETION(ctx->restart);
+			/* fall through*/
+		case -EINPROGRESS:
 			ctx->req = NULL;
 			ctx->sector++;
 			continue;
@@ -778,6 +779,14 @@ static int crypt_convert(struct crypt_config *cc,
 	return 0;
 }
 
+static void dm_crypt_bio_destructor(struct bio *bio)
+{
+	struct dm_crypt_io *io = bio->bi_private;
+	struct crypt_config *cc = io->target->private;
+
+	bio_free(bio, cc->bs);
+}
+
 /*
  * Generate a new unfragmented bio with the given size
  * This should never violate the device limitations
@@ -787,7 +796,7 @@ static int crypt_convert(struct crypt_config *cc,
 static struct bio *crypt_alloc_buffer(struct dm_crypt_io *io, unsigned size,
 				      unsigned *out_of_pages)
 {
-	struct crypt_config *cc = io->cc;
+	struct crypt_config *cc = io->target->private;
 	struct bio *clone;
 	unsigned int nr_iovecs = (size + PAGE_SIZE - 1) >> PAGE_SHIFT;
 	gfp_t gfp_mask = GFP_NOIO | __GFP_HIGHMEM;
@@ -838,20 +847,22 @@ static void crypt_free_buffer_pages(struct crypt_config *cc, struct bio *clone)
 	unsigned int i;
 	struct bio_vec *bv;
 
-	bio_for_each_segment_all(bv, clone, i) {
+	for (i = 0; i < clone->bi_vcnt; i++) {
+		bv = bio_iovec_idx(clone, i);
 		BUG_ON(!bv->bv_page);
 		mempool_free(bv->bv_page, cc->page_pool);
 		bv->bv_page = NULL;
 	}
 }
 
-static struct dm_crypt_io *crypt_io_alloc(struct crypt_config *cc,
+static struct dm_crypt_io *crypt_io_alloc(struct dm_target *ti,
 					  struct bio *bio, sector_t sector)
 {
+	struct crypt_config *cc = ti->private;
 	struct dm_crypt_io *io;
 
 	io = mempool_alloc(cc->io_pool, GFP_NOIO);
-	io->cc = cc;
+	io->target = ti;
 	io->base_bio = bio;
 	io->sector = sector;
 	io->error = 0;
@@ -874,7 +885,7 @@ static void crypt_inc_pending(struct dm_crypt_io *io)
  */
 static void crypt_dec_pending(struct dm_crypt_io *io)
 {
-	struct crypt_config *cc = io->cc;
+	struct crypt_config *cc = io->target->private;
 	struct bio *base_bio = io->base_bio;
 	struct dm_crypt_io *base_io = io->base_io;
 	int error = io->error;
@@ -915,7 +926,7 @@ static void crypt_dec_pending(struct dm_crypt_io *io)
 static void crypt_endio(struct bio *clone, int error)
 {
 	struct dm_crypt_io *io = clone->bi_private;
-	struct crypt_config *cc = io->cc;
+	struct crypt_config *cc = io->target->private;
 	unsigned rw = bio_data_dir(clone);
 
 	if (unlikely(!bio_flagged(clone, BIO_UPTODATE) && !error))
@@ -942,17 +953,18 @@ static void crypt_endio(struct bio *clone, int error)
 
 static void clone_init(struct dm_crypt_io *io, struct bio *clone)
 {
-	struct crypt_config *cc = io->cc;
+	struct crypt_config *cc = io->target->private;
 
 	clone->bi_private = io;
 	clone->bi_end_io  = crypt_endio;
 	clone->bi_bdev    = cc->dev->bdev;
 	clone->bi_rw      = io->base_bio->bi_rw;
+	clone->bi_destructor = dm_crypt_bio_destructor;
 }
 
 static int kcryptd_io_read(struct dm_crypt_io *io, gfp_t gfp)
 {
-	struct crypt_config *cc = io->cc;
+	struct crypt_config *cc = io->target->private;
 	struct bio *base_bio = io->base_bio;
 	struct bio *clone;
 
@@ -961,14 +973,19 @@ static int kcryptd_io_read(struct dm_crypt_io *io, gfp_t gfp)
 	 * copy the required bvecs because we need the original
 	 * one in order to decrypt the whole bio data *afterwards*.
 	 */
-	clone = bio_clone_bioset(base_bio, gfp, cc->bs);
+	clone = bio_alloc_bioset(gfp, bio_segments(base_bio), cc->bs);
 	if (!clone)
 		return 1;
 
 	crypt_inc_pending(io);
 
 	clone_init(io, clone);
+	clone->bi_idx = 0;
+	clone->bi_vcnt = bio_segments(base_bio);
+	clone->bi_size = base_bio->bi_size;
 	clone->bi_sector = cc->start + io->sector;
+	memcpy(clone->bi_io_vec, bio_iovec(base_bio),
+	       sizeof(struct bio_vec) * clone->bi_vcnt);
 
 	generic_make_request(clone);
 	return 0;
@@ -995,7 +1012,7 @@ static void kcryptd_io(struct work_struct *work)
 
 static void kcryptd_queue_io(struct dm_crypt_io *io)
 {
-	struct crypt_config *cc = io->cc;
+	struct crypt_config *cc = io->target->private;
 
 	INIT_WORK(&io->work, kcryptd_io);
 	queue_work(cc->io_queue, &io->work);
@@ -1004,7 +1021,7 @@ static void kcryptd_queue_io(struct dm_crypt_io *io)
 static void kcryptd_crypt_write_io_submit(struct dm_crypt_io *io, int async)
 {
 	struct bio *clone = io->ctx.bio_out;
-	struct crypt_config *cc = io->cc;
+	struct crypt_config *cc = io->target->private;
 
 	if (unlikely(io->error < 0)) {
 		crypt_free_buffer_pages(cc, clone);
@@ -1026,7 +1043,7 @@ static void kcryptd_crypt_write_io_submit(struct dm_crypt_io *io, int async)
 
 static void kcryptd_crypt_write_convert(struct dm_crypt_io *io)
 {
-	struct crypt_config *cc = io->cc;
+	struct crypt_config *cc = io->target->private;
 	struct bio *clone;
 	struct dm_crypt_io *new_io;
 	int crypt_finished;
@@ -1092,7 +1109,7 @@ static void kcryptd_crypt_write_convert(struct dm_crypt_io *io)
 		 * between fragments, so switch to a new dm_crypt_io structure.
 		 */
 		if (unlikely(!crypt_finished && remaining)) {
-			new_io = crypt_io_alloc(io->cc, io->base_bio,
+			new_io = crypt_io_alloc(io->target, io->base_bio,
 						sector);
 			crypt_inc_pending(new_io);
 			crypt_convert_init(cc, &new_io->ctx, NULL,
@@ -1126,7 +1143,7 @@ static void kcryptd_crypt_read_done(struct dm_crypt_io *io)
 
 static void kcryptd_crypt_read_convert(struct dm_crypt_io *io)
 {
-	struct crypt_config *cc = io->cc;
+	struct crypt_config *cc = io->target->private;
 	int r = 0;
 
 	crypt_inc_pending(io);
@@ -1150,7 +1167,7 @@ static void kcryptd_async_done(struct crypto_async_request *async_req,
 	struct dm_crypt_request *dmreq = async_req->data;
 	struct convert_context *ctx = dmreq->ctx;
 	struct dm_crypt_io *io = container_of(ctx, struct dm_crypt_io, ctx);
-	struct crypt_config *cc = io->cc;
+	struct crypt_config *cc = io->target->private;
 
 	if (error == -EINPROGRESS)
 		return;
@@ -1187,7 +1204,7 @@ static void kcryptd_crypt(struct work_struct *work)
 
 static void kcryptd_queue_crypt(struct dm_crypt_io *io)
 {
-	struct crypt_config *cc = io->cc;
+	struct crypt_config *cc = io->target->private;
 
 	INIT_WORK(&io->work, kcryptd_crypt);
 	queue_work(cc->crypt_queue, &io->work);
@@ -1623,7 +1640,6 @@ static int crypt_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 
 	ret = -ENOMEM;
 	cc->io_queue = alloc_workqueue("kcryptd_io",
-				       WQ_HIGHPRI |
 				       WQ_NON_REENTRANT|
 				       WQ_MEM_RECLAIM,
 				       1);
@@ -1633,9 +1649,10 @@ static int crypt_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	}
 
 	cc->crypt_queue = alloc_workqueue("kcryptd",
-					  WQ_HIGHPRI |
-					  WQ_MEM_RECLAIM |
-					  WQ_UNBOUND, num_online_cpus());
+					  WQ_NON_REENTRANT|
+					  WQ_CPU_INTENSIVE|
+					  WQ_MEM_RECLAIM,
+					  1);
 	if (!cc->crypt_queue) {
 		ti->error = "Couldn't create kcryptd queue";
 		goto bad;
@@ -1655,7 +1672,7 @@ static int crypt_map(struct dm_target *ti, struct bio *bio,
 		     union map_info *map_context)
 {
 	struct dm_crypt_io *io;
-	struct crypt_config *cc = ti->private;
+	struct crypt_config *cc;
 
 	/*
 	 * If bio is REQ_FLUSH or REQ_DISCARD, just bypass crypt queues.
@@ -1663,13 +1680,14 @@ static int crypt_map(struct dm_target *ti, struct bio *bio,
 	 * - for REQ_DISCARD caller must use flush if IO ordering matters
 	 */
 	if (unlikely(bio->bi_rw & (REQ_FLUSH | REQ_DISCARD))) {
+		cc = ti->private;
 		bio->bi_bdev = cc->dev->bdev;
 		if (bio_sectors(bio))
 			bio->bi_sector = cc->start + dm_target_offset(ti, bio->bi_sector);
 		return DM_MAPIO_REMAPPED;
 	}
 
-	io = crypt_io_alloc(cc, bio, dm_target_offset(ti, bio->bi_sector));
+	io = crypt_io_alloc(ti, bio, dm_target_offset(ti, bio->bi_sector));
 
 	if (bio_data_dir(io->base_bio) == READ) {
 		if (kcryptd_io_read(io, GFP_NOWAIT))

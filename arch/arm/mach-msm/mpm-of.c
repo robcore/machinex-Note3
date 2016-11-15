@@ -218,9 +218,10 @@ static inline unsigned int msm_mpm_get_irq_m2a(unsigned int pin)
 
 static inline uint16_t msm_mpm_get_irq_a2m(struct irq_data *d)
 {
+	struct hlist_node *elem;
 	struct mpm_irqs_a2m *node = NULL;
 
-	hlist_for_each_entry(node, &irq_hash[hashfn(d->hwirq)], node) {
+	hlist_for_each_entry(node, elem, &irq_hash[hashfn(d->hwirq)], node) {
 		if ((node->hwirq == d->hwirq)
 				&& (d->domain == node->domain)) {
 			/*
@@ -232,7 +233,7 @@ static inline uint16_t msm_mpm_get_irq_a2m(struct irq_data *d)
 			break;
 		}
 	}
-	return node ? node->pin : 0;
+	return elem ? node->pin : 0;
 }
 
 static int msm_mpm_enable_irq_exclusive(
@@ -481,7 +482,7 @@ static bool msm_mpm_interrupts_detectable(int d, bool from_idle)
 				MSM_MPM_DEBUG_NON_DETECTABLE_IRQ;
 	}
 
-	ret = (bool) bitmap_empty(irq_bitmap, unlisted->size);
+	ret = (bool) __bitmap_empty(irq_bitmap, unlisted->size);
 
 	if (debug_mask && !ret) {
 		int i = 0;
@@ -510,7 +511,7 @@ bool msm_mpm_irqs_detectable(bool from_idle)
 			from_idle);
 }
 
-void msm_mpm_enter_sleep(uint64_t sclk_count, bool from_idle,
+void msm_mpm_enter_sleep(uint32_t sclk_count, bool from_idle,
 		const struct cpumask *cpumask)
 {
 	cycle_t wakeup = (u64)sclk_count * ARCH_TIMER_HZ;
@@ -618,8 +619,7 @@ static void msm_mpm_work_fn(struct work_struct *work)
 	unsigned long flags;
 	while (1) {
 		bool allow;
-		while (wait_for_completion_interruptible(
-			&wake_wq) != 0);
+		wait_for_completion(&wake_wq);
 		spin_lock_irqsave(&msm_mpm_lock, flags);
 		allow = msm_mpm_irqs_detectable(true) &&
 				msm_mpm_gpio_irqs_detectable(true);

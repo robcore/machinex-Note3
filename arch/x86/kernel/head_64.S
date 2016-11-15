@@ -48,9 +48,6 @@ startup_64:
 	/* Sanitize CPU configuration */
 	call verify_cpu
 
-	/* Sanitize CPU configuration */
-	call verify_cpu
-
 	/*
 	 * At this point the CPU runs in 64bit mode CS.L = 1 CS.D = 1,
 	 * and someone has loaded an identity mapped page table
@@ -169,9 +166,6 @@ ENTRY(secondary_startup_64)
 	/* Sanitize CPU configuration */
 	call verify_cpu
 
-	/* Sanitize CPU configuration */
-	call verify_cpu
-
 	/* Enable PAE mode and PGE */
 	movl	$(X86_CR4_PAE | X86_CR4_PGE), %eax
 	movq	%rax, %cr4
@@ -264,8 +258,6 @@ ENTRY(secondary_startup_64)
 	pushq	$__KERNEL_CS	# set correct cs
 	pushq	%rax		# target address in negative space
 	lretq
-
-#include "verify_cpu.S"
 
 #include "verify_cpu.S"
 
@@ -426,23 +418,6 @@ ENTRY(phys_base)
 	/* This must match the first entry in level2_kernel_pgt */
 	.quad   0x0000000000000000
 
-#ifdef CONFIG_KASAN
-#define FILL(VAL, COUNT)				\
-	.rept (COUNT) ;					\
-	.quad	(VAL) ;					\
-	.endr
-
-NEXT_PAGE(kasan_zero_pte)
-	FILL(kasan_zero_page - __START_KERNEL_map + _KERNPG_TABLE, 512)
-NEXT_PAGE(kasan_zero_pmd)
-	FILL(kasan_zero_pte - __START_KERNEL_map + _KERNPG_TABLE, 512)
-NEXT_PAGE(kasan_zero_pud)
-	FILL(kasan_zero_pmd - __START_KERNEL_map + _KERNPG_TABLE, 512)
-
-#undef FILL
-#endif
-
-
 #include "../../x86/xen/xen-head.S"
 	
 	.section .bss, "aw", @nobits
@@ -458,16 +433,3 @@ ENTRY(nmi_idt_table)
 	.align PAGE_SIZE
 ENTRY(empty_zero_page)
 	.skip PAGE_SIZE
-
-#ifdef CONFIG_KASAN
-/*
- * This page used as early shadow. We don't use empty_zero_page
- * at early stages, stack instrumentation could write some garbage
- * to this page.
- * Latter we reuse it as zero shadow for large ranges of memory
- * that allowed to access, but not instrumented by kasan
- * (vmalloc/vmemmap ...).
- */
-NEXT_PAGE(kasan_zero_page)
-	.skip PAGE_SIZE
-#endif

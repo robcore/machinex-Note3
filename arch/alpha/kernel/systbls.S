@@ -111,7 +111,7 @@ sys_call_table:
 	.quad sys_socket
 	.quad sys_connect
 	.quad sys_accept
-	.quad sys_osf_getpriority			/* 100 */
+	.quad osf_getpriority			/* 100 */
 	.quad sys_send
 	.quad sys_recv
 	.quad sys_sigreturn

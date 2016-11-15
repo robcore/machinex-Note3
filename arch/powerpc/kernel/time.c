@@ -73,7 +73,7 @@
 /* powerpc clocksource/clockevent code */
 
 #include <linux/clockchips.h>
-#include <linux/timekeeper_internal.h>
+#include <linux/clocksource.h>
 
 static cycle_t rtc_read(struct clocksource *);
 static struct clocksource clocksource_rtc = {
@@ -142,7 +142,7 @@ EXPORT_SYMBOL_GPL(ppc_proc_freq);
 unsigned long ppc_tb_freq;
 EXPORT_SYMBOL_GPL(ppc_tb_freq);
 
-#ifdef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
+#ifdef CONFIG_VIRT_CPU_ACCOUNTING
 /*
  * Factors for converting from cputime_t (timebase ticks) to
  * jiffies, microseconds, seconds, and clock_t (1/USER_HZ seconds).
@@ -290,12 +290,13 @@ static inline u64 calculate_stolen_time(u64 stop_tb)
  * Account time for a transition between system, hard irq
  * or soft irq state.
  */
-static u64 vtime_delta(struct task_struct *tsk,
-			u64 *sys_scaled, u64 *stolen)
+void account_system_vtime(struct task_struct *tsk)
 {
-	u64 now, nowscaled, deltascaled;
-	u64 udelta, delta, user_scaled;
+	u64 now, nowscaled, delta, deltascaled;
+	unsigned long flags;
+	u64 stolen, udelta, sys_scaled, user_scaled;
 
+	local_irq_save(flags);
 	now = mftb();
 	nowscaled = read_spurr(now);
 	get_paca()->system_time += now - get_paca()->starttime;
@@ -303,7 +304,7 @@ static u64 vtime_delta(struct task_struct *tsk,
 	deltascaled = nowscaled - get_paca()->startspurr;
 	get_paca()->startspurr = nowscaled;
 
-	*stolen = calculate_stolen_time(now);
+	stolen = calculate_stolen_time(now);
 
 	delta = get_paca()->system_time;
 	get_paca()->system_time = 0;
@@ -320,50 +321,39 @@ static u64 vtime_delta(struct task_struct *tsk,
 	 * the user ticks get saved up in paca->user_time_scaled to be
 	 * used by account_process_tick.
 	 */
-	*sys_scaled = delta;
+	sys_scaled = delta;
 	user_scaled = udelta;
 	if (deltascaled != delta + udelta) {
 		if (udelta) {
-			*sys_scaled = deltascaled * delta / (delta + udelta);
-			user_scaled = deltascaled - *sys_scaled;
+			sys_scaled = deltascaled * delta / (delta + udelta);
+			user_scaled = deltascaled - sys_scaled;
 		} else {
-			*sys_scaled = deltascaled;
+			sys_scaled = deltascaled;
 		}
 	}
 	get_paca()->user_time_scaled += user_scaled;
 
-	return delta;
+	if (in_interrupt() || idle_task(smp_processor_id()) != tsk) {
+		account_system_time(tsk, 0, delta, sys_scaled);
+		if (stolen)
+			account_steal_time(stolen);
+	} else {
+		account_idle_time(delta + stolen);
+	}
+	local_irq_restore(flags);
 }
-
-void vtime_account_system(struct task_struct *tsk)
-{
-	u64 delta, sys_scaled, stolen;
-
-	delta = vtime_delta(tsk, &sys_scaled, &stolen);
-	account_system_time(tsk, 0, delta, sys_scaled);
-	if (stolen)
-		account_steal_time(stolen);
-}
-EXPORT_SYMBOL_GPL(vtime_account_system);
-
-void vtime_account_idle(struct task_struct *tsk)
-{
-	u64 delta, sys_scaled, stolen;
-
-	delta = vtime_delta(tsk, &sys_scaled, &stolen);
-	account_idle_time(delta + stolen);
-}
+EXPORT_SYMBOL_GPL(account_system_vtime);
 
 /*
- * Transfer the user time accumulated in the paca
- * by the exception entry and exit code to the generic
- * process user time records.
+ * Transfer the user and system times accumulated in the paca
+ * by the exception entry and exit code to the generic process
+ * user and system time records.
  * Must be called with interrupts disabled.
- * Assumes that vtime_account_system/idle() has been called
- * recently (i.e. since the last entry from usermode) so that
+ * Assumes that account_system_vtime() has been called recently
+ * (i.e. since the last entry from usermode) so that
  * get_paca()->user_time_scaled is up to date.
  */
-void vtime_account_user(struct task_struct *tsk)
+void account_process_tick(struct task_struct *tsk, int user_tick)
 {
 	cputime_t utime, utimescaled;
 
@@ -375,7 +365,7 @@ void vtime_account_user(struct task_struct *tsk)
 	account_user_time(tsk, utime, utimescaled);
 }
 
-#else /* ! CONFIG_VIRT_CPU_ACCOUNTING_NATIVE */
+#else /* ! CONFIG_VIRT_CPU_ACCOUNTING */
 #define calc_cputime_factors()
 #endif
 
@@ -652,7 +642,7 @@ int update_persistent_clock(struct timespec now)
 	struct rtc_time tm;
 
 	if (!ppc_md.set_rtc_time)
-		return -ENODEV;
+		return 0;
 
 	to_tm(now.tv_sec + 1 + timezone_offset, &tm);
 	tm.tm_year -= 1900;
@@ -712,7 +702,7 @@ static cycle_t timebase_read(struct clocksource *cs)
 	return (cycle_t)get_tb();
 }
 
-void update_vsyscall_old(struct timespec *wall_time, struct timespec *wtm,
+void update_vsyscall(struct timespec *wall_time, struct timespec *wtm,
 			struct clocksource *clock, u32 mult)
 {
 	u64 new_tb_to_xs, new_stamp_xsec;

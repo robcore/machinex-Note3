@@ -36,7 +36,7 @@ int key_task_permission(const key_ref_t key_ref, const struct cred *cred,
 
 	key = key_ref_to_ptr(key_ref);
 
-	if (key->user->user_ns != cred->user_ns)
+	if (key->user->user_ns != cred->user->user_ns)
 		goto use_other_perms;
 
 	/* use the second 8-bits of permissions for keys the caller owns */
@@ -91,25 +91,33 @@ EXPORT_SYMBOL(key_task_permission);
  * key is invalidated, -EKEYREVOKED if the key's type has been removed or if
  * the key has been revoked or -EKEYEXPIRED if the key has expired.
  */
-int key_validate(const struct key *key)
+int key_validate(struct key *key)
 {
+	struct timespec now;
 	unsigned long flags = key->flags;
+	int ret = 0;
 
-	if (flags & (1 << KEY_FLAG_INVALIDATED))
-		return -ENOKEY;
+	if (key) {
+		ret = -ENOKEY;
+		if (flags & (1 << KEY_FLAG_INVALIDATED))
+			goto error;
 
-	/* check it's still accessible */
-	if (flags & ((1 << KEY_FLAG_REVOKED) |
-		     (1 << KEY_FLAG_DEAD)))
-		return -EKEYREVOKED;
+		/* check it's still accessible */
+		ret = -EKEYREVOKED;
+		if (flags & ((1 << KEY_FLAG_REVOKED) |
+			     (1 << KEY_FLAG_DEAD)))
+			goto error;
 
-	/* check it hasn't expired */
-	if (key->expiry) {
-		struct timespec now = current_kernel_time();
-		if (now.tv_sec >= key->expiry)
-			return -EKEYEXPIRED;
+		/* check it hasn't expired */
+		ret = 0;
+		if (key->expiry) {
+			now = current_kernel_time();
+			if (now.tv_sec >= key->expiry)
+				ret = -EKEYEXPIRED;
+		}
 	}
 
-	return 0;
+error:
+	return ret;
 }
 EXPORT_SYMBOL(key_validate);

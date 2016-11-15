@@ -46,10 +46,15 @@ static struct proc_dir_entry *proc_ppc64_scan_log_dump;	/* The proc file */
 static ssize_t scanlog_read(struct file *file, char __user *buf,
 			    size_t count, loff_t *ppos)
 {
-	unsigned int *data = PDE_DATA(file_inode(file));
+        struct inode * inode = file->f_path.dentry->d_inode;
+	struct proc_dir_entry *dp;
+	unsigned int *data;
 	int status;
 	unsigned long len, off;
 	unsigned int wait_time;
+
+        dp = PDE(inode);
+ 	data = (unsigned int *)dp->data;
 
 	if (count > RTAS_DATA_BUF_SIZE)
 		count = RTAS_DATA_BUF_SIZE;
@@ -134,7 +139,8 @@ static ssize_t scanlog_write(struct file * file, const char __user * buf,
 
 static int scanlog_open(struct inode * inode, struct file * file)
 {
-	unsigned int *data = PDE_DATA(file_inode(file));
+	struct proc_dir_entry *dp = PDE(inode);
+	unsigned int *data = (unsigned int *)dp->data;
 
 	if (data[0] != 0) {
 		/* This imperfect test stops a second copy of the
@@ -150,7 +156,8 @@ static int scanlog_open(struct inode * inode, struct file * file)
 
 static int scanlog_release(struct inode * inode, struct file * file)
 {
-	unsigned int *data = PDE_DATA(file_inode(file));
+	struct proc_dir_entry *dp = PDE(inode);
+	unsigned int *data = (unsigned int *)dp->data;
 
 	data[0] = 0;
 

@@ -108,7 +108,7 @@ static int regcache_lzo_decompress_cache_block(struct regmap *map,
 static inline int regcache_lzo_get_blkindex(struct regmap *map,
 					    unsigned int reg)
 {
-	return ((reg / map->reg_stride) * map->cache_word_size) /
+	return (reg * map->cache_word_size) /
 		DIV_ROUND_UP(map->cache_size_raw,
 			     regcache_lzo_block_count(map));
 }
@@ -116,10 +116,9 @@ static inline int regcache_lzo_get_blkindex(struct regmap *map,
 static inline int regcache_lzo_get_blkpos(struct regmap *map,
 					  unsigned int reg)
 {
-	return (reg / map->reg_stride) %
-		    (DIV_ROUND_UP(map->cache_size_raw,
-				  regcache_lzo_block_count(map)) /
-		     map->cache_word_size);
+	return reg % (DIV_ROUND_UP(map->cache_size_raw,
+				   regcache_lzo_block_count(map)) /
+		      map->cache_word_size);
 }
 
 static inline int regcache_lzo_get_blksize(struct regmap *map)
@@ -260,7 +259,8 @@ static int regcache_lzo_read(struct regmap *map,
 	ret = regcache_lzo_decompress_cache_block(map, lzo_block);
 	if (ret >= 0)
 		/* fetch the value from the cache */
-		*value = regcache_get_val(map, lzo_block->dst, blkpos);
+		*value = regcache_get_val(lzo_block->dst, blkpos,
+					  map->cache_word_size);
 
 	kfree(lzo_block->dst);
 	/* restore the pointer and length of the compressed block */
@@ -303,7 +303,8 @@ static int regcache_lzo_write(struct regmap *map,
 	}
 
 	/* write the new value to the cache */
-	if (regcache_set_val(map, lzo_block->dst, blkpos, value)) {
+	if (regcache_set_val(lzo_block->dst, blkpos, value,
+			     map->cache_word_size)) {
 		kfree(lzo_block->dst);
 		goto out;
 	}
@@ -321,7 +322,7 @@ static int regcache_lzo_write(struct regmap *map,
 	}
 
 	/* set the bit so we know we have to sync this register */
-	set_bit(reg / map->reg_stride, lzo_block->sync_bmp);
+	set_bit(reg, lzo_block->sync_bmp);
 	kfree(tmp_dst);
 	kfree(lzo_block->src);
 	return 0;

@@ -3,7 +3,6 @@
  *
  * (C) Jens Axboe <jens.axboe@oracle.com> 2008
  */
-#include <linux/irq_work.h>
 #include <linux/rcupdate.h>
 #include <linux/rculist.h>
 #include <linux/kernel.h>
@@ -13,12 +12,12 @@
 #include <linux/gfp.h>
 #include <linux/smp.h>
 #include <linux/cpu.h>
+#include <asm/relaxed.h>
 
 #include "smpboot.h"
 
 enum {
 	CSD_FLAG_LOCK		= 0x01,
-	CSD_FLAG_WAIT		= 0x02,
 };
 
 struct call_function_data {
@@ -40,8 +39,6 @@ static cpumask_var_t boot_cpu_mask;
 
 static DEFINE_PER_CPU_SHARED_ALIGNED(struct call_single_queue, call_single_queue);
 
-static void flush_smp_call_function_queue(bool warn_cpu_offline);
-
 static int
 hotplug_cfd(struct notifier_block *nfb, unsigned long action, void *hcpu)
 {
@@ -55,13 +52,10 @@ hotplug_cfd(struct notifier_block *nfb, unsigned long action, void *hcpu)
 				cpu_to_node(cpu)))
 			return notifier_from_errno(-ENOMEM);
 		if (!zalloc_cpumask_var_node(&cfd->cpumask_ipi, GFP_KERNEL,
-				cpu_to_node(cpu))) {
-			free_cpumask_var(cfd->cpumask);
+				cpu_to_node(cpu)))
 			return notifier_from_errno(-ENOMEM);
-		}
 		cfd->csd = alloc_percpu(struct call_single_data);
 		if (!cfd->csd) {
-			free_cpumask_var(cfd->cpumask_ipi);
 			free_cpumask_var(cfd->cpumask);
 			return notifier_from_errno(-ENOMEM);
 		}
@@ -70,27 +64,12 @@ hotplug_cfd(struct notifier_block *nfb, unsigned long action, void *hcpu)
 #ifdef CONFIG_HOTPLUG_CPU
 	case CPU_UP_CANCELED:
 	case CPU_UP_CANCELED_FROZEN:
-		/* Fall-through to the CPU_DEAD[_FROZEN] case. */
 
 	case CPU_DEAD:
 	case CPU_DEAD_FROZEN:
 		free_cpumask_var(cfd->cpumask);
 		free_cpumask_var(cfd->cpumask_ipi);
 		free_percpu(cfd->csd);
-		break;
-
-	case CPU_DYING:
-	case CPU_DYING_FROZEN:
-		/*
-		 * The IPIs for the smp-call-function callbacks queued by other
-		 * CPUs might arrive late, either due to hardware latencies or
-		 * because this CPU disabled interrupts (inside stop-machine)
-		 * before the IPIs were sent. So flush out any pending callbacks
-		 * explicitly (without waiting for the IPIs to arrive), to
-		 * ensure that the outgoing CPU doesn't go offline with work
-		 * still pending.
-		 */
-		flush_smp_call_function_queue(false);
 		break;
 #endif
 	};
@@ -127,8 +106,8 @@ void __init call_function_init(void)
  */
 static void csd_lock_wait(struct call_single_data *csd)
 {
-	while (csd->flags & CSD_FLAG_LOCK)
-		cpu_relax();
+	while (cpu_relaxed_read_short(&csd->flags) & CSD_FLAG_LOCK)
+		cpu_read_relax();
 }
 
 static void csd_lock(struct call_single_data *csd)
@@ -146,7 +125,7 @@ static void csd_lock(struct call_single_data *csd)
 
 static void csd_unlock(struct call_single_data *csd)
 {
-	WARN_ON((csd->flags & CSD_FLAG_WAIT) && !(csd->flags & CSD_FLAG_LOCK));
+	WARN_ON(!(csd->flags & CSD_FLAG_LOCK));
 
 	/*
 	 * ensure we're all done before releasing data:
@@ -167,9 +146,6 @@ void generic_exec_single(int cpu, struct call_single_data *csd, int wait)
 	struct call_single_queue *dst = &per_cpu(call_single_queue, cpu);
 	unsigned long flags;
 	int ipi;
-
-	if (wait)
-		csd->flags |= CSD_FLAG_WAIT;
 
 	raw_spin_lock_irqsave(&dst->lock, flags);
 	ipi = list_empty(&dst->list);
@@ -194,49 +170,23 @@ void generic_exec_single(int cpu, struct call_single_data *csd, int wait)
 		csd_lock_wait(csd);
 }
 
-/**
- * generic_smp_call_function_single_interrupt - Execute SMP IPI callbacks
- *
- * Invoked by arch to handle an IPI for call function single.
- * Must be called with interrupts disabled.
+/*
+ * Invoked by arch to handle an IPI for call function single. Must be
+ * called from the arch with interrupts disabled.
  */
 void generic_smp_call_function_single_interrupt(void)
 {
-	flush_smp_call_function_queue(true);
-}
-
-/**
- * flush_smp_call_function_queue - Flush pending smp-call-function callbacks
- *
- * @warn_cpu_offline: If set to 'true', warn if callbacks were queued on an
- *		      offline CPU. Skip this check if set to 'false'.
- *
- * Flush any pending smp-call-function callbacks queued on this CPU. This is
- * invoked by the generic IPI handler, as well as by a CPU about to go offline,
- * to ensure that all pending IPI callbacks are run before it goes completely
- * offline.
- *
- * Loop through the call_single_queue and run all the queued callbacks.
- * Must be called with interrupts disabled.
- */
-static void flush_smp_call_function_queue(bool warn_cpu_offline)
-{
 	struct call_single_queue *q = &__get_cpu_var(call_single_queue);
 	LIST_HEAD(list);
-	static bool warned;
 
-	WARN_ON(!irqs_disabled());
+	/*
+	 * Shouldn't receive this interrupt on a cpu that is not yet online.
+	 */
+	WARN_ON_ONCE(!cpu_online(smp_processor_id()));
 
 	raw_spin_lock(&q->lock);
 	list_replace_init(&q->list, &list);
 	raw_spin_unlock(&q->lock);
-
-	/* There shouldn't be any pending callbacks on an offline CPU. */
-	if (unlikely(warn_cpu_offline && !cpu_online(smp_processor_id()) &&
-		     !warned && !list_empty(&q->list))) {
-		warned = true;
-		WARN(1, "IPI on offline CPU %d\n", smp_processor_id());
-	}
 
 	while (!list_empty(&list)) {
 		struct call_single_data *csd;
@@ -244,6 +194,7 @@ static void flush_smp_call_function_queue(bool warn_cpu_offline)
 
 		csd = list_entry(list.next, struct call_single_data, list);
 		list_del(&csd->list);
+
 		/*
 		 * 'csd' can be invalid after this call if flags == 0
 		 * (when called through generic_exec_single()),
@@ -259,14 +210,6 @@ static void flush_smp_call_function_queue(bool warn_cpu_offline)
 		if (csd_flags & CSD_FLAG_LOCK)
 			csd_unlock(csd);
 	}
-
-	/*
-	 * Handle irq works queued remotely by irq_work_queue_on().
-	 * Smp functions above are typically synchronous so they
-	 * better run first since some other CPUs may be busy waiting
-	 * for them.
-	 */
-	irq_work_run();
 }
 
 static DEFINE_PER_CPU_SHARED_ALIGNED(struct call_single_data, csd_data);
@@ -533,6 +476,28 @@ int smp_call_function(smp_call_func_t func, void *info, int wait)
 }
 EXPORT_SYMBOL(smp_call_function);
 
+#ifndef CONFIG_USE_GENERIC_SMP_HELPERS
+void ipi_call_lock(void)
+{
+	raw_spin_lock(&call_function.lock);
+}
+
+void ipi_call_unlock(void)
+{
+	raw_spin_unlock(&call_function.lock);
+}
+
+void ipi_call_lock_irq(void)
+{
+	raw_spin_lock_irq(&call_function.lock);
+}
+
+void ipi_call_unlock_irq(void)
+{
+	raw_spin_unlock_irq(&call_function.lock);
+}
+#endif
+
 /* Setup configured maximum number of CPUs to activate */
 unsigned int setup_max_cpus = NR_CPUS;
 EXPORT_SYMBOL(setup_max_cpus);
@@ -752,7 +717,7 @@ void on_each_cpu_cond(bool (*cond_func)(int cpu, void *info),
 			if (cond_func(cpu, info)) {
 				ret = smp_call_function_single(cpu, func,
 								info, wait);
-				WARN_ON_ONCE(ret);
+				WARN_ON_ONCE(!ret);
 			}
 		preempt_enable();
 	}

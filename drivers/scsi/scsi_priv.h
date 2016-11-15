@@ -2,8 +2,6 @@
 #define _SCSI_PRIV_H
 
 #include <linux/device.h>
-#include <linux/async.h>
-#include <scsi/scsi_device.h>
 
 struct request_queue;
 struct request;
@@ -81,7 +79,7 @@ int scsi_noretry_cmd(struct scsi_cmnd *scmd);
 /* scsi_lib.c */
 extern int scsi_maybe_unblock_host(struct scsi_device *sdev);
 extern void scsi_device_unbusy(struct scsi_device *sdev);
-extern void scsi_queue_insert(struct scsi_cmnd *cmd, int reason);
+extern int scsi_queue_insert(struct scsi_cmnd *cmd, int reason);
 extern void scsi_next_command(struct scsi_cmnd *cmd);
 extern void scsi_io_completion(struct scsi_cmnd *, unsigned int);
 extern void scsi_run_host_queues(struct Scsi_Host *shost);
@@ -164,8 +162,6 @@ static inline int scsi_autopm_get_host(struct Scsi_Host *h) { return 0; }
 static inline void scsi_autopm_put_host(struct Scsi_Host *h) {}
 #endif /* CONFIG_PM_RUNTIME */
 
-extern struct async_domain scsi_sd_probe_domain;
-
 /* 
  * internal scsi timeout functions: for use by mid-layer and transport
  * classes.
@@ -173,7 +169,6 @@ extern struct async_domain scsi_sd_probe_domain;
 
 #define SCSI_DEVICE_BLOCK_MAX_TIMEOUT	600	/* units in seconds */
 extern int scsi_internal_device_block(struct scsi_device *sdev);
-extern int scsi_internal_device_unblock(struct scsi_device *sdev,
-					enum scsi_device_state new_state);
+extern int scsi_internal_device_unblock(struct scsi_device *sdev);
 
 #endif /* _SCSI_PRIV_H */

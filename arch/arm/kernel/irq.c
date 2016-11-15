@@ -34,7 +34,6 @@
 #include <linux/list.h>
 #include <linux/kallsyms.h>
 #include <linux/proc_fs.h>
-#include <linux/export.h>
 
 #include <asm/exception.h>
 #include <asm/mach/arch.h>
@@ -44,6 +43,13 @@
 #include <asm/perftypes.h>
 #ifdef CONFIG_SEC_DEBUG
 #include <mach/sec_debug.h>
+#endif
+
+/*
+ * No architecture-specific irq_finish function defined in arm/arch/irqs.h.
+ */
+#ifndef irq_finish
+#define irq_finish(irq) do { } while (0)
 #endif
 
 unsigned long irq_err_count;
@@ -90,6 +96,9 @@ void handle_IRQ(unsigned int irq, struct pt_regs *regs)
 		generic_handle_irq(irq);
 	}
 
+	/* AT91 specific workaround */
+	irq_finish(irq);
+
 	irq_exit();
 #ifdef CONFIG_SEC_DEBUG
 	sec_debug_irq_enterexit_log(irq, start_time);
@@ -126,22 +135,11 @@ void set_irq_flags(unsigned int irq, unsigned int iflags)
 	/* Order is clear bits in "clr" then set bits in "set" */
 	irq_modify_status(irq, clr, set & ~clr);
 }
-EXPORT_SYMBOL_GPL(set_irq_flags);
 
 void __init init_IRQ(void)
 {
 	machine_desc->init_irq();
 }
-
-#ifdef CONFIG_MULTI_IRQ_HANDLER
-void __init set_handle_irq(void (*handle_irq)(struct pt_regs *))
-{
-	if (handle_arch_irq)
-		return;
-
-	handle_arch_irq = handle_irq;
-}
-#endif
 
 #ifdef CONFIG_SPARSE_IRQ
 int __init arch_probe_nr_irqs(void)
@@ -157,6 +155,7 @@ static bool migrate_one_irq(struct irq_desc *desc)
 {
 	struct irq_data *d = irq_desc_get_irq_data(desc);
 	const struct cpumask *affinity = d->affinity;
+	struct irq_chip *c;
 	bool ret = false;
 
 	/*
@@ -171,7 +170,11 @@ static bool migrate_one_irq(struct irq_desc *desc)
 		ret = true;
 	}
 
-	irq_set_affinity_locked(d, affinity, 0);
+	c = irq_data_get_irq_chip(d);
+	if (!c->irq_set_affinity)
+		pr_debug("IRQ%u: unable to set affinity\n", d->irq);
+	else if (c->irq_set_affinity(d, affinity, true) == IRQ_SET_MASK_OK && ret)
+		cpumask_copy(d->affinity, affinity);
 
 	return ret;
 }
@@ -200,7 +203,7 @@ void migrate_irqs(void)
 		raw_spin_unlock(&desc->lock);
 
 		if (affinity_broken && printk_ratelimit())
-			pr_debug("IRQ%u no longer affine to CPU%u\n", i,
+			pr_warning("IRQ%u no longer affine to CPU%u\n", i,
 				smp_processor_id());
 	}
 

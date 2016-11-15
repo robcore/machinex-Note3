@@ -92,7 +92,7 @@ save_static_function(sys_fork);
 static int __used noinline
 _sys_fork(nabi_no_regargs struct pt_regs regs)
 {
-	return do_fork(SIGCHLD, regs.regs[29], 0, NULL, NULL);
+	return do_fork(SIGCHLD, regs.regs[29], &regs, 0, NULL, NULL);
 }
 
 save_static_function(sys_clone);
@@ -123,7 +123,7 @@ _sys_clone(nabi_no_regargs struct pt_regs regs)
 #else
 	child_tidptr = (int __user *) regs.regs[8];
 #endif
-	return do_fork(clone_flags, newsp, 0,
+	return do_fork(clone_flags, newsp, &regs, 0,
 	               parent_tidptr, child_tidptr);
 }
 
@@ -133,13 +133,13 @@ _sys_clone(nabi_no_regargs struct pt_regs regs)
 asmlinkage int sys_execve(nabi_no_regargs struct pt_regs regs)
 {
 	int error;
-	struct filename *filename;
+	char * filename;
 
 	filename = getname((const char __user *) (long)regs.regs[4]);
 	error = PTR_ERR(filename);
 	if (IS_ERR(filename))
 		goto out;
-	error = do_execve(filename->name,
+	error = do_execve(filename,
 			  (const char __user *const __user *) (long)regs.regs[5],
 	                  (const char __user *const __user *) (long)regs.regs[6],
 			  &regs);

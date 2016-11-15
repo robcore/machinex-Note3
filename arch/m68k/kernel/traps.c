@@ -992,6 +992,18 @@ void show_stack(struct task_struct *task, unsigned long *stack)
 }
 
 /*
+ * The architecture-independent backtrace generator
+ */
+void dump_stack(void)
+{
+	unsigned long stack;
+
+	show_trace(&stack);
+}
+
+EXPORT_SYMBOL(dump_stack);
+
+/*
  * The vector number returned in the frame pointer may also contain
  * the "fs" (Fault Status) bits on ColdFire. These are in the bottom
  * 2 bits, and upper 2 bits. So we need to mask out the real vector
@@ -1164,7 +1176,7 @@ void die_if_kernel (char *str, struct pt_regs *fp, int nr)
 	console_verbose();
 	printk("%s: %08x\n",str,nr);
 	show_registers(fp);
-	add_taint(TAINT_DIE, LOCKDEP_NOW_UNRELIABLE);
+	add_taint(TAINT_DIE);
 	do_exit(SIGSEGV);
 }
 

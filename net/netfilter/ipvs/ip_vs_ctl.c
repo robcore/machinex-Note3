@@ -265,11 +265,11 @@ static struct list_head ip_vs_svc_fwm_table[IP_VS_SVC_TAB_SIZE];
 /*
  *	Returns hash value for virtual service
  */
-static inline unsigned int
-ip_vs_svc_hashkey(struct net *net, int af, unsigned int proto,
+static inline unsigned
+ip_vs_svc_hashkey(struct net *net, int af, unsigned proto,
 		  const union nf_inet_addr *addr, __be16 port)
 {
-	register unsigned int porth = ntohs(port);
+	register unsigned porth = ntohs(port);
 	__be32 addr_fold = addr->ip;
 
 #ifdef CONFIG_IP_VS_IPV6
@@ -286,7 +286,7 @@ ip_vs_svc_hashkey(struct net *net, int af, unsigned int proto,
 /*
  *	Returns hash value of fwmark for virtual service lookup
  */
-static inline unsigned int ip_vs_svc_fwm_hashkey(struct net *net, __u32 fwmark)
+static inline unsigned ip_vs_svc_fwm_hashkey(struct net *net, __u32 fwmark)
 {
 	return (((size_t)net>>8) ^ fwmark) & IP_VS_SVC_TAB_MASK;
 }
@@ -298,7 +298,7 @@ static inline unsigned int ip_vs_svc_fwm_hashkey(struct net *net, __u32 fwmark)
  */
 static int ip_vs_svc_hash(struct ip_vs_service *svc)
 {
-	unsigned int hash;
+	unsigned hash;
 
 	if (svc->flags & IP_VS_SVC_F_HASHED) {
 		pr_err("%s(): request for already hashed, called from %pF\n",
@@ -361,7 +361,7 @@ static inline struct ip_vs_service *
 __ip_vs_service_find(struct net *net, int af, __u16 protocol,
 		     const union nf_inet_addr *vaddr, __be16 vport)
 {
-	unsigned int hash;
+	unsigned hash;
 	struct ip_vs_service *svc;
 
 	/* Check for "full" addressed entries */
@@ -388,7 +388,7 @@ __ip_vs_service_find(struct net *net, int af, __u16 protocol,
 static inline struct ip_vs_service *
 __ip_vs_svc_fwm_find(struct net *net, int af, __u32 fwmark)
 {
-	unsigned int hash;
+	unsigned hash;
 	struct ip_vs_service *svc;
 
 	/* Check for fwmark addressed entries */
@@ -489,11 +489,11 @@ __ip_vs_unbind_svc(struct ip_vs_dest *dest)
 /*
  *	Returns hash value for real service
  */
-static inline unsigned int ip_vs_rs_hashkey(int af,
+static inline unsigned ip_vs_rs_hashkey(int af,
 					    const union nf_inet_addr *addr,
 					    __be16 port)
 {
-	register unsigned int porth = ntohs(port);
+	register unsigned porth = ntohs(port);
 	__be32 addr_fold = addr->ip;
 
 #ifdef CONFIG_IP_VS_IPV6
@@ -512,7 +512,7 @@ static inline unsigned int ip_vs_rs_hashkey(int af,
  */
 static int ip_vs_rs_hash(struct netns_ipvs *ipvs, struct ip_vs_dest *dest)
 {
-	unsigned int hash;
+	unsigned hash;
 
 	if (!list_empty(&dest->d_list)) {
 		return 0;
@@ -555,7 +555,7 @@ ip_vs_lookup_real_service(struct net *net, int af, __u16 protocol,
 			  __be16 dport)
 {
 	struct netns_ipvs *ipvs = net_ipvs(net);
-	unsigned int hash;
+	unsigned hash;
 	struct ip_vs_dest *dest;
 
 	/*
@@ -842,7 +842,7 @@ ip_vs_new_dest(struct ip_vs_service *svc, struct ip_vs_dest_user_kern *udest,
 	       struct ip_vs_dest **dest_p)
 {
 	struct ip_vs_dest *dest;
-	unsigned int atype;
+	unsigned atype;
 
 	EnterFunction(2);
 
@@ -1868,7 +1868,7 @@ struct ip_vs_iter {
  *	Write the contents of the VS rule table to a PROCfs file.
  *	(It is kept just for backward compatibility)
  */
-static inline const char *ip_vs_fwd_name(unsigned int flags)
+static inline const char *ip_vs_fwd_name(unsigned flags)
 {
 	switch (flags & IP_VS_CONN_F_FWD_MASK) {
 	case IP_VS_CONN_F_LOCALNODE:
@@ -3749,9 +3749,9 @@ void __net_exit ip_vs_control_net_cleanup(struct net *net)
 	ip_vs_trash_cleanup(net);
 	ip_vs_stop_estimator(net, &ipvs->tot_stats);
 	ip_vs_control_net_cleanup_sysctl(net);
-	remove_proc_entry("ip_vs_stats_percpu", net->proc_net);
-	remove_proc_entry("ip_vs_stats", net->proc_net);
-	remove_proc_entry("ip_vs", net->proc_net);
+	proc_net_remove(net, "ip_vs_stats_percpu");
+	proc_net_remove(net, "ip_vs_stats");
+	proc_net_remove(net, "ip_vs");
 	free_percpu(ipvs->tot_stats.cpustats);
 }
 

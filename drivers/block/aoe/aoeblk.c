@@ -142,7 +142,7 @@ aoeblk_open(struct block_device *bdev, fmode_t mode)
 	return -ENODEV;
 }
 
-static void
+static int
 aoeblk_release(struct gendisk *disk, fmode_t mode)
 {
 	struct aoedev *d = disk->private_data;
@@ -153,9 +153,11 @@ aoeblk_release(struct gendisk *disk, fmode_t mode)
 	if (--d->nopen == 0) {
 		spin_unlock_irqrestore(&d->lock, flags);
 		aoecmd_cfg(d->aoemajor, d->aoeminor);
-		return;
+		return 0;
 	}
 	spin_unlock_irqrestore(&d->lock, flags);
+
+	return 0;
 }
 
 static void

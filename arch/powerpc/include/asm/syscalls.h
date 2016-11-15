@@ -9,6 +9,7 @@
 
 struct pt_regs;
 struct rtas_args;
+struct sigaction;
 
 asmlinkage unsigned long sys_mmap(unsigned long addr, size_t len,
 		unsigned long prot, unsigned long flags,
@@ -30,6 +31,9 @@ asmlinkage int sys_vfork(unsigned long p1, unsigned long p2,
 		unsigned long p6, struct pt_regs *regs);
 asmlinkage long sys_pipe(int __user *fildes);
 asmlinkage long sys_pipe2(int __user *fildes, int flags);
+asmlinkage long sys_rt_sigaction(int sig,
+		const struct sigaction __user *act,
+		struct sigaction __user *oact, size_t sigsetsize);
 asmlinkage long ppc64_personality(unsigned long personality);
 asmlinkage int ppc_rtas(struct rtas_args __user *uargs);
 asmlinkage time_t sys64_time(time_t __user * tloc);

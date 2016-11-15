@@ -2510,9 +2510,6 @@ int r600_startup(struct radeon_device *rdev)
 		return r;
 	}
 
-	/* posting read */
-	RREG32(R_000E50_SRBM_STATUS);
-
 	return 0;
 }
 

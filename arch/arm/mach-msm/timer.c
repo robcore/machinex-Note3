@@ -24,11 +24,11 @@
 #include <linux/io.h>
 #include <linux/percpu.h>
 #include <linux/mm.h>
-#include <linux/sched_clock.h>
 
 #include <asm/localtimer.h>
 #include <asm/mach/time.h>
 #include <asm/hardware/gic.h>
+#include <asm/sched_clock.h>
 #include <asm/smp_plat.h>
 #include <asm/user_accessible_timer.h>
 #include <mach/msm_iomap.h>
@@ -722,7 +722,7 @@ static void msm_timer_sync_to_gpt(struct msm_clock *clock, int exit_sleep)
 		&__get_cpu_var(msm_clocks_percpu)[clock->index];
 	struct msm_timer_sync_data_t data;
 	uint32_t gpt_clk_val;
-	u64 gpt_period = (1ULL << 32) * msecs_to_jiffies(1000);
+	u64 gpt_period = (1ULL << 32) * HZ;
 	u64 now = get_jiffies_64();
 
 	do_div(gpt_period, gpt_hz);

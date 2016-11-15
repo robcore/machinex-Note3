@@ -114,6 +114,8 @@ extern void cpu_idle_on_new_stack(struct thread_info *old_ti,
 
 #endif /* !__ASSEMBLY__ */
 
+#define PREEMPT_ACTIVE		0x10000000
+
 /*
  * Thread information flags that various assembly files may need to access.
  * Keep flags accessed frequently in low bits, particular since it makes
@@ -158,29 +160,15 @@ extern void cpu_idle_on_new_stack(struct thread_info *old_ti,
 #define TS_POLLING		0x0004	/* in idle loop but not sleeping */
 #define TS_RESTORE_SIGMASK	0x0008	/* restore signal mask in do_signal */
 
+#define tsk_is_polling(t) (task_thread_info(t)->status & TS_POLLING)
+
 #ifndef __ASSEMBLY__
 #define HAVE_SET_RESTORE_SIGMASK	1
 static inline void set_restore_sigmask(void)
 {
 	struct thread_info *ti = current_thread_info();
 	ti->status |= TS_RESTORE_SIGMASK;
-	WARN_ON(!test_bit(TIF_SIGPENDING, &ti->flags));
-}
-static inline void clear_restore_sigmask(void)
-{
-	current_thread_info()->status &= ~TS_RESTORE_SIGMASK;
-}
-static inline bool test_restore_sigmask(void)
-{
-	return current_thread_info()->status & TS_RESTORE_SIGMASK;
-}
-static inline bool test_and_clear_restore_sigmask(void)
-{
-	struct thread_info *ti = current_thread_info();
-	if (!(ti->status & TS_RESTORE_SIGMASK))
-		return false;
-	ti->status &= ~TS_RESTORE_SIGMASK;
-	return true;
+	set_bit(TIF_SIGPENDING, &ti->flags);
 }
 #endif	/* !__ASSEMBLY__ */
 

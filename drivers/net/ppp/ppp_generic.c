@@ -2175,7 +2175,7 @@ int ppp_register_net_channel(struct net *net, struct ppp_channel *chan)
 
 	pch->ppp = NULL;
 	pch->chan = chan;
-	pch->chan_net = get_net(net);
+	pch->chan_net = net;
 	chan->ppp = pch;
 	init_ppp_file(&pch->file, CHANNEL);
 	pch->file.hdrlen = chan->hdrlen;
@@ -2878,9 +2878,6 @@ ppp_disconnect_channel(struct channel *pch)
  */
 static void ppp_destroy_channel(struct channel *pch)
 {
-	put_net(pch->chan_net);
-	pch->chan_net = NULL;
-
 	atomic_dec(&channel_count);
 
 	if (!pch->file.dead) {
@@ -2909,21 +2906,46 @@ static void __exit ppp_cleanup(void)
  * by holding all_ppp_mutex
  */
 
+static int __unit_alloc(struct idr *p, void *ptr, int n)
+{
+	int unit, err;
+
+again:
+	if (!idr_pre_get(p, GFP_KERNEL)) {
+		pr_err("PPP: No free memory for idr\n");
+		return -ENOMEM;
+	}
+
+	err = idr_get_new_above(p, ptr, n, &unit);
+	if (err < 0) {
+		if (err == -EAGAIN)
+			goto again;
+		return err;
+	}
+
+	return unit;
+}
+
 /* associate pointer with specified number */
 static int unit_set(struct idr *p, void *ptr, int n)
 {
 	int unit;
 
-	unit = idr_alloc(p, ptr, n, n + 1, GFP_KERNEL);
-	if (unit == -ENOSPC)
-		unit = -EINVAL;
+	unit = __unit_alloc(p, ptr, n);
+	if (unit < 0)
+		return unit;
+	else if (unit != n) {
+		idr_remove(p, unit);
+		return -EINVAL;
+	}
+
 	return unit;
 }
 
 /* get new free unit number and associate pointer with it */
 static int unit_get(struct idr *p, void *ptr)
 {
-	return idr_alloc(p, ptr, 0, 0, GFP_KERNEL);
+	return __unit_alloc(p, ptr, 0);
 }
 
 /* put unit number back to a pool */

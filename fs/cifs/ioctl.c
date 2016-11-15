@@ -28,11 +28,13 @@
 #include "cifs_debug.h"
 #include "cifsfs.h"
 
+#define CIFS_IOC_CHECKUMOUNT _IO(0xCF, 2)
+
 long cifs_ioctl(struct file *filep, unsigned int command, unsigned long arg)
 {
-	struct inode *inode = file_inode(filep);
+	struct inode *inode = filep->f_dentry->d_inode;
 	int rc = -ENOTTY; /* strange error - but the precedent */
-	unsigned int xid;
+	int xid;
 	struct cifs_sb_info *cifs_sb;
 #ifdef CONFIG_CIFS_POSIX
 	struct cifsFileInfo *pSMBFile = filep->private_data;
@@ -42,13 +44,22 @@ long cifs_ioctl(struct file *filep, unsigned int command, unsigned long arg)
 	__u64   caps;
 #endif /* CONFIG_CIFS_POSIX */
 
-	xid = get_xid();
+	xid = GetXid();
 
-	cifs_dbg(FYI, "ioctl file %p  cmd %u  arg %lu\n", filep, command, arg);
+	cFYI(1, "ioctl file %p  cmd %u  arg %lu", filep, command, arg);
 
 	cifs_sb = CIFS_SB(inode->i_sb);
 
 	switch (command) {
+		case CIFS_IOC_CHECKUMOUNT:
+			cFYI(1, "User unmount attempted");
+			if (cifs_sb->mnt_uid == current_uid())
+				rc = 0;
+			else {
+				rc = -EACCES;
+				cFYI(1, "uids do not match");
+			}
+			break;
 #ifdef CONFIG_CIFS_POSIX
 		case FS_IOC_GETFLAGS:
 			if (pSMBFile == NULL)
@@ -56,9 +67,8 @@ long cifs_ioctl(struct file *filep, unsigned int command, unsigned long arg)
 			tcon = tlink_tcon(pSMBFile->tlink);
 			caps = le64_to_cpu(tcon->fsUnixInfo.Capability);
 			if (CIFS_UNIX_EXTATTR_CAP & caps) {
-				rc = CIFSGetExtAttr(xid, tcon,
-						    pSMBFile->fid.netfid,
-						    &ExtAttrBits, &ExtAttrMask);
+				rc = CIFSGetExtAttr(xid, tcon, pSMBFile->netfid,
+					&ExtAttrBits, &ExtAttrMask);
 				if (rc == 0)
 					rc = put_user(ExtAttrBits &
 						FS_FL_USER_VISIBLE,
@@ -76,21 +86,17 @@ long cifs_ioctl(struct file *filep, unsigned int command, unsigned long arg)
 					rc = -EFAULT;
 					break;
 				}
-				/*
-				 * rc = CIFSGetExtAttr(xid, tcon,
-				 *		       pSMBFile->fid.netfid,
-				 *		       extAttrBits,
-				 *		       &ExtAttrMask);
-				 */
+				/* rc= CIFSGetExtAttr(xid,tcon,pSMBFile->netfid,
+					extAttrBits, &ExtAttrMask);*/
 			}
-			cifs_dbg(FYI, "set flags not implemented yet\n");
+			cFYI(1, "set flags not implemented yet");
 			break;
 #endif /* CONFIG_CIFS_POSIX */
 		default:
-			cifs_dbg(FYI, "unsupported ioctl\n");
+			cFYI(1, "unsupported ioctl");
 			break;
 	}
 
-	free_xid(xid);
+	FreeXid(xid);
 	return rc;
 }

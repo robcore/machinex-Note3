@@ -57,12 +57,19 @@ static void ion_page_pool_free_pages(struct ion_page_pool *pool,
 
 static int ion_page_pool_add(struct ion_page_pool *pool, struct page *page)
 {
+	struct ion_page_pool_item *item;
+
+	item = kmalloc(sizeof(struct ion_page_pool_item), GFP_KERNEL);
+	if (!item)
+		return -ENOMEM;
+
 	mutex_lock(&pool->mutex);
+	item->page = page;
 	if (PageHighMem(page)) {
-		list_add_tail(&page->lru, &pool->high_items);
+		list_add_tail(&item->list, &pool->high_items);
 		pool->high_count++;
 	} else {
-		list_add_tail(&page->lru, &pool->low_items);
+		list_add_tail(&item->list, &pool->low_items);
 		pool->low_count++;
 	}
 	mutex_unlock(&pool->mutex);
@@ -71,19 +78,24 @@ static int ion_page_pool_add(struct ion_page_pool *pool, struct page *page)
 
 static struct page *ion_page_pool_remove(struct ion_page_pool *pool, bool high)
 {
+	struct ion_page_pool_item *item;
 	struct page *page;
 
 	if (high) {
 		BUG_ON(!pool->high_count);
-		page = list_first_entry(&pool->high_items, struct page, lru);
+		item = list_first_entry(&pool->high_items,
+					struct ion_page_pool_item, list);
 		pool->high_count--;
 	} else {
 		BUG_ON(!pool->low_count);
-		page = list_first_entry(&pool->low_items, struct page, lru);
+		item = list_first_entry(&pool->low_items,
+					struct ion_page_pool_item, list);
 		pool->low_count--;
 	}
 
-	list_del(&page->lru);
+	list_del(&item->list);
+	page = item->page;
+	kfree(item);
 	return page;
 }
 
@@ -135,10 +147,7 @@ int ion_page_pool_shrink(struct ion_page_pool *pool, gfp_t gfp_mask,
 	int i;
 	bool high;
 
-	if (current_is_kswapd())
-		high = 1;
-	else
-		high = !!(gfp_mask & __GFP_HIGHMEM);
+	high = gfp_mask & __GFP_HIGHMEM;
 
 	if (current_is_kswapd())
 		high = 1;
@@ -150,10 +159,10 @@ int ion_page_pool_shrink(struct ion_page_pool *pool, gfp_t gfp_mask,
 		struct page *page;
 
 		mutex_lock(&pool->mutex);
-		if (pool->low_count) {
-			page = ion_page_pool_remove(pool, false);
-		} else if (high && pool->high_count) {
+		if (high && pool->high_count) {
 			page = ion_page_pool_remove(pool, true);
+		} else if (pool->low_count) {
+			page = ion_page_pool_remove(pool, false);
 		} else {
 			mutex_unlock(&pool->mutex);
 			break;

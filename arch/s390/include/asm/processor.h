@@ -13,8 +13,6 @@
 #ifndef __ASM_S390_PROCESSOR_H
 #define __ASM_S390_PROCESSOR_H
 
-#ifndef __ASSEMBLY__
-
 #include <linux/linkage.h>
 #include <linux/irqflags.h>
 #include <asm/cpu.h>
@@ -175,8 +173,6 @@ static inline void cpu_relax(void)
 		asm volatile("diag 0,0,68");
 	barrier();
 }
-
-#define cpu_relax_lowlatency()  barrier()
 
 static inline void psw_set_key(unsigned int key)
 {
@@ -344,35 +340,23 @@ extern void (*s390_base_ext_handler_fn)(void);
 
 #define ARCH_LOW_ADDRESS_LIMIT	0x7fffffffUL
 
-extern int memcpy_real(void *, void *, size_t);
-extern void memcpy_absolute(void *, void *, size_t);
-
-#define mem_assign_absolute(dest, val) {			\
-	__typeof__(dest) __tmp = (val);				\
-								\
-	BUILD_BUG_ON(sizeof(__tmp) != sizeof(val));		\
-	memcpy_absolute(&(dest), &__tmp, sizeof(__tmp));	\
-}
+#endif
 
 /*
  * Helper macro for exception table entries
  */
-#define EX_TABLE(_fault, _target)	\
-	".section __ex_table,\"a\"\n"	\
-	".align	4\n"			\
-	".long	(" #_fault ") - .\n"	\
-	".long	(" #_target ") - .\n"	\
+#ifndef __s390x__
+#define EX_TABLE(_fault,_target)			\
+	".section __ex_table,\"a\"\n"			\
+	"	.align 4\n"				\
+	"	.long  " #_fault "," #_target "\n"	\
 	".previous\n"
+#else
+#define EX_TABLE(_fault,_target)			\
+	".section __ex_table,\"a\"\n"			\
+	"	.align 8\n"				\
+	"	.quad  " #_fault "," #_target "\n"	\
+	".previous\n"
+#endif
 
-#else /* __ASSEMBLY__ */
-
-#define EX_TABLE(_fault, _target)	\
-	.section __ex_table,"a"	;	\
-	.align	4 ;			\
-	.long	(_fault) - . ;		\
-	.long	(_target) - . ;		\
-	.previous
-
-#endif /* __ASSEMBLY__ */
-
-#endif /* __ASM_S390_PROCESSOR_H */
+#endif                                 /* __ASM_S390_PROCESSOR_H           */

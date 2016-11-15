@@ -14,8 +14,10 @@
 #include <linux/err.h>
 #include <linux/acct.h>
 #include <linux/slab.h>
-#include <linux/proc_ns.h>
+#include <linux/proc_fs.h>
 #include <linux/reboot.h>
+
+#define BITS_PER_PAGE		(PAGE_SIZE*8)
 
 struct pid_cache {
 	int nr_ids;
@@ -86,10 +88,6 @@ static struct pid_namespace *create_pid_namespace(struct pid_namespace *parent_p
 	if (ns->pid_cachep == NULL)
 		goto out_free_map;
 
-	err = proc_alloc_inum(&ns->proc_inum);
-	if (err)
-		goto out_free_map;
-
 	kref_init(&ns->kref);
 	ns->level = level;
 	ns->parent = get_pid_ns(parent_pid_ns);
@@ -120,7 +118,6 @@ static void destroy_pid_namespace(struct pid_namespace *ns)
 {
 	int i;
 
-	proc_free_inum(ns->proc_inum);
 	for (i = 0; i < PIDMAP_ENTRIES; i++)
 		kfree(ns->pidmap[i].page);
 	kmem_cache_free(pid_ns_cachep, ns);

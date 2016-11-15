@@ -624,8 +624,6 @@ struct qib_qpn_table {
 
 #define MAX_LKEY_TABLE_BITS 23
 
-#define MAX_LKEY_TABLE_BITS 23
-
 struct qib_lkey_table {
 	spinlock_t lock; /* protect changes in this struct */
 	u32 next;               /* next unused index (speeds search) */

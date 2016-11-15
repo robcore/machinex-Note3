@@ -319,14 +319,14 @@ static int tomoyo_file_fcntl(struct file *file, unsigned int cmd,
 }
 
 /**
- * tomoyo_file_open - Target for security_file_open().
+ * tomoyo_dentry_open - Target for security_dentry_open().
  *
  * @f:    Pointer to "struct file".
  * @cred: Pointer to "struct cred".
  *
  * Returns 0 on success, negative value otherwise.
  */
-static int tomoyo_file_open(struct file *f, const struct cred *cred)
+static int tomoyo_dentry_open(struct file *f, const struct cred *cred)
 {
 	int flags = f->f_flags;
 	/* Don't check read permission here if called from do_execve(). */
@@ -406,8 +406,8 @@ static int tomoyo_path_chroot(struct path *path)
  *
  * Returns 0 on success, negative value otherwise.
  */
-static int tomoyo_sb_mount(const char *dev_name, struct path *path,
-			   const char *type, unsigned long flags, void *data)
+static int tomoyo_sb_mount(char *dev_name, struct path *path,
+			   char *type, unsigned long flags, void *data)
 {
 	return tomoyo_mount_permission(dev_name, path, type, flags, data);
 }
@@ -510,7 +510,7 @@ static struct security_operations tomoyo_security_ops = {
 	.bprm_set_creds      = tomoyo_bprm_set_creds,
 	.bprm_check_security = tomoyo_bprm_check_security,
 	.file_fcntl          = tomoyo_file_fcntl,
-	.file_open           = tomoyo_file_open,
+	.dentry_open         = tomoyo_dentry_open,
 	.path_truncate       = tomoyo_path_truncate,
 	.path_unlink         = tomoyo_path_unlink,
 	.path_mkdir          = tomoyo_path_mkdir,

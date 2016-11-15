@@ -473,7 +473,7 @@ rpcrdma_ia_open(struct rpcrdma_xprt *xprt, struct sockaddr *addr, int memreg)
 		rc = PTR_ERR(ia->ri_pd);
 		dprintk("RPC:       %s: ib_alloc_pd() failed %i\n",
 			__func__, rc);
-		goto out3;
+		goto out2;
 	}
 
 	/*

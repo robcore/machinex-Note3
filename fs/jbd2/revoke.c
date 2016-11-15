@@ -91,9 +91,8 @@
 #include <linux/list.h>
 #include <linux/init.h>
 #include <linux/bio.h>
-#include <linux/log2.h>
-#include <linux/hash.h>
 #endif
+#include <linux/log2.h>
 
 static struct kmem_cache *jbd2_revoke_record_cache;
 static struct kmem_cache *jbd2_revoke_table_cache;
@@ -596,13 +595,9 @@ static void write_one_revoke_record(journal_t *journal,
 	descriptor = *descriptorp;
 	offset = *offsetp;
 
-	/* Do we need to leave space at the end for a checksum? */
-	if (jbd2_journal_has_csum_v2or3(journal))
-		csum_size = sizeof(struct jbd2_journal_revoke_tail);
-
 	/* Make sure we have a descriptor with space left for the record */
 	if (descriptor) {
-		if (offset >= journal->j_blocksize - csum_size) {
+		if (offset == journal->j_blocksize) {
 			flush_descriptor(journal, descriptor, offset, write_op);
 			descriptor = NULL;
 		}
@@ -637,21 +632,6 @@ static void write_one_revoke_record(journal_t *journal,
 	}
 
 	*offsetp = offset;
-}
-
-static void jbd2_revoke_csum_set(journal_t *j, struct buffer_head *bh)
-{
-	struct jbd2_journal_revoke_tail *tail;
-	__u32 csum;
-
-	if (!jbd2_journal_has_csum_v2or3(j))
-		return;
-
-	tail = (struct jbd2_journal_revoke_tail *)(bh->b_data + j->j_blocksize -
-			sizeof(struct jbd2_journal_revoke_tail));
-	tail->r_checksum = 0;
-	csum = jbd2_chksum(j, j->j_csum_seed, bh->b_data, j->j_blocksize);
-	tail->r_checksum = cpu_to_be32(csum);
 }
 
 /*

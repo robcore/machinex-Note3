@@ -32,6 +32,8 @@
 #include "compat_ptrace.h"
 #include "entry.h"
 
+#define _BLOCKABLE (~(sigmask(SIGKILL) | sigmask(SIGSTOP)))
+
 typedef struct 
 {
 	__u8 callee_used_stack[__SIGNAL_FRAMESIZE32];
@@ -366,6 +368,7 @@ asmlinkage long sys32_sigreturn(void)
 		goto badframe;
 	if (__copy_from_user(&set.sig, &frame->sc.oldmask, _SIGMASK_COPY_SIZE32))
 		goto badframe;
+	sigdelsetmask(&set, ~_BLOCKABLE);
 	set_current_blocked(&set);
 	if (restore_sigregs32(regs, &frame->sregs))
 		goto badframe;
@@ -391,6 +394,7 @@ asmlinkage long sys32_rt_sigreturn(void)
 		goto badframe;
 	if (__copy_from_user(&set, &frame->uc.uc_sigmask, sizeof(set)))
 		goto badframe;
+	sigdelsetmask(&set, ~_BLOCKABLE);
 	set_current_blocked(&set);
 	if (restore_sigregs32(regs, &frame->uc.uc_mcontext))
 		goto badframe;
@@ -585,7 +589,7 @@ give_sigsegv:
  * OK, we're invoking a handler
  */	
 
-void handle_signal32(unsigned long sig, struct k_sigaction *ka,
+int handle_signal32(unsigned long sig, struct k_sigaction *ka,
 		    siginfo_t *info, sigset_t *oldset, struct pt_regs *regs)
 {
 	int ret;
@@ -596,8 +600,8 @@ void handle_signal32(unsigned long sig, struct k_sigaction *ka,
 	else
 		ret = setup_frame32(sig, ka, oldset, regs);
 	if (ret)
-		return;
-	signal_delivered(sig, info, ka, regs,
-				 test_thread_flag(TIF_SINGLE_STEP));
+		return ret;
+	block_sigmask(ka, sig);
+	return 0;
 }
 

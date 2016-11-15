@@ -153,6 +153,13 @@ EXPORT_SYMBOL(snd_seq_root);
 struct snd_info_entry *snd_oss_root;
 #endif
 
+static void snd_remove_proc_entry(struct proc_dir_entry *parent,
+				  struct proc_dir_entry *de)
+{
+	if (de)
+		remove_proc_entry(de->name, parent);
+}
+
 static loff_t snd_info_entry_llseek(struct file *file, loff_t offset, int orig)
 {
 	struct snd_info_private_data *data;
@@ -303,10 +310,12 @@ static int snd_info_entry_open(struct inode *inode, struct file *file)
 	struct snd_info_entry *entry;
 	struct snd_info_private_data *data;
 	struct snd_info_buffer *buffer;
+	struct proc_dir_entry *p;
 	int mode, err;
 
 	mutex_lock(&info_mutex);
-	entry = PDE_DATA(inode);
+	p = PDE(inode);
+	entry = p == NULL ? NULL : (struct snd_info_entry *)p->data;
 	if (entry == NULL || ! entry->p) {
 		mutex_unlock(&info_mutex);
 		return -ENODEV;
@@ -487,7 +496,7 @@ static long snd_info_entry_ioctl(struct file *file, unsigned int cmd,
 
 static int snd_info_entry_mmap(struct file *file, struct vm_area_struct *vma)
 {
-	struct inode *inode = file_inode(file);
+	struct inode *inode = file->f_path.dentry->d_inode;
 	struct snd_info_private_data *data;
 	struct snd_info_entry *entry;
 
@@ -573,7 +582,7 @@ int __exit snd_info_done(void)
 #ifdef CONFIG_SND_OSSEMUL
 		snd_info_free_entry(snd_oss_root);
 #endif
-		proc_remove(snd_proc_root);
+		snd_remove_proc_entry(NULL, snd_proc_root);
 	}
 	return 0;
 }
@@ -635,7 +644,7 @@ void snd_info_card_id_change(struct snd_card *card)
 {
 	mutex_lock(&info_mutex);
 	if (card->proc_root_link) {
-		proc_remove(card->proc_root_link);
+		snd_remove_proc_entry(snd_proc_root, card->proc_root_link);
 		card->proc_root_link = NULL;
 	}
 	if (strcmp(card->id, card->proc_root->name))
@@ -654,8 +663,10 @@ void snd_info_card_disconnect(struct snd_card *card)
 	if (!card)
 		return;
 	mutex_lock(&info_mutex);
-	proc_remove(card->proc_root_link);
-	card->proc_root_link = NULL;
+	if (card->proc_root_link) {
+		snd_remove_proc_entry(snd_proc_root, card->proc_root_link);
+		card->proc_root_link = NULL;
+	}
 	if (card->proc_root)
 		snd_info_disconnect(card->proc_root);
 	mutex_unlock(&info_mutex);
@@ -847,7 +858,7 @@ static void snd_info_disconnect(struct snd_info_entry *entry)
 	list_del_init(&entry->list);
 	root = entry->parent == NULL ? snd_proc_root : entry->parent->p;
 	snd_BUG_ON(!root);
-	proc_remove(entry->p);
+	snd_remove_proc_entry(root, entry->p);
 	entry->p = NULL;
 }
 
@@ -948,21 +959,15 @@ int snd_info_register(struct snd_info_entry * entry)
 		return -ENXIO;
 	root = entry->parent == NULL ? snd_proc_root : entry->parent->p;
 	mutex_lock(&info_mutex);
-	if (S_ISDIR(entry->mode)) {
-		p = proc_mkdir_mode(entry->name, entry->mode, root);
-		if (!p) {
-			mutex_unlock(&info_mutex);
-			return -ENOMEM;
-		}
-	} else {
-		p = proc_create_data(entry->name, entry->mode, root,
-					&snd_info_entry_operations, entry);
-		if (!p) {
-			mutex_unlock(&info_mutex);
-			return -ENOMEM;
-		}
-		proc_set_size(p, entry->size);
+	p = create_proc_entry(entry->name, entry->mode, root);
+	if (!p) {
+		mutex_unlock(&info_mutex);
+		return -ENOMEM;
 	}
+	if (!S_ISDIR(entry->mode))
+		p->proc_fops = &snd_info_entry_operations;
+	p->size = entry->size;
+	p->data = entry;
 	entry->p = p;
 	if (entry->parent)
 		list_add_tail(&entry->list, &entry->parent->children);

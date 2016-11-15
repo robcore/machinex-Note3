@@ -1,4 +1,15 @@
+# Select this to activate the generic irq options below
+config HAVE_GENERIC_HARDIRQS
+	bool
+
+if HAVE_GENERIC_HARDIRQS
 menu "IRQ subsystem"
+#
+# Interrupt subsystem related configuration options
+#
+config GENERIC_HARDIRQS
+       def_bool y
+
 # Options selectable by the architecture code
 
 # Make sparse irq Kconfig switch below available
@@ -16,16 +27,6 @@ config GENERIC_IRQ_SHOW
 # Print level/edge extra information
 config GENERIC_IRQ_SHOW_LEVEL
        bool
-
-# Print wakeup count extra information
-config GENERIC_IRQ_SHOW_WAKEUP_COUNT
-	bool "Show extra wakeup count irq information"
-	depends on GENERIC_IRQ_SHOW
-	help
-	  This option will show the wakeup count extra information to
-	  the user through /proc/interrupts interface.
-
-	  If you don't know what to do here, say N.
 
 # Support for delayed migration from interrupt context
 config GENERIC_PENDING_IRQ
@@ -84,3 +85,4 @@ config SPARSE_IRQ
 	  If you don't know what to do here, say N.
 
 endmenu
+endif

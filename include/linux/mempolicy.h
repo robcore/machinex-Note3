@@ -59,7 +59,6 @@ enum mpol_rebind_step {
 #define MPOL_F_SHARED  (1 << 0)	/* identify shared policies */
 #define MPOL_F_LOCAL   (1 << 1)	/* preferred local allocation */
 #define MPOL_F_REBINDING (1 << 2)	/* identify policies in rebinding */
-#define MPOL_F_MOF	(1 << 3) /* this policy wants migrate on fault */
 
 #ifdef __KERNEL__
 
@@ -179,7 +178,7 @@ struct sp_node {
 
 struct shared_policy {
 	struct rb_root root;
-	rwlock_t lock;
+	struct mutex mutex;
 };
 
 void mpol_shared_policy_init(struct shared_policy *sp, struct mempolicy *mpol);
@@ -216,20 +215,21 @@ static inline void check_highest_zone(enum zone_type k)
 		policy_zone = k;
 }
 
-int do_migrate_pages(struct mm_struct *mm, const nodemask_t *from,
-		     const nodemask_t *to, int flags);
+int do_migrate_pages(struct mm_struct *mm,
+	const nodemask_t *from_nodes, const nodemask_t *to_nodes, int flags);
 
 
 #ifdef CONFIG_TMPFS
-extern int mpol_parse_str(char *str, struct mempolicy **mpol);
+extern int mpol_parse_str(char *str, struct mempolicy **mpol, int no_context);
 #endif
 
-extern int mpol_to_str(char *buffer, int maxlen, struct mempolicy *pol);
+extern int mpol_to_str(char *buffer, int maxlen, struct mempolicy *pol,
+			int no_context);
 
 /* Check if a vma is migratable */
 static inline int vma_migratable(struct vm_area_struct *vma)
 {
-	if (vma->vm_flags & (VM_IO | VM_HUGETLB | VM_PFNMAP))
+	if (vma->vm_flags & (VM_IO|VM_HUGETLB|VM_PFNMAP|VM_RESERVED))
 		return 0;
 	/*
 	 * Migration allocates pages in the highest zone. If we cannot
@@ -242,8 +242,6 @@ static inline int vma_migratable(struct vm_area_struct *vma)
 			return 0;
 	return 1;
 }
-
-extern int mpol_misplaced(struct page *, struct vm_area_struct *, unsigned long);
 
 #else
 
@@ -340,8 +338,9 @@ static inline bool mempolicy_nodemask_intersects(struct task_struct *tsk,
 	return false;
 }
 
-static inline int do_migrate_pages(struct mm_struct *mm, const nodemask_t *from,
-				   const nodemask_t *to, int flags)
+static inline int do_migrate_pages(struct mm_struct *mm,
+			const nodemask_t *from_nodes,
+			const nodemask_t *to_nodes, int flags)
 {
 	return 0;
 }
@@ -351,21 +350,17 @@ static inline void check_highest_zone(int k)
 }
 
 #ifdef CONFIG_TMPFS
-static inline int mpol_parse_str(char *str, struct mempolicy **mpol)
+static inline int mpol_parse_str(char *str, struct mempolicy **mpol,
+				int no_context)
 {
 	return 1;	/* error */
 }
 #endif
 
-static inline int mpol_to_str(char *buffer, int maxlen, struct mempolicy *pol)
+static inline int mpol_to_str(char *buffer, int maxlen, struct mempolicy *pol,
+				int no_context)
 {
 	return 0;
-}
-
-static inline int mpol_misplaced(struct page *page, struct vm_area_struct *vma,
-				 unsigned long address)
-{
-	return -1; /* no node preference */
 }
 
 #endif /* CONFIG_NUMA */

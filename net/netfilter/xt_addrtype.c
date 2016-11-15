@@ -22,7 +22,6 @@
 #include <net/ip6_fib.h>
 #endif
 
-#include <linux/netfilter_ipv6.h>
 #include <linux/netfilter/xt_addrtype.h>
 #include <linux/netfilter/x_tables.h>
 
@@ -34,12 +33,12 @@ MODULE_ALIAS("ip6t_addrtype");
 
 #if IS_ENABLED(CONFIG_IP6_NF_IPTABLES)
 static u32 match_lookup_rt6(struct net *net, const struct net_device *dev,
-			    const struct in6_addr *addr, u16 mask)
+			    const struct in6_addr *addr)
 {
 	const struct nf_afinfo *afinfo;
 	struct flowi6 flow;
 	struct rt6_info *rt;
-	u32 ret = 0;
+	u32 ret;
 	int route_err;
 
 	memset(&flow, 0, sizeof(flow));
@@ -50,19 +49,12 @@ static u32 match_lookup_rt6(struct net *net, const struct net_device *dev,
 	rcu_read_lock();
 
 	afinfo = nf_get_afinfo(NFPROTO_IPV6);
-	if (afinfo != NULL) {
-		const struct nf_ipv6_ops *v6ops;
-
-		if (dev && (mask & XT_ADDRTYPE_LOCAL)) {
-			v6ops = nf_get_ipv6_ops();
-			if (v6ops && v6ops->chk_addr(net, addr, dev, true))
-				ret = XT_ADDRTYPE_LOCAL;
-		}
+	if (afinfo != NULL)
 		route_err = afinfo->route(net, (struct dst_entry **)&rt,
-					  flowi6_to_flowi(&flow), false);
-	} else {
+					flowi6_to_flowi(&flow), !!dev);
+	else
 		route_err = 1;
-	}
+
 	rcu_read_unlock();
 
 	if (route_err)
@@ -70,7 +62,10 @@ static u32 match_lookup_rt6(struct net *net, const struct net_device *dev,
 
 	if (rt->rt6i_flags & RTF_REJECT)
 		ret = XT_ADDRTYPE_UNREACHABLE;
-	if (dev == NULL && rt->rt6i_flags & RTF_LOCAL)
+	else
+		ret = 0;
+
+	if (rt->rt6i_flags & RTF_LOCAL)
 		ret |= XT_ADDRTYPE_LOCAL;
 	if (rt->rt6i_flags & RTF_ANYCAST)
 		ret |= XT_ADDRTYPE_ANYCAST;
@@ -95,7 +90,7 @@ static bool match_type6(struct net *net, const struct net_device *dev,
 
 	if ((XT_ADDRTYPE_LOCAL | XT_ADDRTYPE_ANYCAST |
 	     XT_ADDRTYPE_UNREACHABLE) & mask)
-		return !!(mask & match_lookup_rt6(net, dev, addr, mask));
+		return !!(mask & match_lookup_rt6(net, dev, addr));
 	return true;
 }
 

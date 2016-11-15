@@ -56,9 +56,6 @@ extern int strncasecmp(const char *s1, const char *s2, size_t n);
 #ifndef __HAVE_ARCH_STRCHR
 extern char * strchr(const char *,int);
 #endif
-#ifndef __HAVE_ARCH_STRCHRNUL
-extern char * strchrnul(const char *,int);
-#endif
 #ifndef __HAVE_ARCH_STRNCHR
 extern char * strnchr(const char *, size_t, int);
 #endif
@@ -118,7 +115,6 @@ extern int memcmp(const void *,const void *,__kernel_size_t);
 extern void * memchr(const void *,int,__kernel_size_t);
 #endif
 void *memchr_inv(const void *s, int c, size_t n);
-char *strreplace(char *s, char old, char new);
 
 extern char *kstrdup(const char *s, gfp_t gfp);
 extern char *kstrndup(const char *s, size_t len, gfp_t gfp);
@@ -149,19 +145,9 @@ static inline bool strstarts(const char *str, const char *prefix)
 	return strncmp(str, prefix, strlen(prefix)) == 0;
 }
 
-size_t memweight(const void *ptr, size_t bytes);
 void memzero_explicit(void *s, size_t count);
 #endif
 
-/**
- * kbasename - return the last part of a pathname.
- *
- * @path: path to extract the filename from.
- */
-static inline const char *kbasename(const char *path)
-{
-	const char *tail = strrchr(path, '/');
-	return tail ? tail + 1 : path;
-}
+extern size_t memweight(const void *ptr, size_t bytes);
 
 #endif /* _LINUX_STRING_H_ */

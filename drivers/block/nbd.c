@@ -625,7 +625,7 @@ static int __nbd_ioctl(struct block_device *bdev, struct nbd_device *nbd,
 			return -EBUSY;
 		file = fget(arg);
 		if (file) {
-			struct inode *inode = file_inode(file);
+			struct inode *inode = file->f_path.dentry->d_inode;
 			if (S_ISSOCK(inode->i_mode)) {
 				nbd->file = file;
 				nbd->sock = SOCKET_I(inode);
@@ -798,10 +798,6 @@ static int __init nbd_init(void)
 	if (!nbd_dev)
 		return -ENOMEM;
 
-	nbd_dev = kcalloc(nbds_max, sizeof(*nbd_dev), GFP_KERNEL);
-	if (!nbd_dev)
-		return -ENOMEM;
-
 	for (i = 0; i < nbds_max; i++) {
 		struct gendisk *disk = alloc_disk(1 << part_shift);
 		if (!disk)
@@ -821,7 +817,6 @@ static int __init nbd_init(void)
 		 * Tell the block layer that we are not a rotational device
 		 */
 		queue_flag_set_unlocked(QUEUE_FLAG_NONROT, disk->queue);
-		queue_flag_clear_unlocked(QUEUE_FLAG_ADD_RANDOM, disk->queue);
 	}
 
 	if (register_blkdev(NBD_MAJOR, "nbd")) {

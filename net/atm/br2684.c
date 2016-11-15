@@ -73,7 +73,7 @@ struct br2684_vcc {
 #ifdef CONFIG_ATM_BR2684_IPFILTER
 	struct br2684_filter filter;
 #endif /* CONFIG_ATM_BR2684_IPFILTER */
-	unsigned int copies_needed, copies_failed;
+	unsigned copies_needed, copies_failed;
 };
 
 struct br2684_dev {

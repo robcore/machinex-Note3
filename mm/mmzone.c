@@ -54,7 +54,8 @@ static inline int zref_in_nodemask(struct zoneref *zref, nodemask_t *nodes)
 /* Returns the next zone at or below highest_zoneidx in a zonelist */
 struct zoneref *next_zones_zonelist(struct zoneref *z,
 					enum zone_type highest_zoneidx,
-					nodemask_t *nodes)
+					nodemask_t *nodes,
+					struct zone **zone)
 {
 	/*
 	 * Find the next suitable zone to use for the allocation.
@@ -68,6 +69,7 @@ struct zoneref *next_zones_zonelist(struct zoneref *z,
 				(z->zone && !zref_in_nodemask(z, nodes)))
 			z++;
 
+	*zone = zonelist_zone(z);
 	return z;
 }
 
@@ -84,31 +86,3 @@ int memmap_valid_within(unsigned long pfn,
 	return 1;
 }
 #endif /* CONFIG_ARCH_HAS_HOLES_MEMORYMODEL */
-
-void lruvec_init(struct lruvec *lruvec)
-{
-	enum lru_list lru;
-
-	memset(lruvec, 0, sizeof(struct lruvec));
-
-	for_each_lru(lru)
-		INIT_LIST_HEAD(&lruvec->lists[lru]);
-}
-
-#if defined(CONFIG_NUMA_BALANCING) && !defined(LAST_NID_NOT_IN_PAGE_FLAGS)
-int page_nid_xchg_last(struct page *page, int nid)
-{
-	unsigned long old_flags, flags;
-	int last_nid;
-
-	do {
-		old_flags = flags = page->flags;
-		last_nid = page_nid_last(page);
-
-		flags &= ~(LAST_NID_MASK << LAST_NID_PGSHIFT);
-		flags |= (nid & LAST_NID_MASK) << LAST_NID_PGSHIFT;
-	} while (unlikely(cmpxchg(&page->flags, old_flags, flags) != old_flags));
-
-	return last_nid;
-}
-#endif

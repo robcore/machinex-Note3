@@ -77,8 +77,7 @@ struct kgsl_pwr_constraint {
  * @irq_name - resource name for the IRQ
  * @clk_stats - structure of clock statistics
  * @pm_qos_req_dma - the power management quality of service structure
- * @pm_qos_active_latency - allowed CPU latency in microseconds when active
- * @pm_qos_wakeup_latency - allowed CPU latency in microseconds during wakeup
+ * @pm_qos_latency - allowed CPU latency in microseconds
  * @bus_control - true if the bus calculation is independent
  * @bus_index - default bus index into the bus_ib table
  * @bus_ib - the set of unique ib requests needed for the bus calculation
@@ -93,10 +92,9 @@ struct kgsl_pwrctrl {
 	unsigned long ctrl_flags;
 	struct kgsl_pwrlevel pwrlevels[KGSL_MAX_PWRLEVELS];
 	unsigned int active_pwrlevel;
-	unsigned int thermal_pwrlevel;
+	int thermal_pwrlevel;
 	unsigned int default_pwrlevel;
 	unsigned int init_pwrlevel;
-	unsigned int wakeup_maxpwrlevel;
 	unsigned int max_pwrlevel;
 	unsigned int min_pwrlevel;
 	unsigned int num_pwrlevels;
@@ -107,10 +105,10 @@ struct kgsl_pwrctrl {
 	uint32_t pcl;
 	unsigned int idle_needed;
 	const char *irq_name;
+	bool irq_last;
 	struct kgsl_clk_stats clk_stats;
 	struct pm_qos_request pm_qos_req_dma;
-	unsigned int pm_qos_active_latency;
-	unsigned int pm_qos_wakeup_latency;
+	unsigned int pm_qos_latency;
 	bool bus_control;
 	int bus_mod;
 	unsigned int bus_index[KGSL_MAX_PWRLEVELS];
@@ -157,8 +155,8 @@ void kgsl_pwrctrl_set_state(struct kgsl_device *device, unsigned int state);
 void kgsl_pwrctrl_request_state(struct kgsl_device *device, unsigned int state);
 
 int __must_check kgsl_active_count_get(struct kgsl_device *device);
+int __must_check kgsl_active_count_get_light(struct kgsl_device *device);
 void kgsl_active_count_put(struct kgsl_device *device);
 int kgsl_active_count_wait(struct kgsl_device *device, int count);
-void kgsl_pwrctrl_busy_time(struct kgsl_device *device, u64 time, u64 busy);
 
 #endif /* __KGSL_PWRCTRL_H */

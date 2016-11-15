@@ -31,7 +31,11 @@
 void show_regs(struct pt_regs * regs)
 {
 	printk("\n");
-	show_regs_print_info(KERN_DEFAULT);
+	printk("Pid : %d, Comm: \t\t%s\n", task_pid_nr(current), current->comm);
+	printk("CPU : %d        \t\t%s  (%s %.*s)\n\n",
+	       smp_processor_id(), print_tainted(), init_utsname()->release,
+	       (int)strcspn(init_utsname()->version, " "),
+	       init_utsname()->version);
 
 	print_symbol("PC is at %s\n", instruction_pointer(regs));
 	print_symbol("PR is at %s\n", regs->pr);
@@ -289,14 +293,14 @@ asmlinkage int sys_execve(const char __user *ufilename,
 {
 	struct pt_regs *regs = RELOC_HIDE(&__regs, 0);
 	int error;
-	struct filename *filename;
+	char *filename;
 
 	filename = getname(ufilename);
 	error = PTR_ERR(filename);
 	if (IS_ERR(filename))
 		goto out;
 
-	error = do_execve(filename->name, uargv, uenvp, regs);
+	error = do_execve(filename, uargv, uenvp, regs);
 	putname(filename);
 out:
 	return error;

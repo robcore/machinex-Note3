@@ -23,13 +23,13 @@
 #include <linux/memblock.h>
 #include <linux/sort.h>
 #include <linux/dma-contiguous.h>
-#include <linux/sizes.h>
 
 #include <asm/mach-types.h>
 #include <asm/memblock.h>
 #include <asm/prom.h>
 #include <asm/sections.h>
 #include <asm/setup.h>
+#include <asm/sizes.h>
 #include <asm/tlb.h>
 #include <asm/fixmap.h>
 #include <asm/cputype.h>
@@ -81,7 +81,7 @@ static int __init parse_tag_initrd2(const struct tag *tag)
 __tagtable(ATAG_INITRD2, parse_tag_initrd2);
 
 #ifdef CONFIG_OF_FLATTREE
-void __init early_init_dt_setup_initrd_arch(u64 start, u64 end)
+void __init early_init_dt_setup_initrd_arch(unsigned long start, unsigned long end)
 {
 	phys_initrd_start = start;
 	phys_initrd_size = end - start;
@@ -242,7 +242,7 @@ static void __init arm_adjust_dma_zone(unsigned long *size, unsigned long *hole,
 }
 #endif
 
-void __init setup_dma_zone(const struct machine_desc *mdesc)
+void __init setup_dma_zone(struct machine_desc *mdesc)
 {
 #ifdef CONFIG_ZONE_DMA
 	if (mdesc->dma_zone_size) {
@@ -378,7 +378,85 @@ static int __init meminfo_cmp(const void *_a, const void *_b)
 	return cmp < 0 ? -1 : cmp > 0 ? 1 : 0;
 }
 
-void __init arm_memblock_init(struct meminfo *mi, const struct machine_desc *mdesc)
+phys_addr_t memory_hole_offset;
+EXPORT_SYMBOL(memory_hole_offset);
+phys_addr_t memory_hole_start;
+EXPORT_SYMBOL(memory_hole_start);
+phys_addr_t memory_hole_end;
+EXPORT_SYMBOL(memory_hole_end);
+unsigned long memory_hole_align;
+EXPORT_SYMBOL(memory_hole_align);
+unsigned long virtual_hole_start;
+unsigned long virtual_hole_end;
+
+#ifdef CONFIG_DONT_MAP_HOLE_AFTER_MEMBANK0
+void find_memory_hole(void)
+{
+	int i;
+	phys_addr_t hole_start;
+	phys_addr_t hole_size;
+	unsigned long hole_end_virt;
+
+	/*
+	 * Find the start and end of the hole, using meminfo.
+	 */
+	for (i = 0; i < (meminfo.nr_banks - 1); i++) {
+		if ((meminfo.bank[i].start + meminfo.bank[i].size) !=
+						meminfo.bank[i+1].start) {
+			if (meminfo.bank[i].start + meminfo.bank[i].size
+							<= MAX_HOLE_ADDRESS) {
+
+				hole_start = meminfo.bank[i].start +
+							meminfo.bank[i].size;
+				hole_size = meminfo.bank[i+1].start -
+								hole_start;
+
+				if (memory_hole_start == 0 &&
+							memory_hole_end == 0) {
+					memory_hole_start = hole_start;
+					memory_hole_end = hole_start +
+								hole_size;
+				} else if ((memory_hole_end -
+					memory_hole_start) <= hole_size) {
+					memory_hole_start = hole_start;
+					memory_hole_end = hole_start +
+								hole_size;
+				}
+			}
+		}
+	}
+
+	memory_hole_offset = memory_hole_start - PHYS_OFFSET;
+	if (!IS_ALIGNED(memory_hole_start, SECTION_SIZE)) {
+		pr_err("memory_hole_start %pa is not aligned to %lx\n",
+			&memory_hole_start, SECTION_SIZE);
+		BUG();
+	}
+	if (!IS_ALIGNED(memory_hole_end, SECTION_SIZE)) {
+		pr_err("memory_hole_end %pa is not aligned to %lx\n",
+			&memory_hole_end, SECTION_SIZE);
+		BUG();
+	}
+
+	hole_end_virt = __phys_to_virt(memory_hole_end);
+
+	if ((!IS_ALIGNED(hole_end_virt, PMD_SIZE) &&
+	     IS_ALIGNED(memory_hole_end, PMD_SIZE)) ||
+	     (IS_ALIGNED(hole_end_virt, PMD_SIZE) &&
+	      !IS_ALIGNED(memory_hole_end, PMD_SIZE))) {
+		memory_hole_align = !IS_ALIGNED(hole_end_virt, PMD_SIZE) ?
+					hole_end_virt & ~PMD_MASK :
+					memory_hole_end & ~PMD_MASK;
+		virtual_hole_start = hole_end_virt;
+		virtual_hole_end = hole_end_virt + memory_hole_align;
+		pr_info("Physical memory hole is not aligned. There will be a virtual memory hole from %lx to %lx\n",
+			virtual_hole_start, virtual_hole_end);
+	}
+}
+
+#endif
+
+void __init arm_memblock_init(struct meminfo *mi, struct machine_desc *mdesc)
 {
 	int i;
 
@@ -419,6 +497,7 @@ void __init arm_memblock_init(struct meminfo *mi, const struct machine_desc *mde
 #endif
 
 	arm_mm_memblock_reserve();
+	arm_dt_memblock_reserve();
 
 	/* reserve any platform specific memblock areas */
 	if (mdesc->reserve)
@@ -431,8 +510,6 @@ void __init arm_memblock_init(struct meminfo *mi, const struct machine_desc *mde
 	memblock_reserve(0x0, PAGE_SIZE);
 #endif
 #endif
-
-	early_init_fdt_scan_reserved_mem();
 
 	/*
 	 * reserve memory for DMA contigouos allocations,
@@ -943,15 +1020,4 @@ static int __init msm_krait_wfe_init(void)
 	return 0;
 }
 pure_initcall(msm_krait_wfe_init);
-#endif
-
-#ifdef CONFIG_KERNEL_TEXT_RDONLY
-void set_kernel_text_ro(void)
-{
-	unsigned long start = PFN_ALIGN(_stext);
-	unsigned long end = PFN_ALIGN(_etext);
-
-	/* Set the kernel identity mapping for text RO. */
-	set_memory_ro(start, (end - start) >> PAGE_SHIFT);
-}
 #endif

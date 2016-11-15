@@ -96,7 +96,6 @@ struct osf_dirent {
 };
 
 struct osf_dirent_callback {
-	struct dir_context ctx;
 	struct osf_dirent __user *dirent;
 	long __user *basep;
 	unsigned int count;
@@ -146,24 +145,27 @@ SYSCALL_DEFINE4(osf_getdirentries, unsigned int, fd,
 		long __user *, basep)
 {
 	int error;
-	struct fd arg = fdget(fd);
-	struct osf_dirent_callback buf = {
-		.ctx.actor = osf_filldir,
-		.dirent = dirent,
-		.basep = basep,
-		.count = count
-	};
+	struct file *file;
+	struct osf_dirent_callback buf;
 
-	if (!arg.file)
-		return -EBADF;
+	error = -EBADF;
+	file = fget(fd);
+	if (!file)
+		goto out;
 
-	error = iterate_dir(arg.file, &buf.ctx);
+	buf.dirent = dirent;
+	buf.basep = basep;
+	buf.count = count;
+	buf.error = 0;
+
+	error = vfs_readdir(file, osf_filldir, &buf);
 	if (error >= 0)
 		error = buf.error;
 	if (count != buf.count)
 		error = count - buf.count;
 
-	fdput(arg);
+	fput(file);
+ out:
 	return error;
 }
 
@@ -287,7 +289,7 @@ osf_ufs_mount(char *dirname, struct ufs_args __user *args, int flags)
 {
 	int retval;
 	struct cdfs_args tmp;
-	struct filename *devname;
+	char *devname;
 
 	retval = -EFAULT;
 	if (copy_from_user(&tmp, args, sizeof(tmp)))
@@ -296,7 +298,7 @@ osf_ufs_mount(char *dirname, struct ufs_args __user *args, int flags)
 	retval = PTR_ERR(devname);
 	if (IS_ERR(devname))
 		goto out;
-	retval = do_mount(devname->name, dirname, "ext2", flags, NULL);
+	retval = do_mount(devname, dirname, "ext2", flags, NULL);
 	putname(devname);
  out:
 	return retval;
@@ -307,7 +309,7 @@ osf_cdfs_mount(char *dirname, struct cdfs_args __user *args, int flags)
 {
 	int retval;
 	struct cdfs_args tmp;
-	struct filename *devname;
+	char *devname;
 
 	retval = -EFAULT;
 	if (copy_from_user(&tmp, args, sizeof(tmp)))
@@ -316,7 +318,7 @@ osf_cdfs_mount(char *dirname, struct cdfs_args __user *args, int flags)
 	retval = PTR_ERR(devname);
 	if (IS_ERR(devname))
 		goto out;
-	retval = do_mount(devname->name, dirname, "iso9660", flags, NULL);
+	retval = do_mount(devname, dirname, "iso9660", flags, NULL);
 	putname(devname);
  out:
 	return retval;
@@ -337,7 +339,7 @@ SYSCALL_DEFINE4(osf_mount, unsigned long, typenr, const char __user *, path,
 		int, flag, void __user *, data)
 {
 	int retval;
-	struct filename *name;
+	char *name;
 
 	name = getname(path);
 	retval = PTR_ERR(name);
@@ -345,13 +347,13 @@ SYSCALL_DEFINE4(osf_mount, unsigned long, typenr, const char __user *, path,
 		goto out;
 	switch (typenr) {
 	case 1:
-		retval = osf_ufs_mount(name->name, data, flag);
+		retval = osf_ufs_mount(name, data, flag);
 		break;
 	case 6:
-		retval = osf_cdfs_mount(name->name, data, flag);
+		retval = osf_cdfs_mount(name, data, flag);
 		break;
 	case 9:
-		retval = osf_procfs_mount(name->name, data, flag);
+		retval = osf_procfs_mount(name, data, flag);
 		break;
 	default:
 		retval = -EINVAL;
@@ -1238,52 +1240,3 @@ SYSCALL_DEFINE3(osf_writev, unsigned long, fd,
 }
 
 #endif
-
-SYSCALL_DEFINE2(osf_getpriority, int, which, int, who)
-{
-	int prio = sys_getpriority(which, who);
-	if (prio >= 0) {
-		/* Return value is the unbiased priority, i.e. 20 - prio.
-		   This does result in negative return values, so signal
-		   no error */
-		force_successful_syscall_return();
-		prio = 20 - prio;
-	}
-	return prio;
-}
-
-SYSCALL_DEFINE0(getxuid)
-{
-	current_pt_regs()->r20 = sys_geteuid();
-	return sys_getuid();
-}
-
-SYSCALL_DEFINE0(getxgid)
-{
-	current_pt_regs()->r20 = sys_getegid();
-	return sys_getgid();
-}
-
-SYSCALL_DEFINE0(getxpid)
-{
-	current_pt_regs()->r20 = sys_getppid();
-	return sys_getpid();
-}
-
-SYSCALL_DEFINE0(alpha_pipe)
-{
-	int fd[2];
-	int res = do_pipe_flags(fd, 0);
-	if (!res) {
-		/* The return values are in $0 and $20.  */
-		current_pt_regs()->r20 = fd[1];
-		res = fd[0];
-	}
-	return res;
-}
-
-SYSCALL_DEFINE1(sethae, unsigned long, val)
-{
-	current_pt_regs()->hae = val;
-	return 0;
-}

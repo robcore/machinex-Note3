@@ -1098,7 +1098,7 @@ static void audit_log_rule_change(uid_t loginuid, u32 sessionid, u32 sid,
  * @sessionid: sessionid for netlink audit message
  * @sid: SE Linux Security ID of sender
  */
-int audit_receive_filter(int type, int pid, int seq, void *data,
+int audit_receive_filter(int type, int pid, int uid, int seq, void *data,
 			 size_t datasz, uid_t loginuid, u32 sessionid, u32 sid)
 {
 	struct task_struct *tsk;
@@ -1198,64 +1198,46 @@ int audit_comparator(u32 left, u32 op, u32 right)
 	}
 }
 
-/**
- * parent_len - find the length of the parent portion of a pathname
- * @path: pathname of which to determine length
- */
-int parent_len(const char *path)
+/* Compare given dentry name with last component in given path,
+ * return of 0 indicates a match. */
+int audit_compare_dname_path(const char *dname, const char *path,
+			     int *dirlen)
 {
-	int plen;
+	int dlen, plen;
 	const char *p;
 
-	plen = strlen(path);
+	if (!dname || !path)
+		return 1;
 
-	if (plen == 0)
-		return plen;
+	dlen = strlen(dname);
+	plen = strlen(path);
+	if (plen < dlen)
+		return 1;
 
 	/* disregard trailing slashes */
 	p = path + plen - 1;
 	while ((*p == '/') && (p > path))
 		p--;
 
-	/* walk backward until we find the next slash or hit beginning */
-	while ((*p != '/') && (p > path))
-		p--;
-
-	/* did we find a slash? Then increment to include it in path */
-	if (*p == '/')
-		p++;
-
-	return p - path;
-}
-
-/**
- * audit_compare_dname_path - compare given dentry name with last component in
- * 			      given path. Return of 0 indicates a match.
- * @dname:	dentry name that we're comparing
- * @path:	full pathname that we're comparing
- * @parentlen:	length of the parent if known. Passing in AUDIT_NAME_FULL
- * 		here indicates that we must compute this value.
- */
-int audit_compare_dname_path(const char *dname, const char *path, int parentlen)
-{
-	int dlen, pathlen;
-	const char *p;
-
-	dlen = strlen(dname);
-	pathlen = strlen(path);
-	if (pathlen < dlen)
+	/* find last path component */
+	p = p - dlen + 1;
+	if (p < path)
 		return 1;
+	else if (p > path) {
+		if (*--p != '/')
+			return 1;
+		else
+			p++;
+	}
 
-	parentlen = parentlen == AUDIT_NAME_FULL ? parent_len(path) : parentlen;
-	if (pathlen - parentlen != dlen)
-		return 1;
-
-	p = path + parentlen;
-
+	/* return length of path's directory component */
+	if (dirlen)
+		*dirlen = p - path;
 	return strncmp(p, dname, dlen);
 }
 
-static int audit_filter_user_rules(struct audit_krule *rule,
+static int audit_filter_user_rules(struct netlink_skb_parms *cb,
+				   struct audit_krule *rule,
 				   enum audit_state *state)
 {
 	int i;
@@ -1267,13 +1249,13 @@ static int audit_filter_user_rules(struct audit_krule *rule,
 
 		switch (f->type) {
 		case AUDIT_PID:
-			result = audit_comparator(task_pid_vnr(current), f->op, f->val);
+			result = audit_comparator(cb->creds.pid, f->op, f->val);
 			break;
 		case AUDIT_UID:
-			result = audit_comparator(current_uid(), f->op, f->val);
+			result = audit_comparator(cb->creds.uid, f->op, f->val);
 			break;
 		case AUDIT_GID:
-			result = audit_comparator(current_gid(), f->op, f->val);
+			result = audit_comparator(cb->creds.gid, f->op, f->val);
 			break;
 		case AUDIT_LOGINUID:
 			result = audit_comparator(audit_get_loginuid(current),
@@ -1305,7 +1287,7 @@ static int audit_filter_user_rules(struct audit_krule *rule,
 	return 1;
 }
 
-int audit_filter_user(void)
+int audit_filter_user(struct netlink_skb_parms *cb)
 {
 	enum audit_state state = AUDIT_DISABLED;
 	struct audit_entry *e;
@@ -1313,7 +1295,7 @@ int audit_filter_user(void)
 
 	rcu_read_lock();
 	list_for_each_entry_rcu(e, &audit_filter_list[AUDIT_FILTER_USER], list) {
-		if (audit_filter_user_rules(&e->rule, &state)) {
+		if (audit_filter_user_rules(cb, &e->rule, &state)) {
 			if (state == AUDIT_DISABLED)
 				ret = 0;
 			break;

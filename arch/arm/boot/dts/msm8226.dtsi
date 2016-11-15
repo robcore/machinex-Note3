@@ -26,19 +26,19 @@
 
 	memory {
 		secure_mem: secure_region {
-			linux,reserve-contiguous-region;
+			linux,contiguous-region;
 			reg = <0 0x6D00000>;
 			label = "secure_mem";
 		};
 
 		adsp_mem: adsp_region {
-			linux,reserve-contiguous-region;
+			linux,contiguous-region;
 			reg = <0 0x2a00000>;
 			label = "adsp_mem";
 		};
 
 		qsecom_mem: qsecom_region {
-			linux,reserve-contiguous-region;
+			linux,contiguous-region;
 			reg = <0 0xd00000>;
 			label = "qsecom_mem";
 		};
@@ -298,7 +298,7 @@
 	android_usb: android_usb@fe8050c8 {
 		compatible = "qcom,android-usb";
 		reg = <0xfe8050c8 0xc8>;
-		qcom,pm-qos-latency = <2 1001 12701>;
+		qcom,android-usb-swfi-latency = <1>;
 		qcom,streaming-func = "rndis";
 		qcom,android-usb-uicc-nluns = <1>;
 	};
@@ -652,6 +652,10 @@
 
 	qcom,msm-adsp-sensors {
 		compatible = "qcom,msm-adsp-sensors";
+		qcom,src-id = <11>;
+		qcom,dst-id = <604>;
+		qcom,ab = <32505856>;
+		qcom,ib = <32505856>;
 	};
 
 	qcom,wdt@f9017000 {

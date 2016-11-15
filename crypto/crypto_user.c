@@ -322,7 +322,7 @@ static struct crypto_alg *crypto_user_skcipher_alg(const char *name, u32 type,
 		err = PTR_ERR(alg);
 		if (err != -EAGAIN)
 			break;
-		if (fatal_signal_pending(current)) {
+		if (signal_pending(current)) {
 			err = -EINTR;
 			break;
 		}
@@ -463,7 +463,6 @@ static int crypto_user_rcv_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 		if (link->dump == NULL)
 			return -EINVAL;
 
-		down_read(&crypto_alg_sem);
 		list_for_each_entry(alg, &crypto_alg_list, cra_list)
 			dump_alloc += CRYPTO_REPORT_MAXSIZE;
 
@@ -473,11 +472,8 @@ static int crypto_user_rcv_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 				.done = link->done,
 				.min_dump_alloc = dump_alloc,
 			};
-			err = netlink_dump_start(crypto_nlsk, skb, nlh, &c);
+			return netlink_dump_start(crypto_nlsk, skb, nlh, &c);
 		}
-		up_read(&crypto_alg_sem);
-
-		return err;
 	}
 
 	err = nlmsg_parse(nlh, crypto_msg_min[type], attrs, CRYPTOCFGA_MAX,
@@ -500,11 +496,9 @@ static void crypto_netlink_rcv(struct sk_buff *skb)
 
 static int __init crypto_user_init(void)
 {
-	struct netlink_kernel_cfg cfg = {
-		.input	= crypto_netlink_rcv,
-	};
-
-	crypto_nlsk = netlink_kernel_create(&init_net, NETLINK_CRYPTO, &cfg);
+	crypto_nlsk = netlink_kernel_create(&init_net, NETLINK_CRYPTO,
+					    0, crypto_netlink_rcv,
+					    NULL, THIS_MODULE);
 	if (!crypto_nlsk)
 		return -ENOMEM;
 

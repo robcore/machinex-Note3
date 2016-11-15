@@ -73,7 +73,9 @@ extern void nfs_fscache_unregister(void);
 extern void nfs_fscache_get_client_cookie(struct nfs_client *);
 extern void nfs_fscache_release_client_cookie(struct nfs_client *);
 
-extern void nfs_fscache_get_super_cookie(struct super_block *, const char *, int);
+extern void nfs_fscache_get_super_cookie(struct super_block *,
+					 const char *,
+					 struct nfs_clone_mount *);
 extern void nfs_fscache_release_super_cookie(struct super_block *);
 
 extern void nfs_fscache_init_inode_cookie(struct inode *);
@@ -153,22 +155,6 @@ static inline void nfs_readpage_to_fscache(struct inode *inode,
 }
 
 /*
- * Invalidate the contents of fscache for this inode.  This will not sleep.
- */
-static inline void nfs_fscache_invalidate(struct inode *inode)
-{
-	fscache_invalidate(NFS_I(inode)->fscache);
-}
-
-/*
- * Wait for an object to finish being invalidated.
- */
-static inline void nfs_fscache_wait_on_invalidate(struct inode *inode)
-{
-	fscache_wait_on_invalidate(NFS_I(inode)->fscache);
-}
-
-/*
  * indicate the client caching state as readable text
  */
 static inline const char *nfs_server_fscache_state(struct nfs_server *server)
@@ -178,6 +164,7 @@ static inline const char *nfs_server_fscache_state(struct nfs_server *server)
 	return "no ";
 }
 
+
 #else /* CONFIG_NFS_FSCACHE */
 static inline int nfs_fscache_register(void) { return 0; }
 static inline void nfs_fscache_unregister(void) {}
@@ -185,6 +172,12 @@ static inline void nfs_fscache_unregister(void) {}
 static inline void nfs_fscache_get_client_cookie(struct nfs_client *clp) {}
 static inline void nfs_fscache_release_client_cookie(struct nfs_client *clp) {}
 
+static inline void nfs_fscache_get_super_cookie(
+	struct super_block *sb,
+	const char *uniq,
+	struct nfs_clone_mount *mntdata)
+{
+}
 static inline void nfs_fscache_release_super_cookie(struct super_block *sb) {}
 
 static inline void nfs_fscache_init_inode_cookie(struct inode *inode) {}
@@ -219,10 +212,6 @@ static inline int nfs_readpages_from_fscache(struct nfs_open_context *ctx,
 }
 static inline void nfs_readpage_to_fscache(struct inode *inode,
 					   struct page *page, int sync) {}
-
-
-static inline void nfs_fscache_invalidate(struct inode *inode) {}
-static inline void nfs_fscache_wait_on_invalidate(struct inode *inode) {}
 
 static inline const char *nfs_server_fscache_state(struct nfs_server *server)
 {

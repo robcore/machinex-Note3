@@ -164,6 +164,9 @@ struct sigstack {
 
 #ifdef __KERNEL__
 #include <asm/sigcontext.h>
+
+#define ptrace_signal_deliver(regs, cookie) do { } while (0)
+
 #endif
 
 #endif

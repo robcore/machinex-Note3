@@ -504,8 +504,7 @@ static int ngd_xfer_msg(struct slim_controller *ctrl, struct slim_msg_txn *txn)
 			 * Only disable port
 			 */
 			writel_relaxed(0, PGD_PORT(PGD_PORT_CFGn,
-					(dev->pipes[wbuf[1]].port_b),
-						dev->ver));
+					(wbuf[1] + dev->port_b), dev->ver));
 			mutex_unlock(&dev->tx_lock);
 			msm_slim_put_ctrl(dev);
 			return 0;
@@ -515,7 +514,7 @@ static int ngd_xfer_msg(struct slim_controller *ctrl, struct slim_msg_txn *txn)
 			goto ngd_xfer_err;
 		}
 		/* Add port-base to port number if this is manager side port */
-		puc[1] = (u8)dev->pipes[wbuf[1]].port_b;
+		puc[1] += dev->port_b;
 	}
 	dev->err = 0;
 	/*
@@ -561,27 +560,22 @@ static int ngd_xfer_msg(struct slim_controller *ctrl, struct slim_msg_txn *txn)
 
 		SLIM_WARN(dev, "conf:0x%x,stat:0x%x,rxmsgq:0x%x\n",
 				conf, stat, rx_msgq);
-		SLIM_ERR(dev, "int_stat:0x%x,int_en:0x%x,int_cll:0x%x\n",
+		SLIM_WARN(dev, "int_stat:0x%x,int_en:0x%x,int_cll:0x%x\n",
 				int_stat, int_en, int_clr);
-	}
-
-	if (txn_mt == SLIM_MSG_MT_DEST_REFERRED_USER &&
+	} else if (txn_mt == SLIM_MSG_MT_DEST_REFERRED_USER &&
 		(txn_mc == SLIM_USR_MC_CONNECT_SRC ||
 		 txn_mc == SLIM_USR_MC_CONNECT_SINK ||
 		 txn_mc == SLIM_USR_MC_DISCONNECT_PORT)) {
 		int timeout;
 		mutex_unlock(&dev->tx_lock);
 		msm_slim_put_ctrl(dev);
-		if (!ret) {
-			timeout = wait_for_completion_timeout(txn->comp, HZ);
-			/* remote side did not acknowledge */
-			if (!timeout)
-				ret = -EREMOTEIO;
-			else
-				ret = txn->ec;
-		}
+		timeout = wait_for_completion_timeout(txn->comp, HZ);
+		if (!timeout)
+			ret = -ETIMEDOUT;
+		else
+			ret = txn->ec;
 		if (ret) {
-			SLIM_ERR(dev,
+			SLIM_INFO(dev,
 				"connect/disconnect:0x%x,tid:%d err:%d\n",
 					txn->mc, txn->tid, ret);
 			mutex_lock(&ctrl->m_ctrl);
@@ -851,20 +845,12 @@ static void ngd_slim_setup_msg_path(struct msm_slim_ctrl *dev)
 	} else {
 		if (dev->use_rx_msgqs == MSM_MSGQ_DISABLED)
 			goto setup_tx_msg_path;
-		if (dev->use_rx_msgqs == MSM_MSGQ_ENABLED) {
-			SLIM_WARN(dev, "pipe setup when RX msgq enabled?");
-			goto setup_tx_msg_path;
-		}
 		msm_slim_connect_endp(dev, &dev->rx_msgq,
 				&dev->rx_msgq_notify);
 
 setup_tx_msg_path:
 		if (dev->use_tx_msgqs == MSM_MSGQ_DISABLED)
 			return;
-		if (dev->use_tx_msgqs == MSM_MSGQ_ENABLED) {
-			SLIM_WARN(dev, "pipe setup when TX msgq enabled?");
-			return;
-		}
 		msm_slim_connect_endp(dev, &dev->tx_msgq,
 				NULL);
 	}
@@ -1031,7 +1017,9 @@ static int ngd_slim_power_up(struct msm_slim_ctrl *dev, bool mdm_restart)
 		}
 		/*
 		 * ADSP power collapse case, where HW wasn't reset.
+		 * Reconnect BAM pipes if disconnected
 		 */
+		ngd_slim_setup_msg_path(dev);
 		return 0;
 	}
 
@@ -1047,14 +1035,25 @@ static int ngd_slim_power_up(struct msm_slim_ctrl *dev, bool mdm_restart)
 		SLIM_INFO(dev,
 			"SLIM MDM restart: MDM active framer: reinit HW\n");
 		/* disconnect BAM pipes */
-		msm_slim_sps_exit(dev, false);
+		if (dev->use_rx_msgqs == MSM_MSGQ_ENABLED)
+			dev->use_rx_msgqs = MSM_MSGQ_DOWN;
+		if (dev->use_tx_msgqs == MSM_MSGQ_ENABLED)
+			dev->use_tx_msgqs = MSM_MSGQ_DOWN;
 		dev->state = MSM_CTRL_DOWN;
 	}
-
-	msm_slim_disconnect_endp(dev, &dev->rx_msgq,
-				&dev->use_rx_msgqs);
-	msm_slim_disconnect_endp(dev, &dev->tx_msgq,
-				&dev->use_tx_msgqs);
+	/* SSR scenario, need to disconnect pipe before connecting */
+	if (dev->use_rx_msgqs == MSM_MSGQ_DOWN) {
+		struct msm_slim_endp *endpoint = &dev->rx_msgq;
+		sps_disconnect(endpoint->sps);
+		sps_free_endpoint(endpoint->sps);
+		dev->use_rx_msgqs = MSM_MSGQ_RESET;
+	}
+	if (dev->use_tx_msgqs == MSM_MSGQ_DOWN) {
+		struct msm_slim_endp *endpoint = &dev->tx_msgq;
+		sps_disconnect(endpoint->sps);
+		sps_free_endpoint(endpoint->sps);
+		dev->use_tx_msgqs = MSM_MSGQ_RESET;
+	}
 	/*
 	 * ADSP power collapse case (OR SSR), where HW was reset
 	 * BAM programming will happen when capability message is received
@@ -1121,6 +1120,10 @@ static int ngd_slim_power_down(struct msm_slim_ctrl *dev)
 		}
 	}
 	mutex_unlock(&ctrl->m_ctrl);
+	msm_slim_disconnect_endp(dev, &dev->rx_msgq,
+				&dev->use_rx_msgqs);
+	msm_slim_disconnect_endp(dev, &dev->tx_msgq,
+				&dev->use_tx_msgqs);
 	return msm_slim_qmi_power_request(dev, false);
 }
 

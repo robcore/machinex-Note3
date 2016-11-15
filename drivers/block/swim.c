@@ -673,7 +673,7 @@ static int floppy_unlocked_open(struct block_device *bdev, fmode_t mode)
 	return ret;
 }
 
-static void floppy_release(struct gendisk *disk, fmode_t mode)
+static int floppy_release(struct gendisk *disk, fmode_t mode)
 {
 	struct floppy_state *fs = disk->private_data;
 	struct swim __iomem *base = fs->swd->base;
@@ -687,6 +687,8 @@ static void floppy_release(struct gendisk *disk, fmode_t mode)
 	if (fs->ref_count == 0)
 		swim_motor(base, OFF);
 	mutex_unlock(&swim_mutex);
+
+	return 0;
 }
 
 static int floppy_ioctl(struct block_device *bdev, fmode_t mode,

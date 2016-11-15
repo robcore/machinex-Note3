@@ -586,10 +586,6 @@ static int treo_attach(struct usb_serial *serial)
 		return 0;
 
 	dbg("%s", __func__);
-	if (serial->num_bulk_in < 2 || serial->num_interrupt_in < 2) {
-		dev_err(&serial->interface->dev, "missing endpoints\n");
-		return -ENODEV;
-	}
 
 	/*
 	* It appears that Treos and Kyoceras want to use the
@@ -646,10 +642,8 @@ static int clie_5_attach(struct usb_serial *serial)
 	 */
 
 	/* some sanity check */
-	if (serial->num_bulk_out < 2) {
-		dev_err(&serial->interface->dev, "missing bulk out endpoints\n");
-		return -ENODEV;
-	}
+	if (serial->num_ports < 2)
+		return -1;
 
 	/* port 0 now uses the modified endpoint Address */
 	port = serial->port[0];

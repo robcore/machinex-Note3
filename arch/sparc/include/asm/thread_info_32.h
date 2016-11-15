@@ -80,6 +80,8 @@ register struct thread_info *current_thread_info_reg asm("g6");
  */
 #define THREAD_INFO_ORDER  1
 
+#define __HAVE_ARCH_THREAD_INFO_ALLOCATOR
+
 BTFIXUPDEF_CALL(struct thread_info *, alloc_thread_info_node, int)
 #define alloc_thread_info_node(tsk, node) BTFIXUP_CALL(alloc_thread_info_node)(node)
 
@@ -115,6 +117,8 @@ BTFIXUPDEF_CALL(void, free_thread_info, struct thread_info *)
 #define TI_RWIN_SPTRS	0x230
 #define TI_W_SAVED	0x250
 /* #define TI_RESTART_BLOCK 0x25n */ /* Nobody cares */
+
+#define PREEMPT_ACTIVE		0x4000000
 
 /*
  * thread information flag bit numbers

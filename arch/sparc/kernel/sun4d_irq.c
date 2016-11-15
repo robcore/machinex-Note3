@@ -6,7 +6,6 @@
  */
 
 #include <linux/kernel_stat.h>
-#include <linux/slab.h>
 #include <linux/seq_file.h>
 
 #include <asm/timer.h>

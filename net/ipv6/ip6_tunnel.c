@@ -199,7 +199,7 @@ ip6_tnl_bucket(struct ip6_tnl_net *ip6n, const struct ip6_tnl_parm *p)
 {
 	const struct in6_addr *remote = &p->raddr;
 	const struct in6_addr *local = &p->laddr;
-	unsigned int h = 0;
+	unsigned h = 0;
 	int prio = 0;
 
 	if (!ipv6_addr_any(remote) || !ipv6_addr_any(local)) {
@@ -461,14 +461,19 @@ ip6_tnl_err(struct sk_buff *skb, __u8 ipproto, struct inet6_skb_parm *opt,
 		struct ipv6_tlv_tnl_enc_lim *tel;
 		__u32 mtu;
 	case ICMPV6_DEST_UNREACH:
-		net_warn_ratelimited("%s: Path to destination invalid or inactive!\n",
-				     t->parms.name);
+		if (net_ratelimit())
+			printk(KERN_WARNING
+			       "%s: Path to destination invalid "
+			       "or inactive!\n", t->parms.name);
 		rel_msg = 1;
 		break;
 	case ICMPV6_TIME_EXCEED:
 		if ((*code) == ICMPV6_EXC_HOPLIMIT) {
-			net_warn_ratelimited("%s: Too small hop limit or routing loop in tunnel!\n",
-					     t->parms.name);
+			if (net_ratelimit())
+				printk(KERN_WARNING
+				       "%s: Too small hop limit or "
+				       "routing loop in tunnel!\n",
+				       t->parms.name);
 			rel_msg = 1;
 		}
 		break;
@@ -480,13 +485,17 @@ ip6_tnl_err(struct sk_buff *skb, __u8 ipproto, struct inet6_skb_parm *opt,
 		if (teli && teli == *info - 2) {
 			tel = (struct ipv6_tlv_tnl_enc_lim *) &skb->data[teli];
 			if (tel->encap_limit == 0) {
-				net_warn_ratelimited("%s: Too small encapsulation limit or routing loop in tunnel!\n",
-						     t->parms.name);
+				if (net_ratelimit())
+					printk(KERN_WARNING
+					       "%s: Too small encapsulation "
+					       "limit or routing loop in "
+					       "tunnel!\n", t->parms.name);
 				rel_msg = 1;
 			}
-		} else {
-			net_warn_ratelimited("%s: Recipient unable to parse tunneled packet!\n",
-					     t->parms.name);
+		} else if (net_ratelimit()) {
+			printk(KERN_WARNING
+			       "%s: Recipient unable to parse tunneled "
+			       "packet!\n ", t->parms.name);
 		}
 		break;
 	case ICMPV6_PKT_TOOBIG:
@@ -911,8 +920,10 @@ static int ip6_tnl_xmit2(struct sk_buff *skb,
 
 	if (tdev == dev) {
 		stats->collisions++;
-		net_warn_ratelimited("%s: Local routing loop detected!\n",
-				     t->parms.name);
+		if (net_ratelimit())
+			printk(KERN_WARNING
+			       "%s: Local routing loop detected!\n",
+			       t->parms.name);
 		goto tx_err_dst_release;
 	}
 	mtu = dst_mtu(dst) - sizeof (*ipv6h);

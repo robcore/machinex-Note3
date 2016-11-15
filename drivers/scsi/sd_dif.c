@@ -366,8 +366,7 @@ void sd_dif_config_host(struct scsi_disk *sdkp)
  *
  * Type 3 does not have a reference tag so no remapping is required.
  */
-void sd_dif_prepare(struct request *rq, sector_t hw_sector,
-		    unsigned int sector_sz)
+int sd_dif_prepare(struct request *rq, sector_t hw_sector, unsigned int sector_sz)
 {
 	const int tuple_sz = sizeof(struct sd_dif_tuple);
 	struct bio *bio;
@@ -379,7 +378,7 @@ void sd_dif_prepare(struct request *rq, sector_t hw_sector,
 	sdkp = rq->bio->bi_bdev->bd_disk->private_data;
 
 	if (sdkp->protection_type == SD_DIF_TYPE3_PROTECTION)
-		return;
+		return 0;
 
 	phys = hw_sector & 0xffffffff;
 
@@ -398,9 +397,10 @@ void sd_dif_prepare(struct request *rq, sector_t hw_sector,
 
 			for (j = 0 ; j < iv->bv_len ; j += tuple_sz, sdt++) {
 
-				if (be32_to_cpu(sdt->ref_tag) == virt)
-					sdt->ref_tag = cpu_to_be32(phys);
+				if (be32_to_cpu(sdt->ref_tag) != virt)
+					goto error;
 
+				sdt->ref_tag = cpu_to_be32(phys);
 				virt++;
 				phys++;
 			}
@@ -410,6 +410,16 @@ void sd_dif_prepare(struct request *rq, sector_t hw_sector,
 
 		bio->bi_flags |= (1 << BIO_MAPPED_INTEGRITY);
 	}
+
+	return 0;
+
+error:
+	kunmap_atomic(sdt);
+	sd_printk(KERN_ERR, sdkp, "%s: virt %u, phys %u, ref %u, app %4x\n",
+		  __func__, virt, phys, be32_to_cpu(sdt->ref_tag),
+		  be16_to_cpu(sdt->app_tag));
+
+	return -EILSEQ;
 }
 
 /*
@@ -453,7 +463,10 @@ void sd_dif_complete(struct scsi_cmnd *scmd, unsigned int good_bytes)
 					return;
 				}
 
-				if (be32_to_cpu(sdt->ref_tag) == phys)
+				if (be32_to_cpu(sdt->ref_tag) != phys &&
+				    sdt->app_tag != 0xffff)
+					sdt->ref_tag = 0xffffffff; /* Bad ref */
+				else
 					sdt->ref_tag = cpu_to_be32(virt);
 
 				virt++;

@@ -11,6 +11,8 @@
  */
 
 #include <linux/init.h>
+#include <asm/page.h>		/* kmalloc_sizes.h needs PAGE_SIZE */
+#include <asm/cache.h>		/* kmalloc_sizes.h needs L1_CACHE_BYTES */
 #include <linux/compiler.h>
 
 /*
@@ -43,6 +45,7 @@ struct kmem_cache {
 	unsigned int colour_off;	/* colour offset */
 	struct kmem_cache *slabp_cache;
 	unsigned int slab_size;
+	unsigned int dflags;		/* dynamic flags */
 
 	/* constructor func */
 	void (*ctor)(void *obj);
@@ -79,9 +82,6 @@ struct kmem_cache {
 	 */
 	int obj_offset;
 #endif /* CONFIG_DEBUG_SLAB */
-#ifdef CONFIG_MEMCG_KMEM
-	struct memcg_cache_params *memcg_params;
-#endif
 
 /* 6) per-cpu/per-node data, touched during every alloc/free */
 	/*
@@ -95,12 +95,22 @@ struct kmem_cache {
 	 * pointer for each node since "nodelists" uses the remainder of
 	 * available pointers.
 	 */
-	struct kmem_cache_node **node;
+	struct kmem_list3 **nodelists;
 	struct array_cache *array[NR_CPUS + MAX_NUMNODES];
 	/*
 	 * Do not add fields after array[]
 	 */
 };
+
+/* Size description struct for general caches. */
+struct cache_sizes {
+	size_t		 	cs_size;
+	struct kmem_cache	*cs_cachep;
+#ifdef CONFIG_ZONE_DMA
+	struct kmem_cache	*cs_dmacachep;
+#endif
+};
+extern struct cache_sizes malloc_sizes[];
 
 void *kmem_cache_alloc(struct kmem_cache *, gfp_t);
 void *__kmalloc(size_t size, gfp_t flags);
@@ -121,22 +131,26 @@ static __always_inline void *kmalloc(size_t size, gfp_t flags)
 	void *ret;
 
 	if (__builtin_constant_p(size)) {
-		int i;
+		int i = 0;
 
 		if (!size)
 			return ZERO_SIZE_PTR;
 
-		if (WARN_ON_ONCE(size > KMALLOC_MAX_SIZE))
-			return NULL;
-
-		i = kmalloc_index(size);
-
+#define CACHE(x) \
+		if (size <= x) \
+			goto found; \
+		else \
+			i++;
+#include <linux/kmalloc_sizes.h>
+#undef CACHE
+		return NULL;
+found:
 #ifdef CONFIG_ZONE_DMA
 		if (flags & GFP_DMA)
-			cachep = kmalloc_dma_caches[i];
+			cachep = malloc_sizes[i].cs_dmacachep;
 		else
 #endif
-			cachep = kmalloc_caches[i];
+			cachep = malloc_sizes[i].cs_cachep;
 
 		ret = kmem_cache_alloc_trace(cachep, flags, size);
 
@@ -150,16 +164,16 @@ extern void *__kmalloc_node(size_t size, gfp_t flags, int node);
 extern void *kmem_cache_alloc_node(struct kmem_cache *, gfp_t flags, int node);
 
 #ifdef CONFIG_TRACING
-extern void *kmem_cache_alloc_node_trace(struct kmem_cache *cachep,
+extern void *kmem_cache_alloc_node_trace(size_t size,
+					 struct kmem_cache *cachep,
 					 gfp_t flags,
-					 int nodeid,
-					 size_t size);
+					 int nodeid);
 #else
 static __always_inline void *
-kmem_cache_alloc_node_trace(struct kmem_cache *cachep,
+kmem_cache_alloc_node_trace(size_t size,
+			    struct kmem_cache *cachep,
 			    gfp_t flags,
-			    int nodeid,
-			    size_t size)
+			    int nodeid)
 {
 	return kmem_cache_alloc_node(cachep, flags, nodeid);
 }
@@ -170,24 +184,28 @@ static __always_inline void *kmalloc_node(size_t size, gfp_t flags, int node)
 	struct kmem_cache *cachep;
 
 	if (__builtin_constant_p(size)) {
-		int i;
+		int i = 0;
 
 		if (!size)
 			return ZERO_SIZE_PTR;
 
-		if (WARN_ON_ONCE(size > KMALLOC_MAX_SIZE))
-			return NULL;
-
-		i = kmalloc_index(size);
-
+#define CACHE(x) \
+		if (size <= x) \
+			goto found; \
+		else \
+			i++;
+#include <linux/kmalloc_sizes.h>
+#undef CACHE
+		return NULL;
+found:
 #ifdef CONFIG_ZONE_DMA
 		if (flags & GFP_DMA)
-			cachep = kmalloc_dma_caches[i];
+			cachep = malloc_sizes[i].cs_dmacachep;
 		else
 #endif
-			cachep = kmalloc_caches[i];
+			cachep = malloc_sizes[i].cs_cachep;
 
-		return kmem_cache_alloc_node_trace(cachep, flags, node, size);
+		return kmem_cache_alloc_node_trace(size, cachep, flags, node);
 	}
 	return __kmalloc_node(size, flags, node);
 }

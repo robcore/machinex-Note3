@@ -17,8 +17,6 @@
  * GNU General Public License for more details.
  */
 
-#define pr_fmt(fmt) "logger: " fmt
-
 #include <linux/sched.h>
 #include <linux/module.h>
 #include <linux/fs.h>
@@ -27,13 +25,8 @@
 #include <linux/poll.h>
 #include <linux/slab.h>
 #include <linux/time.h>
-#include <linux/vmalloc.h>
-#include <linux/aio.h>
 #include "logger.h"
-#ifdef CONFIG_STATE_NOTIFIER
-#include <linux/state_notifier.h>
-static struct notifier_block logger_state_notif;
-#endif
+
 #include <asm/ioctls.h>
 #ifdef CONFIG_SEC_DEBUG
 #include <mach/sec_debug.h>
@@ -49,69 +42,41 @@ static char klog_buf[256];
 #endif
 
 /*
- * 0 - Enabled
- * 1 - Auto Suspend
- * 2 - Disabled
- */
-static unsigned int log_mode = 1;
-static unsigned int log_enabled = 1; // Do not change this value
-
-module_param(log_mode, uint, S_IWUSR | S_IRUGO);
-
-/**
  * struct logger_log - represents a specific log, such as 'main' or 'radio'
- * @buffer:	The actual ring buffer
- * @misc:	The "misc" device representing the log
- * @wq:		The wait queue for @readers
- * @readers:	This log's readers
- * @mutex:	The mutex that protects the @buffer
- * @w_off:	The current write head offset
- * @head:	The head, or location that readers start reading at.
- * @size:	The size of the log
- * @logs:	The list of log channels
  *
  * This structure lives from module insertion until module removal, so it does
  * not need additional reference counting. The structure is protected by the
  * mutex 'mutex'.
  */
 struct logger_log {
-	unsigned char		*buffer;
-	struct miscdevice	misc;
-	wait_queue_head_t	wq;
-	struct list_head	readers;
-	struct mutex		mutex;
-	size_t			w_off;
-	size_t			head;
-	size_t			size;
-	struct list_head	logs;
+	unsigned char		*buffer;/* the ring buffer itself */
+	struct miscdevice	misc;	/* misc device representing the log */
+	wait_queue_head_t	wq;	/* wait queue for readers */
+	struct list_head	readers; /* this log's readers */
+	struct mutex		mutex;	/* mutex protecting buffer */
+	size_t			w_off;	/* current write head offset */
+	size_t			head;	/* new readers start here */
+	size_t			size;	/* size of the log */
 };
 
-static LIST_HEAD(log_list);
-
-
-/**
+/*
  * struct logger_reader - a logging device open for reading
- * @log:	The associated log
- * @list:	The associated entry in @logger_log's list
- * @r_off:	The current read head offset.
- * @r_all:	The reader can read all entries.
- * @r_ver:	The reader ABI version.
  *
  * This object lives from open to release, so we don't need additional
  * reference counting. The structure is protected by log->mutex.
  */
 struct logger_reader {
-	struct logger_log	*log;
-	struct list_head	list;
-	size_t			r_off;
-	bool			r_all;
-	int			r_ver;
+	struct logger_log	*log;	/* associated log */
+	struct list_head	list;	/* entry in logger_log's list */
+	size_t			r_off;	/* current read head offset */
+	bool			r_all;	/* reader can read all entries */
+	int			r_ver;	/* reader ABI version */
 };
 
 /* logger_offset - returns index 'n' into the log via (optimized) modulus */
-static size_t logger_offset(struct logger_log *log, size_t n)
+size_t logger_offset(struct logger_log *log, size_t n)
 {
-	return n & (log->size - 1);
+	return n & (log->size-1);
 }
 
 
@@ -133,10 +98,9 @@ static inline struct logger_log *file_get_log(struct file *file)
 {
 	if (file->f_mode & FMODE_READ) {
 		struct logger_reader *reader = file->private_data;
-
 		return reader->log;
-	}
-	return file->private_data;
+	} else
+		return file->private_data;
 }
 
 /*
@@ -183,7 +147,8 @@ static size_t get_user_hdr_len(int ver)
 {
 	if (ver < 2)
 		return sizeof(struct user_logger_entry_compat);
-	return sizeof(struct logger_entry);
+	else
+		return sizeof(struct logger_entry);
 }
 
 static ssize_t copy_header_to_user(int ver, struct logger_entry *entry,
@@ -499,43 +464,20 @@ static ssize_t do_write_log_from_user(struct logger_log *log,
 	return count;
 }
 
-#ifdef CONFIG_STATE_NOTIFIER
-static int state_notifier_callback(struct notifier_block *this,
-				unsigned long event, void *data)
-{
-	switch (event) {
-		case STATE_NOTIFIER_ACTIVE:
-			log_enabled = 1;
-			break;
-		case STATE_NOTIFIER_SUSPEND:
-			if (log_mode == 1)
-				log_enabled = 0;
-			break;
-		default:
-			break;
-	}
-
-	return NOTIFY_OK;
-}
-#endif
-
 /*
  * logger_aio_write - our write method, implementing support for write(),
  * writev(), and aio_write(). Writes are our fast path, and we try to optimize
  * them above all else.
  */
-static ssize_t logger_aio_write(struct kiocb *iocb, const struct iovec *iov,
+ssize_t logger_aio_write(struct kiocb *iocb, const struct iovec *iov,
 			 unsigned long nr_segs, loff_t ppos)
 {
-	struct logger_log *log;
-	size_t orig, ret = 0;
+	struct logger_log *log = file_get_log(iocb->ki_filp);
+	size_t orig = log->w_off;
 	struct logger_entry header;
 	struct timespec now;
+	ssize_t ret = 0;
 
-	if (!log_enabled || log_mode == 2)
-		return 0;
-
-	log = file_get_log(iocb->ki_filp);
 	now = current_kernel_time();
 
 	header.pid = current->tgid;
@@ -551,8 +493,6 @@ static ssize_t logger_aio_write(struct kiocb *iocb, const struct iovec *iov,
 		return 0;
 
 	mutex_lock(&log->mutex);
-
-	orig = log->w_off;
 
 	/*
 	 * Fix up any readers, pulling them forward to the first readable
@@ -596,15 +536,7 @@ static ssize_t logger_aio_write(struct kiocb *iocb, const struct iovec *iov,
 	return ret;
 }
 
-static struct logger_log *get_log_from_minor(int minor)
-{
-	struct logger_log *log;
-
-	list_for_each_entry(log, &log_list, logs)
-		if (log->misc.minor == minor)
-			return log;
-	return NULL;
-}
+static struct logger_log *get_log_from_minor(int);
 
 /*
  * logger_open - the log's open() file operation
@@ -763,11 +695,6 @@ static long logger_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case LOGGER_FLUSH_LOG:
 		if (!(file->f_mode & FMODE_WRITE)) {
 			ret = -EBADF;
-			break;
-		}
-		if (!(in_egroup_p(file_inode(file)->i_gid) ||
-				capable(CAP_SYSLOG))) {
-			ret = -EPERM;
 			break;
 		}
 		list_for_each_entry(reader, &log->readers, list)

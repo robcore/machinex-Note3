@@ -1,4 +1,4 @@
-/* Copyright (c) 2002,2007-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2002,2007-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -17,11 +17,10 @@
 #include "kgsl.h"
 #include "kgsl_cffdump.h"
 #include "kgsl_sharedmem.h"
-#include "kgsl_trace.h"
 
 #include "z180.h"
 #include "z180_reg.h"
-/* #include "z180_trace.h" */
+#include "z180_trace.h"
 
 #define DRIVER_VERSION_MAJOR   3
 #define DRIVER_VERSION_MINOR   1
@@ -197,7 +196,7 @@ static irqreturn_t z180_irq_handler(struct kgsl_device *device)
 
 	z180_regread(device, ADDR_VGC_IRQSTATUS >> 2, &status);
 
-	/* trace_kgsl_z180_irq_status(device, status); */
+	trace_kgsl_z180_irq_status(device, status);
 
 	if (status & GSL_VGC_INT_MASK) {
 		z180_regwrite(device,
@@ -220,7 +219,7 @@ static irqreturn_t z180_irq_handler(struct kgsl_device *device)
 			count &= 255;
 			z180_dev->timestamp += count;
 
-			queue_work(device->work_queue, &device->event_work);
+			queue_work(device->work_queue, &device->ts_expired_ws);
 			wake_up_interruptible(&device->wait_queue);
 		}
 	}
@@ -402,8 +401,8 @@ z180_cmdstream_issueibcmds(struct kgsl_device_private *dev_priv,
 	struct kgsl_pagetable *pagetable = dev_priv->process_priv->pagetable;
 	struct z180_device *z180_dev = Z180_DEVICE(device);
 	unsigned int sizedwords;
-	unsigned int numibs = 0;
-	struct kgsl_memobj_node *ib;
+	unsigned int numibs;
+	struct kgsl_ibdesc *ibdesc;
 
 	kgsl_mutex_lock(&device->mutex, &device->mutex_owner);
 
@@ -416,9 +415,8 @@ z180_cmdstream_issueibcmds(struct kgsl_device_private *dev_priv,
 		goto error;
 	}
 
-	/* Get the total IBs in the list */
-	list_for_each_entry(ib, &cmdbatch->cmdlist, node)
-		numibs++;
+	ibdesc = cmdbatch->ibdesc;
+	numibs = cmdbatch->ibcount;
 
 	if (device->state & KGSL_STATE_HUNG) {
 		result = -EINVAL;
@@ -429,8 +427,8 @@ z180_cmdstream_issueibcmds(struct kgsl_device_private *dev_priv,
 		result = -EINVAL;
 		goto error;
 	}
-	cmd = ib->gpuaddr;
-	sizedwords = ib->sizedwords;
+	cmd = ibdesc[0].gpuaddr;
+	sizedwords = ibdesc[0].sizedwords;
 	/*
 	 * Get a kernel mapping to the IB for monkey patching.
 	 * See the end of this function.
@@ -453,7 +451,7 @@ z180_cmdstream_issueibcmds(struct kgsl_device_private *dev_priv,
 			     "Cannot make kernel mapping for gpuaddr 0x%x\n",
 			     cmd);
 		result = -EINVAL;
-		goto error_put;
+		goto error;
 	}
 
 	KGSL_CMD_INFO(device, "ctxt %d ibaddr 0x%08x sizedwords %d\n",
@@ -482,7 +480,7 @@ z180_cmdstream_issueibcmds(struct kgsl_device_private *dev_priv,
 	if (result < 0) {
 		KGSL_CMD_ERR(device, "wait_event_interruptible_timeout "
 			"failed: %ld\n", result);
-		goto error_put;
+		goto error;
 	}
 	result = 0;
 
@@ -514,10 +512,8 @@ z180_cmdstream_issueibcmds(struct kgsl_device_private *dev_priv,
 
 	z180_cmdwindow_write(device, ADDR_VGV3_CONTROL, cmd);
 	z180_cmdwindow_write(device, ADDR_VGV3_CONTROL, 0);
-error_put:
-	kgsl_mem_entry_put(entry);
 error:
-	trace_kgsl_issueibcmds(device, context->id, cmdbatch, numibs,
+	kgsl_trace_issueibcmds(device, context->id, cmdbatch,
 		*timestamp, cmdbatch ? cmdbatch->flags : 0, result, 0);
 
 	kgsl_active_count_put(device);
@@ -533,8 +529,8 @@ static int z180_ringbuffer_init(struct kgsl_device *device)
 	memset(&z180_dev->ringbuffer, 0, sizeof(struct z180_ringbuffer));
 	z180_dev->ringbuffer.prevctx = Z180_INVALID_CONTEXT;
 	z180_dev->ringbuffer.cmdbufdesc.flags = KGSL_MEMFLAGS_GPUREADONLY;
-	return kgsl_allocate_contiguous(device,
-			&z180_dev->ringbuffer.cmdbufdesc, Z180_RB_SIZE);
+	return kgsl_allocate_contiguous(&z180_dev->ringbuffer.cmdbufdesc,
+		Z180_RB_SIZE);
 }
 
 static void z180_ringbuffer_close(struct kgsl_device *device)
@@ -897,7 +893,7 @@ static int z180_wait(struct kgsl_device *device,
 	else if (timeout == 0) {
 		status = -ETIMEDOUT;
 		kgsl_pwrctrl_set_state(device, KGSL_STATE_HUNG);
-		/* kgsl_postmortem_dump(device, 0); */
+		kgsl_postmortem_dump(device, 0);
 	} else
 		status = timeout;
 
@@ -961,7 +957,7 @@ static void z180_power_stats(struct kgsl_device *device,
 	struct kgsl_pwrscale *pwrscale = &device->pwrscale;
 	s64 tmp = ktime_to_us(ktime_get());
 
-	memset(stats, 0, sizeof(*stats));
+	memset(stats, 0, sizeof(stats));
 	if (pwrscale->on_time == 0) {
 		pwrscale->on_time = tmp;
 		stats->busy_time = 0;
@@ -1024,7 +1020,7 @@ static const struct kgsl_functable z180_functable = {
 	.drawctxt_detach = z180_drawctxt_detach,
 	.drawctxt_destroy = z180_drawctxt_destroy,
 	.ioctl = NULL,
-	/* .postmortem_dump = z180_dump, */
+	.postmortem_dump = z180_dump,
 };
 
 static struct platform_device_id z180_id_table[] = {

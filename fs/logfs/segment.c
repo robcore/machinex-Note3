@@ -884,10 +884,9 @@ static struct logfs_area *alloc_area(struct super_block *sb)
 	return area;
 }
 
-static void map_invalidatepage(struct page *page, unsigned int o,
-			       unsigned int l)
+static void map_invalidatepage(struct page *page, unsigned long l)
 {
-	return;
+	BUG();
 }
 
 static int map_releasepage(struct page *page, gfp_t g)

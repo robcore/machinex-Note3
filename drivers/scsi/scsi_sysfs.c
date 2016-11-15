@@ -35,7 +35,6 @@ static const struct {
 	{ SDEV_DEL, "deleted" },
 	{ SDEV_QUIESCE, "quiesce" },
 	{ SDEV_OFFLINE,	"offline" },
-	{ SDEV_TRANSPORT_OFFLINE, "transport-offline" },
 	{ SDEV_BLOCK,	"blocked" },
 	{ SDEV_CREATED_BLOCK, "created-blocked" },
 };
@@ -332,14 +331,17 @@ static void scsi_device_dev_release_usercontext(struct work_struct *work)
 {
 	struct scsi_device *sdev;
 	struct device *parent;
+	struct scsi_target *starget;
 	struct list_head *this, *tmp;
 	unsigned long flags;
 
 	sdev = container_of(work, struct scsi_device, ew.work);
 
 	parent = sdev->sdev_gendev.parent;
+	starget = to_scsi_target(parent);
 
 	spin_lock_irqsave(sdev->host->host_lock, flags);
+	starget->reap_ref++;
 	list_del(&sdev->siblings);
 	list_del(&sdev->same_target_siblings);
 	list_del(&sdev->starved_entry);
@@ -358,6 +360,8 @@ static void scsi_device_dev_release_usercontext(struct work_struct *work)
 	blk_put_queue(sdev->request_queue);
 	/* NULL queue means the device can't be used */
 	sdev->request_queue = NULL;
+
+	scsi_target_reap(scsi_target(sdev));
 
 	kfree(sdev->inquiry);
 	kfree(sdev);
@@ -943,13 +947,6 @@ int scsi_sysfs_add_sdev(struct scsi_device *sdev)
 		}
 	}
 
-	/*
-	 * put runtime pm reference for well-known logical units,
-	 * drivers are expected to _get_* again during probe.
-	 */
-	if (scsi_is_wlun(sdev->lun))
-		scsi_autopm_put_device(sdev);
-
 	return error;
 }
 
@@ -967,27 +964,13 @@ void __scsi_remove_device(struct scsi_device *sdev)
 		device_del(dev);
 	} else
 		put_device(&sdev->sdev_dev);
-
-	/*
-	 * Stop accepting new requests and wait until all queuecommand() and
-	 * scsi_run_queue() invocations have finished before tearing down the
-	 * device.
-	 */
 	scsi_device_set_state(sdev, SDEV_DEL);
-	blk_cleanup_queue(sdev->request_queue);
-	cancel_work_sync(&sdev->requeue_work);
-
 	if (sdev->host->hostt->slave_destroy)
 		sdev->host->hostt->slave_destroy(sdev);
 	transport_destroy_device(dev);
 
-	/*
-	 * Paired with the kref_get() in scsi_sysfs_initialize().  We have
-	 * remoed sysfs visibility from the device, so make the target
-	 * invisible if this was the last device underneath it.
-	 */
-	scsi_target_reap(scsi_target(sdev));
-
+	/* Freeing the queue signals to block that we're done */
+	blk_cleanup_queue(sdev->request_queue);
 	put_device(dev);
 }
 
@@ -1126,12 +1109,6 @@ void scsi_sysfs_device_initialize(struct scsi_device *sdev)
 	list_add_tail(&sdev->same_target_siblings, &starget->devices);
 	list_add_tail(&sdev->siblings, &shost->__devices);
 	spin_unlock_irqrestore(shost->host_lock, flags);
-	/*
-	 * device can now only be removed via __scsi_remove_device() so hold
-	 * the target.  Target will be held in CREATED state until something
-	 * beneath it becomes visible (in which case it moves to RUNNING)
-	 */
-	kref_get(&starget->reap_ref);
 }
 
 int scsi_is_sdev_device(const struct device *dev)

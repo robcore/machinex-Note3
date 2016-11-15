@@ -1349,44 +1349,15 @@ static inline void perf_restore_debug_store(void)			{ }
 do {									\
 	static struct notifier_block fn##_nb __cpuinitdata =		\
 		{ .notifier_call = fn, .priority = CPU_PRI_PERF };	\
-	unsigned long cpu = smp_processor_id();				\
-	unsigned long flags;						\
-									\
-	cpu_notifier_register_begin();					\
 	fn(&fn##_nb, (unsigned long)CPU_UP_PREPARE,			\
-		(void *)(unsigned long)cpu);				\
-	local_irq_save(flags);						\
+		(void *)(unsigned long)smp_processor_id());		\
 	fn(&fn##_nb, (unsigned long)CPU_STARTING,			\
-		(void *)(unsigned long)cpu);				\
-	local_irq_restore(flags);					\
+		(void *)(unsigned long)smp_processor_id());		\
 	fn(&fn##_nb, (unsigned long)CPU_ONLINE,				\
-		(void *)(unsigned long)cpu);				\
-	__register_cpu_notifier(&fn##_nb);				\
-	cpu_notifier_register_done();					\
+		(void *)(unsigned long)smp_processor_id());		\
+	register_cpu_notifier(&fn##_nb);				\
 } while (0)
 
-/*
- * Bare-bones version of perf_cpu_notifier(), which doesn't invoke the
- * callback for already online CPUs.
- */
-#define __perf_cpu_notifier(fn)						\
-do {									\
-	static struct notifier_block fn##_nb =				\
-		{ .notifier_call = fn, .priority = CPU_PRI_PERF };	\
-									\
-	__register_cpu_notifier(&fn##_nb);				\
-} while (0)
-
-struct perf_pmu_events_attr {
-	struct device_attribute attr;
-	u64 id;
-};
-
-#define PMU_EVENT_ATTR(_name, _var, _id, _show)				\
-static struct perf_pmu_events_attr _var = {				\
-	.attr = __ATTR(_name, 0444, _show, NULL),			\
-	.id   =  _id,							\
-};
 
 #define PMU_FORMAT_ATTR(_name, _format)					\
 static ssize_t								\

@@ -23,15 +23,6 @@ menuconfig NET
 
 if NET
 
-config NETLINK_MMAP
-	bool "Netlink: mmaped IO"
-	help
-	  This option enables support for memory mapped netlink IO. This
-	  reduces overhead by avoiding copying data between kernel- and
-	  userspace.
-
-	  If unsure, say N.
-
 config WANT_COMPAT_NETLINK_MESSAGES
 	bool
 	help
@@ -51,16 +42,6 @@ config COMPAT_NETLINK_MESSAGES
 
 	  Newly written code should NEVER need this option but do
 	  compat-independent messages instead!
-
-config DISABLE_NET_SKB_FRAG_CACHE
-	bool "Disable skb fragment cache"
-	help
-	  Enabling this option ensures that when allocating skbs the network
-	  skb fragment cache is not used.
-	  Disabling use of the fragment cache can be useful on some low end
-	  targets because it reduces memory pressure.
-
-	  If you are unsure how to answer this question, answer N.
 
 menu "Networking options"
 
@@ -252,18 +233,18 @@ source "net/openvswitch/Kconfig"
 
 config RPS
 	boolean "RPS"
-	depends on SMP && SYSFS
+	depends on SMP && SYSFS && USE_GENERIC_SMP_HELPERS
 	default y
 
 config RFS_ACCEL
 	boolean
-	depends on RPS
+	depends on RPS && GENERIC_HARDIRQS
 	select CPU_RMAP
 	default y
 
 config XPS
 	boolean
-	depends on SMP && SYSFS
+	depends on SMP && SYSFS && USE_GENERIC_SMP_HELPERS
 	default y
 
 config NETPRIO_CGROUP

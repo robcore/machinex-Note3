@@ -18,7 +18,6 @@
 #include "super.h"
 #include "mds_client.h"
 
-#include <linux/ceph/ceph_features.h>
 #include <linux/ceph/decode.h>
 #include <linux/ceph/mon_client.h>
 #include <linux/ceph/auth.h>
@@ -312,10 +311,7 @@ static int parse_mount_options(struct ceph_mount_options **pfsopt,
 {
 	struct ceph_mount_options *fsopt;
 	const char *dev_name_end;
-	int err;
-
-	if (!dev_name || !*dev_name)
-		return -EINVAL;
+	int err = -ENOMEM;
 
 	fsopt = kzalloc(sizeof(*fsopt), GFP_KERNEL);
 	if (!fsopt)
@@ -336,33 +332,21 @@ static int parse_mount_options(struct ceph_mount_options **pfsopt,
 	fsopt->max_readdir_bytes = CEPH_MAX_READDIR_BYTES_DEFAULT;
 	fsopt->congestion_kb = default_congestion_kb();
 
-	/*
-	 * Distinguish the server list from the path in "dev_name".
-	 * Internally we do not include the leading '/' in the path.
-	 *
-	 * "dev_name" will look like:
-	 *     <server_spec>[,<server_spec>...]:[<path>]
-	 * where
-	 *     <server_spec> is <ip>[:<port>]
-	 *     <path> is optional, but if present must begin with '/'
-	 */
-	dev_name_end = strchr(dev_name, '/');
-	if (dev_name_end) {
-		/* skip over leading '/' for path */
-		*path = dev_name_end + 1;
-	} else {
-		/* path is empty */
-		dev_name_end = dev_name + strlen(dev_name);
-		*path = dev_name_end;
-	}
+	/* ip1[:port1][,ip2[:port2]...]:/subdir/in/fs */
 	err = -EINVAL;
-	dev_name_end--;		/* back up to ':' separator */
-	if (dev_name_end < dev_name || *dev_name_end != ':') {
-		pr_err("device name is missing path (no : separator in %s)\n",
+	if (!dev_name)
+		goto out;
+	*path = strstr(dev_name, ":/");
+	if (*path == NULL) {
+		pr_err("device name is missing path (no :/ in %s)\n",
 				dev_name);
 		goto out;
 	}
+	dev_name_end = *path;
 	dout("device name '%.*s'\n", (int)(dev_name_end - dev_name), dev_name);
+
+	/* path on server */
+	*path += 2;
 	dout("server path '%s'\n", *path);
 
 	*popt = ceph_parse_options(options, dev_name, dev_name_end,
@@ -481,8 +465,6 @@ static struct ceph_fs_client *create_fs_client(struct ceph_mount_options *fsopt,
 		CEPH_FEATURE_FLOCK |
 		CEPH_FEATURE_DIRLAYOUTHASH;
 	const unsigned required_features = 0;
-	int page_count;
-	size_t size;
 	int err = -ENOMEM;
 
 	fsc = kzalloc(sizeof(*fsc), GFP_KERNEL);
@@ -526,9 +508,8 @@ static struct ceph_fs_client *create_fs_client(struct ceph_mount_options *fsopt,
 
 	/* set up mempools */
 	err = -ENOMEM;
-	page_count = fsc->mount_options->wsize >> PAGE_CACHE_SHIFT;
-	size = sizeof (struct page *) * (page_count ? page_count : 1);
-	fsc->wb_pagevec_pool = mempool_create_kmalloc_pool(10, size);
+	fsc->wb_pagevec_pool = mempool_create_kmalloc_pool(10,
+			      fsc->mount_options->wsize >> PAGE_CACHE_SHIFT);
 	if (!fsc->wb_pagevec_pool)
 		goto fail_trunc_wq;
 
@@ -852,7 +833,7 @@ static int ceph_register_bdi(struct super_block *sb,
 		fsc->backing_dev_info.ra_pages =
 			default_backing_dev_info.ra_pages;
 
-	err = bdi_register(&fsc->backing_dev_info, NULL, "ceph-%ld",
+	err = bdi_register(&fsc->backing_dev_info, NULL, "ceph-%d",
 			   atomic_long_inc_return(&bdi_seq));
 	if (!err)
 		sb->s_bdi = &fsc->backing_dev_info;
@@ -952,7 +933,6 @@ static struct file_system_type ceph_fs_type = {
 	.kill_sb	= ceph_kill_sb,
 	.fs_flags	= FS_RENAME_DOES_D_MOVE,
 };
-MODULE_ALIAS_FS("ceph");
 
 #define _STRINGIFY(x) #x
 #define STRINGIFY(x) _STRINGIFY(x)

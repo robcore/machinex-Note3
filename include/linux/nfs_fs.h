@@ -102,7 +102,6 @@ struct nfs_open_context {
 	int error;
 
 	struct list_head list;
-	struct nfs4_threshold	*mdsthreshold;
 };
 
 struct nfs_open_dir_context {
@@ -311,6 +310,11 @@ static inline void nfs_mark_for_revalidate(struct inode *inode)
 static inline int nfs_server_capable(struct inode *inode, int cap)
 {
 	return NFS_SERVER(inode)->caps & cap;
+}
+
+static inline int NFS_USE_READDIRPLUS(struct inode *inode)
+{
+	return test_bit(NFS_INO_ADVISE_RDPLUS, &NFS_I(inode)->flags);
 }
 
 static inline void nfs_set_verifier(struct dentry * dentry, unsigned long verf)
@@ -610,7 +614,9 @@ static inline void nfs3_forget_cached_acls(struct inode *inode)
 
 static inline loff_t nfs_size_to_loff_t(__u64 size)
 {
-	return min_t(u64, size, OFFSET_MAX);
+	if (size > (__u64) OFFSET_MAX - 1)
+		return OFFSET_MAX - 1;
+	return (loff_t) size;
 }
 
 static inline ino_t

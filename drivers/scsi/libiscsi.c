@@ -2921,7 +2921,6 @@ void iscsi_conn_teardown(struct iscsi_cls_conn *cls_conn)
 		wake_up(&conn->ehwait);
 	}
 	spin_unlock_bh(&session->lock);
-	mutex_unlock(&session->eh_mutex);
 
 	/* flush queued up work because we free the connection below */
 	iscsi_suspend_tx(conn);

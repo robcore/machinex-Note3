@@ -1,5 +1,5 @@
 /*
- * net/sched/ipt.c     iptables target interface
+ * net/sched/ipt.c	iptables target interface
  *
  *TODO: Add other tables. For now we only support the ipv4 table targets
  *
@@ -235,8 +235,9 @@ static int tcf_ipt(struct sk_buff *skb, const struct tc_action *a,
 		result = TC_ACT_PIPE;
 		break;
 	default:
-		net_notice_ratelimited("tc filter: Bogus netfilter code %d assume ACCEPT\n",
-				       ret);
+		if (net_ratelimit())
+			pr_notice("tc filter: Bogus netfilter code"
+				  " %d assume ACCEPT\n", ret);
 		result = TC_POLICE_OK;
 		break;
 	}
@@ -324,10 +325,8 @@ static int __init ipt_init_module(void)
 	if (ret1 < 0)
 		printk("Failed to load xt action\n");
 	ret2 = tcf_register_action(&act_ipt_ops);
-#if 0 /* we already loaded act_xt_ops as should, no need to print fail */
 	if (ret2 < 0)
 		printk("Failed to load ipt action\n");
-#endif
 
 	if (ret1 < 0 && ret2 < 0)
 		return ret1;

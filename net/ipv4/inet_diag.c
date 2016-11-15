@@ -48,7 +48,6 @@ struct inet_diag_entry {
 	struct in6_addr saddr_storage;	/* for IPv4-mapped-IPv6 addresses */
 	struct in6_addr daddr_storage;	/* for IPv4-mapped-IPv6 addresses */
 #endif
-	u32 ifindex;
 };
 
 #define INET_DIAG_PUT(skb, attrtype, attrlen) \
@@ -279,65 +278,40 @@ static int sk_diag_fill(struct sock *sk, struct sk_buff *skb,
 	return inet_csk_diag_fill(sk, skb, r, pid, seq, nlmsg_flags, unlh);
 }
 
-struct sock *inet_diag_find_one_icsk(struct net *net,
-				     struct inet_hashinfo *hashinfo,
-				     struct inet_diag_req_v2 *req)
+int inet_diag_dump_one_icsk(struct inet_hashinfo *hashinfo, struct sk_buff *in_skb,
+		const struct nlmsghdr *nlh, struct inet_diag_req_v2 *req)
 {
+	int err;
 	struct sock *sk;
+	struct sk_buff *rep;
 
+	err = -EINVAL;
 	if (req->sdiag_family == AF_INET) {
-		sk = inet_lookup(net, hashinfo, req->id.idiag_dst[0],
+		sk = inet_lookup(&init_net, hashinfo, req->id.idiag_dst[0],
 				 req->id.idiag_dport, req->id.idiag_src[0],
 				 req->id.idiag_sport, req->id.idiag_if);
 	}
 #if IS_ENABLED(CONFIG_IPV6)
 	else if (req->sdiag_family == AF_INET6) {
-		if (ipv6_addr_v4mapped((struct in6_addr *)req->id.idiag_dst) &&
-		    ipv6_addr_v4mapped((struct in6_addr *)req->id.idiag_src))
-			sk = inet_lookup(net, hashinfo, req->id.idiag_dst[3],
-					 req->id.idiag_dport, req->id.idiag_src[3],
-					 req->id.idiag_sport, req->id.idiag_if);
-		else
-			sk = inet6_lookup(net, hashinfo,
-					  (struct in6_addr *)req->id.idiag_dst,
-					  req->id.idiag_dport,
-					  (struct in6_addr *)req->id.idiag_src,
-					  req->id.idiag_sport,
-					  req->id.idiag_if);
+		sk = inet6_lookup(&init_net, hashinfo,
+				  (struct in6_addr *)req->id.idiag_dst,
+				  req->id.idiag_dport,
+				  (struct in6_addr *)req->id.idiag_src,
+				  req->id.idiag_sport,
+				  req->id.idiag_if);
 	}
 #endif
 	else {
-		return ERR_PTR(-EINVAL);
+		goto out_nosk;
 	}
 
-	if (!sk)
-		return ERR_PTR(-ENOENT);
+	err = -ENOENT;
+	if (sk == NULL)
+		goto out_nosk;
 
-	if (sock_diag_check_cookie(sk, req->id.idiag_cookie)) {
-		if (sk->sk_state == TCP_TIME_WAIT)
-			inet_twsk_put((struct inet_timewait_sock *)sk);
-		else
-			sock_put(sk);
-		return ERR_PTR(-ENOENT);
-	}
-
-	return sk;
-}
-EXPORT_SYMBOL_GPL(inet_diag_find_one_icsk);
-
-int inet_diag_dump_one_icsk(struct inet_hashinfo *hashinfo,
-			    struct sk_buff *in_skb,
-			    const struct nlmsghdr *nlh,
-			    struct inet_diag_req_v2 *req)
-{
-	struct net *net = sock_net(in_skb->sk);
-	struct sk_buff *rep;
-	struct sock *sk;
-	int err;
-
-	sk = inet_diag_find_one_icsk(net, hashinfo, req);
-	if (IS_ERR(sk))
-		return PTR_ERR(sk);
+	err = sock_diag_check_cookie(sk, req->id.idiag_cookie);
+	if (err)
+		goto out;
 
 	err = -ENOMEM;
 	rep = alloc_skb(NLMSG_SPACE((sizeof(struct inet_diag_msg) +
@@ -367,11 +341,12 @@ out:
 		else
 			sock_put(sk);
 	}
+out_nosk:
 	return err;
 }
 EXPORT_SYMBOL_GPL(inet_diag_dump_one_icsk);
 
-static int inet_diag_cmd_exact(int cmd, struct sk_buff *in_skb,
+static int inet_diag_get_exact(struct sk_buff *in_skb,
 			       const struct nlmsghdr *nlh,
 			       struct inet_diag_req_v2 *req)
 {
@@ -381,12 +356,8 @@ static int inet_diag_cmd_exact(int cmd, struct sk_buff *in_skb,
 	handler = inet_diag_lock_handler(req->sdiag_protocol);
 	if (IS_ERR(handler))
 		err = PTR_ERR(handler);
-	else if (cmd == SOCK_DIAG_BY_FAMILY)
-		err = handler->dump_one(in_skb, nlh, req);
-	else if (cmd == SOCK_DESTROY_BACKPORT && handler->destroy)
-		err = handler->destroy(in_skb, req);
 	else
-		err = -EOPNOTSUPP;
+		err = handler->dump_one(in_skb, nlh, req);
 	inet_diag_unlock_handler(handler);
 
 	return err;
@@ -491,14 +462,6 @@ static int inet_diag_bc_run(const struct nlattr *_bc,
 			yes = 0;
 			break;
 		}
-		case INET_DIAG_BC_DEV_COND: {
-			u32 ifindex;
-
-			ifindex = *((const u32 *)(op + 1));
-			if (ifindex != entry->ifindex)
-				yes = 0;
-			break;
-		}
 		}
 
 		if (yes) {
@@ -535,7 +498,6 @@ int inet_diag_bc_sk(const struct nlattr *bc, struct sock *sk)
 	}
 	entry.sport = inet->inet_num;
 	entry.dport = ntohs(inet->inet_dport);
-	entry.ifindex = sk->sk_bound_dev_if;
 	entry.userlocks = sk->sk_userlocks;
 
 	return inet_diag_bc_run(bc, &entry);
@@ -559,17 +521,6 @@ static int valid_cc(const void *bc, int len, int cc)
 	return 0;
 }
 
-/* data is u32 ifindex */
-static bool valid_devcond(const struct inet_diag_bc_op *op, int len,
-			  int *min_len)
-{
-	/* Check ifindex space. */
-	*min_len += sizeof(u32);
-	if (len < *min_len)
-		return false;
-
-	return true;
-}
 /* Validate an inet_diag_hostcond. */
 static bool valid_hostcond(const struct inet_diag_bc_op *op, int len,
 			   int *min_len)
@@ -619,16 +570,10 @@ static inline bool valid_port_comparison(const struct inet_diag_bc_op *op,
 	return true;
 }
 
-static int inet_diag_bc_audit(const struct nlattr *attr)
+static int inet_diag_bc_audit(const void *bytecode, int bytecode_len)
 {
-	const void *bytecode, *bc;
-	int bytecode_len, len;
-
-	if (!attr || nla_len(attr) < sizeof(struct inet_diag_bc_op))
-		return -EINVAL;
-
-	bytecode = bc = nla_data(attr);
-	len = bytecode_len = nla_len(attr);
+	const void *bc = bytecode;
+	int  len = bytecode_len;
 
 	while (len > 0) {
 		const struct inet_diag_bc_op *op = bc;
@@ -639,10 +584,6 @@ static int inet_diag_bc_audit(const struct nlattr *attr)
 		case INET_DIAG_BC_S_COND:
 		case INET_DIAG_BC_D_COND:
 			if (!valid_hostcond(bc, len, &min_len))
-				return -EINVAL;
-			break;
-		case INET_DIAG_BC_DEV_COND:
-			if (!valid_devcond(bc, len, &min_len))
 				return -EINVAL;
 			break;
 		case INET_DIAG_BC_S_GE:
@@ -1108,7 +1049,7 @@ static int inet_diag_get_exact_compat(struct sk_buff *in_skb,
 	req.idiag_states = rc->idiag_states;
 	req.id = rc->id;
 
-	return inet_diag_cmd_exact(SOCK_DIAG_BY_FAMILY, in_skb, nlh, &req);
+	return inet_diag_get_exact(in_skb, nlh, &req);
 }
 
 static int inet_diag_rcv_msg_compat(struct sk_buff *skb, struct nlmsghdr *nlh)
@@ -1122,13 +1063,13 @@ static int inet_diag_rcv_msg_compat(struct sk_buff *skb, struct nlmsghdr *nlh)
 	if (nlh->nlmsg_flags & NLM_F_DUMP) {
 		if (nlmsg_attrlen(nlh, hdrlen)) {
 			struct nlattr *attr;
-			int err;
 
 			attr = nlmsg_find_attr(nlh, hdrlen,
 					       INET_DIAG_REQ_BYTECODE);
-			err = inet_diag_bc_audit(attr);
-			if (err)
-				return err;
+			if (attr == NULL ||
+			    nla_len(attr) < sizeof(struct inet_diag_bc_op) ||
+			    inet_diag_bc_audit(nla_data(attr), nla_len(attr)))
+				return -EINVAL;
 		}
 		{
 			struct netlink_dump_control c = {
@@ -1141,24 +1082,22 @@ static int inet_diag_rcv_msg_compat(struct sk_buff *skb, struct nlmsghdr *nlh)
 	return inet_diag_get_exact_compat(skb, nlh);
 }
 
-static int inet_diag_handler_cmd(struct sk_buff *skb, struct nlmsghdr *h)
+static int inet_diag_handler_dump(struct sk_buff *skb, struct nlmsghdr *h)
 {
 	int hdrlen = sizeof(struct inet_diag_req_v2);
 
 	if (nlmsg_len(h) < hdrlen)
 		return -EINVAL;
 
-	if (h->nlmsg_type == SOCK_DIAG_BY_FAMILY &&
-	    h->nlmsg_flags & NLM_F_DUMP) {
+	if (h->nlmsg_flags & NLM_F_DUMP) {
 		if (nlmsg_attrlen(h, hdrlen)) {
 			struct nlattr *attr;
-			int err;
-
 			attr = nlmsg_find_attr(h, hdrlen,
 					       INET_DIAG_REQ_BYTECODE);
-			err = inet_diag_bc_audit(attr);
-			if (err)
-				return err;
+			if (attr == NULL ||
+			    nla_len(attr) < sizeof(struct inet_diag_bc_op) ||
+			    inet_diag_bc_audit(nla_data(attr), nla_len(attr)))
+				return -EINVAL;
 		}
 		{
 			struct netlink_dump_control c = {
@@ -1168,20 +1107,17 @@ static int inet_diag_handler_cmd(struct sk_buff *skb, struct nlmsghdr *h)
 		}
 	}
 
-	return inet_diag_cmd_exact(h->nlmsg_type, skb, h,
-				   (struct inet_diag_req_v2 *)NLMSG_DATA(h));
+	return inet_diag_get_exact(skb, h, (struct inet_diag_req_v2 *)NLMSG_DATA(h));
 }
 
 static struct sock_diag_handler inet_diag_handler = {
 	.family = AF_INET,
-	.dump = inet_diag_handler_cmd,
-	.destroy = inet_diag_handler_cmd,
+	.dump = inet_diag_handler_dump,
 };
 
 static struct sock_diag_handler inet6_diag_handler = {
 	.family = AF_INET6,
-	.dump = inet_diag_handler_cmd,
-	.destroy = inet_diag_handler_cmd,
+	.dump = inet_diag_handler_dump,
 };
 
 int inet_diag_register(const struct inet_diag_handler *h)

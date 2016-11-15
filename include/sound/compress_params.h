@@ -90,9 +90,7 @@
 #define SND_AUDIOCODEC_MP2                   ((__u32) 0x00000016)
 #define SND_AUDIOCODEC_DTS_LBR_PASS_THROUGH  ((__u32) 0x00000017)
 #define SND_AUDIOCODEC_EAC3                  ((__u32) 0x00000018)
-#define SND_AUDIOCODEC_ALAC                  ((__u32) 0x00000019)
-#define SND_AUDIOCODEC_APE                   ((__u32) 0x00000020)
-#define SND_AUDIOCODEC_MAX                   SND_AUDIOCODEC_APE
+#define SND_AUDIOCODEC_MAX  SND_AUDIOCODEC_EAC3
 
 /*
  * Profile and modes are listed with bit masks. This allows for a
@@ -263,7 +261,6 @@ struct snd_enc_wma {
 	__u32 encodeopt;
 	__u32 encodeopt1;
 	__u32 encodeopt2;
-	__u32 avg_bit_rate;
 };
 
 
@@ -339,63 +336,24 @@ struct snd_enc_generic {
 	__u32 bw;	/* encoder bandwidth */
 	__s32 reserved[15];
 };
+struct snd_dec_dts {
+	__u32 modelIdLength;
+	__u8 *modelId;
+};
 struct snd_dec_ddp {
 	__u32 params_length;
+	__u8 *params;
 	__u32 params_id[18];
 	__u32 params_value[18];
 };
-
-struct snd_dec_flac {
-	__u16 sample_size;
-	__u16 min_blk_size;
-	__u16 max_blk_size;
-	__u16 min_frame_size;
-	__u16 max_frame_size;
-};
-
-struct snd_dec_vorbis {
-	__u32 bit_stream_fmt;
-};
-
-struct snd_dec_alac {
-	__u32 frame_length;
-	__u8 compatible_version;
-	__u8 bit_depth;
-	__u8 pb;
-	__u8 mb;
-	__u8 kb;
-	__u8 num_channels;
-	__u16 max_run;
-	__u32 max_frame_bytes;
-	__u32 avg_bit_rate;
-	__u32 sample_rate;
-	__u32 channel_layout_tag;
-};
-
-struct snd_dec_ape {
-	__u16 compatible_version;
-	__u16 compression_level;
-	__u32 format_flags;
-	__u32 blocks_per_frame;
-	__u32 final_frame_blocks;
-	__u32 total_frames;
-	__u16 bits_per_sample;
-	__u16 num_channels;
-	__u32 sample_rate;
-	__u32 seek_table_present;
-};
-
 union snd_codec_options {
 	struct snd_enc_wma wma;
 	struct snd_enc_vorbis vorbis;
 	struct snd_enc_real real;
 	struct snd_enc_flac flac;
 	struct snd_enc_generic generic;
+	struct snd_dec_dts dts;
 	struct snd_dec_ddp ddp;
-	struct snd_dec_flac flac_dec;
-	struct snd_dec_vorbis vorbis_dec;
-	struct snd_dec_alac alac;
-	struct snd_dec_ape ape;
 };
 
 /** struct snd_codec_desc - description of codec capabilities
@@ -469,6 +427,8 @@ struct snd_codec {
 	__u32 ch_mode;
 	__u32 format;
 	__u32 align;
+	__u32 transcode_dts;
+	struct snd_dec_dts dts;
 	union snd_codec_options options;
 	__u32 reserved[3];
 };

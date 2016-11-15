@@ -26,12 +26,12 @@ static int sync_request(struct page *page, struct block_device *bdev, int rw)
 	struct completion complete;
 
 	bio_init(&bio);
-	bio.bi_max_vecs = 1;
 	bio.bi_io_vec = &bio_vec;
 	bio_vec.bv_page = page;
 	bio_vec.bv_len = PAGE_SIZE;
 	bio_vec.bv_offset = 0;
 	bio.bi_vcnt = 1;
+	bio.bi_idx = 0;
 	bio.bi_size = PAGE_SIZE;
 	bio.bi_bdev = bdev;
 	bio.bi_sector = page->index * (PAGE_SIZE >> 9);
@@ -95,11 +95,12 @@ static int __bdev_writeseg(struct super_block *sb, u64 ofs, pgoff_t index,
 	struct address_space *mapping = super->s_mapping_inode->i_mapping;
 	struct bio *bio;
 	struct page *page;
-	unsigned int max_pages;
+	struct request_queue *q = bdev_get_queue(sb->s_bdev);
+	unsigned int max_pages = queue_max_hw_sectors(q) >> (PAGE_SHIFT - 9);
 	int i;
 
-	max_pages = min(nr_pages, (size_t) bio_get_nr_vecs(super->s_bdev));
-
+	if (max_pages > BIO_MAX_PAGES)
+		max_pages = BIO_MAX_PAGES;
 	bio = bio_alloc(GFP_NOFS, max_pages);
 	BUG_ON(!bio);
 
@@ -107,6 +108,7 @@ static int __bdev_writeseg(struct super_block *sb, u64 ofs, pgoff_t index,
 		if (i >= max_pages) {
 			/* Block layer cannot split bios :( */
 			bio->bi_vcnt = i;
+			bio->bi_idx = 0;
 			bio->bi_size = i * PAGE_SIZE;
 			bio->bi_bdev = super->s_bdev;
 			bio->bi_sector = ofs >> 9;
@@ -134,6 +136,7 @@ static int __bdev_writeseg(struct super_block *sb, u64 ofs, pgoff_t index,
 		unlock_page(page);
 	}
 	bio->bi_vcnt = nr_pages;
+	bio->bi_idx = 0;
 	bio->bi_size = nr_pages * PAGE_SIZE;
 	bio->bi_bdev = super->s_bdev;
 	bio->bi_sector = ofs >> 9;
@@ -187,11 +190,12 @@ static int do_erase(struct super_block *sb, u64 ofs, pgoff_t index,
 {
 	struct logfs_super *super = logfs_super(sb);
 	struct bio *bio;
-	unsigned int max_pages;
+	struct request_queue *q = bdev_get_queue(sb->s_bdev);
+	unsigned int max_pages = queue_max_hw_sectors(q) >> (PAGE_SHIFT - 9);
 	int i;
 
-	max_pages = min(nr_pages, (size_t) bio_get_nr_vecs(super->s_bdev));
-
+	if (max_pages > BIO_MAX_PAGES)
+		max_pages = BIO_MAX_PAGES;
 	bio = bio_alloc(GFP_NOFS, max_pages);
 	BUG_ON(!bio);
 
@@ -199,6 +203,7 @@ static int do_erase(struct super_block *sb, u64 ofs, pgoff_t index,
 		if (i >= max_pages) {
 			/* Block layer cannot split bios :( */
 			bio->bi_vcnt = i;
+			bio->bi_idx = 0;
 			bio->bi_size = i * PAGE_SIZE;
 			bio->bi_bdev = super->s_bdev;
 			bio->bi_sector = ofs >> 9;
@@ -220,6 +225,7 @@ static int do_erase(struct super_block *sb, u64 ofs, pgoff_t index,
 		bio->bi_io_vec[i].bv_offset = 0;
 	}
 	bio->bi_vcnt = nr_pages;
+	bio->bi_idx = 0;
 	bio->bi_size = nr_pages * PAGE_SIZE;
 	bio->bi_bdev = super->s_bdev;
 	bio->bi_sector = ofs >> 9;

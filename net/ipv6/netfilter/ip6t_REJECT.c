@@ -7,8 +7,6 @@
  * Authors:
  *	Yasuyuki Kozakai	<yasuyuki.kozakai@toshiba.co.jp>
  *
- * Copyright (c) 2005-2007 Patrick McHardy <kaber@trash.net>
- *
  * Based on net/ipv4/netfilter/ipt_REJECT.c
  *
  * This program is free software; you can redistribute it and/or
@@ -116,7 +114,8 @@ static void send_reset(struct net *net, struct sk_buff *oldskb)
 			 GFP_ATOMIC);
 
 	if (!nskb) {
-		net_dbg_ratelimited("cannot alloc skb\n");
+		if (net_ratelimit())
+			pr_debug("cannot alloc skb\n");
 		dst_release(dst);
 		return;
 	}
@@ -220,7 +219,8 @@ reject_tg6(struct sk_buff *skb, const struct xt_action_param *par)
 		send_reset(net, skb);
 		break;
 	default:
-		net_info_ratelimited("case %u not handled yet\n", reject->with);
+		if (net_ratelimit())
+			pr_info("case %u not handled yet\n", reject->with);
 		break;
 	}
 

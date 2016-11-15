@@ -52,7 +52,7 @@ MODULE_FIRMWARE(MS_RW_FIRMWARE);
 		    vendorName, productName, useProtocol, useTransport, \
 		    initFunction, flags) \
 { USB_DEVICE_VER(id_vendor, id_product, bcdDeviceMin, bcdDeviceMax), \
-	.driver_info = (flags)}
+	.driver_info = (flags)|(USB_US_TYPE_STOR<<24) }
 
 static struct usb_device_id ene_ub6250_usb_ids[] = {
 #	include "unusual_ene_ub6250.h"
@@ -1928,10 +1928,11 @@ static int ene_load_bincode(struct us_data *us, unsigned char flag)
 		usb_stor_dbg(us, "load firmware %s failed\n", fw_name);
 		goto nofw;
 	}
-	buf = kmemdup(sd_fw->data, sd_fw->size, GFP_KERNEL);
+	buf = kmalloc(sd_fw->size, GFP_KERNEL);
 	if (buf == NULL)
 		goto nofw;
 
+	memcpy(buf, sd_fw->data, sd_fw->size);
 	memset(bcb, 0, sizeof(struct bulk_cb_wrap));
 	bcb->Signature = cpu_to_le32(US_BULK_CB_SIGN);
 	bcb->DataTransferLength = sd_fw->size;
@@ -1943,7 +1944,11 @@ static int ene_load_bincode(struct us_data *us, unsigned char flag)
 	kfree(buf);
 
 nofw:
-	release_firmware(sd_fw);
+	if (sd_fw != NULL) {
+		release_firmware(sd_fw);
+		sd_fw = NULL;
+	}
+
 	return result;
 }
 
@@ -2072,7 +2077,7 @@ static int ene_ms_init(struct us_data *us)
 {
 	struct bulk_cb_wrap *bcb = (struct bulk_cb_wrap *) us->iobuf;
 	int result;
-	u8 buf[0x199];
+	u8 buf[0x200];
 	u16 MSP_BlockSize, MSP_UserAreaBlocks;
 	struct ene_ub6250_info *info = (struct ene_ub6250_info *) us->extra;
 
@@ -2344,8 +2349,8 @@ static int ene_ub6250_probe(struct usb_interface *intf,
 	}
 
 	if (!(misc_reg03 & 0x01)) {
-		pr_info("ums_eneub6250: This driver only supports SD/MS cards. "
-			"It does not support SM cards.\n");
+		pr_info("ums_eneub6250: The driver only supports SD/MS card. "
+			"To use SM card, please build driver/staging/keucr\n");
 	}
 
 	return result;

@@ -1075,7 +1075,7 @@ int rndis_rm_hdr(struct gether *port,
 		u32		msg_len, data_offset, data_len;
 
 		if (skb->len < sizeof *hdr) {
-			pr_err("invalid rndis pkt: skblen:%u hdr_len:%zu",
+			pr_err("invalid rndis pkt: skblen:%u hdr_len:%u",
 					skb->len, sizeof *hdr);
 			dev_kfree_skb_any(skb);
 			return -EINVAL;
@@ -1148,7 +1148,7 @@ static int rndis_proc_show(struct seq_file *m, void *v)
 			 "cable     : %s\n"
 			 "vendor ID : 0x%08X\n"
 			 "vendor    : %s\n"
-			 "ul-max-xfer-size:%zu max-xfer-size-rcvd: %d\n"
+			 "ul-max-xfer-size:%d max-xfer-size-rcvd: %d\n"
 			 "ul-max-pkts-per-xfer:%d max-pkts-per-xfer-rcvd:%d\n",
 			 param->confignr, (param->used) ? "y" : "n",
 			 ({ char *s = "?";
@@ -1176,7 +1176,7 @@ static int rndis_proc_show(struct seq_file *m, void *v)
 static ssize_t rndis_proc_write(struct file *file, const char __user *buffer,
 				size_t count, loff_t *ppos)
 {
-	rndis_params *p = PDE_DATA(file_inode(file));
+	rndis_params *p = PDE(file->f_path.dentry->d_inode)->data;
 	u32 speed = 0;
 	int i, fl_speed = 0;
 
@@ -1220,7 +1220,7 @@ static ssize_t rndis_proc_write(struct file *file, const char __user *buffer,
 
 static int rndis_proc_open(struct inode *inode, struct file *file)
 {
-	return single_open(file, rndis_proc_show, PDE_DATA(inode));
+	return single_open(file, rndis_proc_show, PDE(inode)->data);
 }
 
 static const struct file_operations rndis_proc_fops = {

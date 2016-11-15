@@ -869,8 +869,8 @@ static int get_img(struct msmfb_data *fbd, int domain,
 			return -EINVAL;
 		}
 
-		if (MAJOR(file_inode(file)->i_rdev) == FB_MAJOR) {
-			fb_num = MINOR(file_inode(file)->i_rdev);
+		if (MAJOR(file->f_dentry->d_inode->i_rdev) == FB_MAJOR) {
+			fb_num = MINOR(file->f_dentry->d_inode->i_rdev);
 			if (get_fb_phys_info(start, len, fb_num,
 				ROTATOR_SUBSYSTEM_ID)) {
 				pr_err("get_fb_phys_info() failed\n");
@@ -1631,7 +1631,7 @@ static int __devinit msm_rotator_probe(struct platform_device *pdev)
 
 	mutex_init(&msm_rotator_dev->rotator_lock);
 #ifdef CONFIG_MSM_MULTIMEDIA_USE_ION
-	msm_rotator_dev->client = msm_ion_client_create(pdev->name);
+	msm_rotator_dev->client = msm_ion_client_create(-1, pdev->name);
 #endif
 	platform_set_drvdata(pdev, msm_rotator_dev);
 

@@ -1776,12 +1776,6 @@ static int ac_interception(struct vcpu_svm *svm)
 	return 1;
 }
 
-static int ac_interception(struct vcpu_svm *svm)
-{
-	kvm_queue_exception_e(&svm->vcpu, AC_VECTOR, 0);
-	return 1;
-}
-
 static void svm_fpu_activate(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);

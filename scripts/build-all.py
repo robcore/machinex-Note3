@@ -1,6 +1,6 @@
 #! /usr/bin/env python
 
-# Copyright (c) 2009-2014, The Linux Foundation. All rights reserved.
+# Copyright (c) 2009-2013, The Linux Foundation. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -27,24 +27,28 @@
 # ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 # Build the kernel for all targets using the Android build environment.
+#
+# TODO: Accept arguments to indicate what to build.
 
-from collections import namedtuple
 import glob
 from optparse import OptionParser
+import subprocess
 import os
+import os.path
 import re
 import shutil
-import subprocess
 import sys
-import threading
-import Queue
 
-version = 'build-all.py, version 1.99'
+version = 'build-all.py, version 0.01'
 
 build_dir = '../all-kernels'
 make_command = ["vmlinux", "modules", "dtbs"]
+make_env = os.environ
+make_env.update({
+        'ARCH': 'arm',
+        'KCONFIG_NOTIMESTAMP': 'true' })
+make_env.setdefault('CROSS_COMPILE', 'arm-none-linux-gnueabi-')
 all_options = {}
-compile64 = os.environ.get('CROSS_COMPILE64')
 
 def error(msg):
     sys.stderr.write("error: %s\n" % msg)
@@ -53,9 +57,6 @@ def fail(msg):
     """Fail with a user-printed message"""
     error(msg)
     sys.exit(1)
-
-if not os.environ.get('CROSS_COMPILE'):
-    fail("CROSS_COMPILE must be set in the environment")
 
 def check_kernel():
     """Ensure that PWD is a kernel directory"""
@@ -74,160 +75,63 @@ def check_build():
             else:
                 raise
 
-def build_threads():
-    """Determine the number of build threads requested by the user"""
-    if all_options.load_average:
-        return all_options.load_average
-    return all_options.jobs or 1
+def update_config(file, str):
+    print 'Updating %s with \'%s\'\n' % (file, str)
+    defconfig = open(file, 'a')
+    defconfig.write(str + '\n')
+    defconfig.close()
 
-failed_targets = []
+def scan_configs():
+    """Get the full list of defconfigs appropriate for this tree."""
+    names = {}
+    arch_pats = (
+        r'[fm]sm[0-9]*_defconfig',
+        r'apq*_defconfig',
+        r'qsd*_defconfig',
+	r'msmkrypton*_defconfig',
+        )
+    for p in arch_pats:
+        for n in glob.glob('arch/arm/configs/' + p):
+            names[os.path.basename(n)[:-10]] = n
+    return names
 
-BuildResult = namedtuple('BuildResult', ['status', 'messages'])
+class Builder:
+    def __init__(self, logname):
+        self.logname = logname
+        self.fd = open(logname, 'w')
 
-class BuildSequence(namedtuple('BuildSequence', ['log_name', 'short_name', 'steps'])):
-
-    def set_width(self, width):
-        self.width = width
-
-    def __enter__(self):
-        self.log = open(self.log_name, 'w')
-    def __exit__(self, type, value, traceback):
-        self.log.close()
-
-    def run(self):
-        self.status = None
-        messages = ["Building: " + self.short_name]
-        def printer(line):
-            text = "[%-*s] %s" % (self.width, self.short_name, line)
-            messages.append(text)
-            self.log.write(text)
-            self.log.write('\n')
-        for step in self.steps:
-            st = step.run(printer)
-            if st:
-                self.status = BuildResult(self.short_name, messages)
+    def run(self, args):
+        devnull = open('/dev/null', 'r')
+        proc = subprocess.Popen(args, stdin=devnull,
+                env=make_env,
+                bufsize=0,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT)
+        count = 0
+        # for line in proc.stdout:
+        rawfd = proc.stdout.fileno()
+        while True:
+            line = os.read(rawfd, 1024)
+            if not line:
                 break
-        if not self.status:
-            self.status = BuildResult(None, messages)
-
-class BuildTracker:
-    """Manages all of the steps necessary to perform a build.  The
-    build consists of one or more sequences of steps.  The different
-    sequences can be processed independently, while the steps within a
-    sequence must be done in order."""
-
-    def __init__(self):
-        self.sequence = []
-        self.lock = threading.Lock()
-
-    def add_sequence(self, log_name, short_name, steps):
-        self.sequence.append(BuildSequence(log_name, short_name, steps))
-
-    def longest_name(self):
-        longest = 0
-        for seq in self.sequence:
-            longest = max(longest, len(seq.short_name))
-        return longest
-
-    def __repr__(self):
-        return "BuildTracker(%s)" % self.sequence
-
-    def run_child(self, seq):
-        seq.set_width(self.longest)
-        tok = self.build_tokens.get()
-        with self.lock:
-            print "Building:", seq.short_name
-        with seq:
-            seq.run()
-            self.results.put(seq.status)
-        self.build_tokens.put(tok)
-
-    def run(self):
-        self.longest = self.longest_name()
-        self.results = Queue.Queue()
-        children = []
-        errors = []
-        self.build_tokens = Queue.Queue()
-        nthreads = build_threads()
-        print "Building with", nthreads, "threads"
-        for i in range(nthreads):
-            self.build_tokens.put(True)
-        for seq in self.sequence:
-            child = threading.Thread(target=self.run_child, args=[seq])
-            children.append(child)
-            child.start()
-        for child in children:
-            stats = self.results.get()
+            self.fd.write(line)
+            self.fd.flush()
             if all_options.verbose:
-                with self.lock:
-                    for line in stats.messages:
-                        print line
-                    sys.stdout.flush()
-            if stats.status:
-                errors.append(stats.status)
-        for child in children:
-            child.join()
-        if errors:
-            fail("\n  ".join(["Failed targets:"] + errors))
-
-class PrintStep:
-    """A step that just prints a message"""
-    def __init__(self, message):
-        self.message = message
-
-    def run(self, outp):
-        outp(self.message)
-
-class MkdirStep:
-    """A step that makes a directory"""
-    def __init__(self, direc):
-        self.direc = direc
-
-    def run(self, outp):
-        outp("mkdir %s" % self.direc)
-        os.mkdir(self.direc)
-
-class RmtreeStep:
-    def __init__(self, direc):
-        self.direc = direc
-
-    def run(self, outp):
-        outp("rmtree %s" % self.direc)
-        shutil.rmtree(self.direc, ignore_errors=True)
-
-class CopyfileStep:
-    def __init__(self, src, dest):
-        self.src = src
-        self.dest = dest
-
-    def run(self, outp):
-        outp("cp %s %s" % (self.src, self.dest))
-        shutil.copyfile(self.src, self.dest)
-
-class ExecStep:
-    def __init__(self, cmd, **kwargs):
-        self.cmd = cmd
-        self.kwargs = kwargs
-
-    def run(self, outp):
-        outp("exec: %s" % (" ".join(self.cmd),))
-        with open('/dev/null', 'r') as devnull:
-            proc = subprocess.Popen(self.cmd, stdin=devnull,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    **self.kwargs)
-            stdout = proc.stdout
-            while True:
-                line = stdout.readline()
-                if not line:
-                    break
-                line = line.rstrip('\n')
-                outp(line)
-            result = proc.wait()
-            if result != 0:
-                return ('error', result)
+                sys.stdout.write(line)
+                sys.stdout.flush()
             else:
-                return None
+                for i in range(line.count('\n')):
+                    count += 1
+                    if count == 64:
+                        count = 0
+                        print
+                    sys.stdout.write('.')
+                sys.stdout.flush()
+        print
+        result = proc.wait()
+
+        self.fd.close()
+        return result
 
 failed_targets = []
 
@@ -346,8 +250,8 @@ def main():
 
     if options.list:
         print "Available targets:"
-        for target in configs:
-            print "   %s" % target.name
+        for target in configs.keys():
+            print "   %s" % target
         sys.exit(0)
 
     if options.oldconfig:
@@ -355,30 +259,32 @@ def main():
     elif options.make_target:
         make_command = options.make_target
 
+    if options.jobs:
+        make_command.append("-j%d" % options.jobs)
+    if options.load_average:
+        make_command.append("-l%d" % options.load_average)
+
     if args == ['all']:
-        build_many(configs)
+        build_many(configs, configs.keys())
     elif args == ['perf']:
         targets = []
-        for t in configs:
-            if "perf" in t.name:
+        for t in configs.keys():
+            if "perf" in t:
                 targets.append(t)
-        build_many(targets)
+        build_many(configs, targets)
     elif args == ['noperf']:
         targets = []
-        for t in configs:
-            if "perf" not in t.name:
+        for t in configs.keys():
+            if "perf" not in t:
                 targets.append(t)
-        build_many(targets)
+        build_many(configs, targets)
     elif len(args) > 0:
-        all_configs = {}
-        for t in configs:
-            all_configs[t.name] = t
         targets = []
         for t in args:
-            if t not in all_configs:
-                parser.error("Target '%s' not one of %s" % (t, all_configs.keys()))
-            targets.append(all_configs[t])
-        build_many(targets)
+            if t not in configs.keys():
+                parser.error("Target '%s' not one of %s" % (t, configs.keys()))
+            targets.append(t)
+        build_many(configs, targets)
     else:
         parser.error("Must specify a target to build, or 'all'")
 

@@ -35,13 +35,14 @@
 #include <linux/dma-mapping.h>
 #include <linux/crash_dump.h>
 #include <linux/memory.h>
-#include <linux/of.h>
 #include <asm/io.h>
 #include <asm/prom.h>
 #include <asm/rtas.h>
 #include <asm/iommu.h>
 #include <asm/pci-bridge.h>
 #include <asm/machdep.h>
+#include <asm/abs_addr.h>
+#include <asm/pSeries_reconfig.h>
 #include <asm/firmware.h>
 #include <asm/tce.h>
 #include <asm/ppc-pci.h>
@@ -746,7 +747,7 @@ static void remove_ddw(struct device_node *np)
 			np->full_name, ret, ddw_avail[2], liobn);
 
 delprop:
-	ret = of_remove_property(np, win64);
+	ret = prom_remove_property(np, win64);
 	if (ret)
 		pr_warning("%s: failed to remove direct window property: %d\n",
 			np->full_name, ret);
@@ -990,7 +991,7 @@ static u64 enable_ddw(struct pci_dev *dev, struct device_node *pdn)
 		goto out_free_window;
 	}
 
-	ret = of_add_property(pdn, win64);
+	ret = prom_add_property(pdn, win64);
 	if (ret) {
 		dev_err(&dev->dev, "unable to add dma window property for %s: %d",
 			 pdn->full_name, ret);
@@ -1210,7 +1211,7 @@ static int iommu_reconfig_notifier(struct notifier_block *nb, unsigned long acti
 	struct direct_window *window;
 
 	switch (action) {
-	case OF_RECONFIG_DETACH_NODE:
+	case PSERIES_RECONFIG_REMOVE:
 		if (pci && pci->iommu_table)
 			iommu_free_table(pci->iommu_table, np->full_name);
 
@@ -1273,7 +1274,7 @@ void iommu_init_early_pSeries(void)
 	}
 
 
-	of_reconfig_notifier_register(&iommu_reconfig_nb);
+	pSeries_reconfig_notifier_register(&iommu_reconfig_nb);
 	register_memory_notifier(&iommu_mem_nb);
 
 	set_pci_dma_ops(&dma_iommu_ops);

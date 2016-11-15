@@ -12,7 +12,6 @@
 
 #include <linux/linkage.h>
 #include <asm/assembler.h>
-#include <asm/unwind.h>
 
 /*
  * Prototype:
@@ -69,17 +68,6 @@
 	stmia \ptr!, {\reg1, \reg2, \reg3, \reg4, \reg5, \reg6, \reg7, \reg8}
 	.endm
 
-#ifdef CONFIG_USE_LDRDSTRD_OVER_LDMSTM
-	.macro cpy8w dst src reg1 reg2 abort
-	.irp offset, #0, #8, #16, #24
-	ldr1w \src, \reg1, \abort
-	ldr1w \src, \reg2, \abort
-	strd \reg1, \reg2, [\dst, \offset]
-	.endr
-	add \dst, \dst, #32
-	.endm
-#endif
-
 	.macro str1b ptr reg cond=al abort
 	str\cond\()b \reg, [\ptr], #1
 	.endm
@@ -87,10 +75,6 @@
 	.macro enter reg1 reg2
 	mov	r3, #0
 	stmdb	sp!, {r0, r2, r3, \reg1, \reg2}
-	.endm
-
-	.macro usave reg1 reg2
-	UNWIND(	.save {r0, r2, r3, \reg1, \reg2}	)
 	.endm
 
 	.macro exit reg1 reg2

@@ -50,9 +50,7 @@ pgd_t *pgd_alloc(struct mm_struct *mm)
 	memcpy(new_pgd + USER_PTRS_PER_PGD, init_pgd + USER_PTRS_PER_PGD,
 		       (PTRS_PER_PGD - USER_PTRS_PER_PGD) * sizeof(pgd_t));
 
-#if !defined(CONFIG_CPU_CACHE_V7) || !defined(CONFIG_SMP)
 	clean_dcache_area(new_pgd, PTRS_PER_PGD * sizeof(pgd_t));
-#endif
 
 #ifdef CONFIG_ARM_LPAE
 	/*
@@ -89,8 +87,7 @@ pgd_t *pgd_alloc(struct mm_struct *mm)
 		init_pud = pud_offset(init_pgd, 0);
 		init_pmd = pmd_offset(init_pud, 0);
 		init_pte = pte_offset_map(init_pmd, 0);
-		set_pte_ext(new_pte + 0, init_pte[0], 0);
-		set_pte_ext(new_pte + 1, init_pte[1], 0);
+		set_pte_ext(new_pte, *init_pte, 0);
 		pte_unmap(init_pte);
 		pte_unmap(new_pte);
 	}

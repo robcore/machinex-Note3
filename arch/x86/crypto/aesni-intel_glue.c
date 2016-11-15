@@ -1122,7 +1122,7 @@ static int __driver_rfc4106_encrypt(struct aead_request *req)
 			GFP_ATOMIC);
 		if (unlikely(!src))
 			return -ENOMEM;
-		assoc = (src + req->cryptlen);
+		assoc = (src + req->cryptlen + auth_tag_len);
 		scatterwalk_map_and_copy(src, req->src, 0, req->cryptlen, 0);
 		scatterwalk_map_and_copy(assoc, req->assoc, 0,
 					req->assoclen, 0);

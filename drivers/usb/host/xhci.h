@@ -1261,6 +1261,9 @@ struct xhci_td {
 	bool			urb_length_set;
 };
 
+/* xHCI command default timeout value */
+#define XHCI_CMD_DEFAULT_TIMEOUT	(5 * HZ)
+
 /* command descriptor */
 struct xhci_cd {
 	struct list_head	cancel_cmd_list;

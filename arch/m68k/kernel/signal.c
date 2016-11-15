@@ -48,9 +48,8 @@ int handle_kernel_fault(struct pt_regs *regs)
 	return 1;
 }
 
-void ptrace_signal_deliver(void)
+void ptrace_signal_deliver(struct pt_regs *regs, void *cookie)
 {
-	struct pt_regs *regs = signal_pt_regs();
 	if (regs->orig_d0 < 0)
 		return;
 	switch (regs->d0) {
@@ -1064,9 +1063,8 @@ handle_restart(struct pt_regs *regs, struct k_sigaction *ka, int has_handler)
  */
 static void
 handle_signal(int sig, struct k_sigaction *ka, siginfo_t *info,
-	      struct pt_regs *regs)
+	      sigset_t *oldset, struct pt_regs *regs)
 {
-	sigset_t *oldset = sigmask_to_save();
 	int err;
 	/* are we from a system call? */
 	if (regs->orig_d0 >= 0)
@@ -1091,6 +1089,8 @@ handle_signal(int sig, struct k_sigaction *ka, siginfo_t *info,
 		regs->sr &= ~0x8000;
 		send_sig(SIGTRAP, current, 1);
 	}
+
+	clear_thread_flag(TIF_RESTORE_SIGMASK);
 }
 
 /*
@@ -1103,13 +1103,19 @@ asmlinkage void do_signal(struct pt_regs *regs)
 	siginfo_t info;
 	struct k_sigaction ka;
 	int signr;
+	sigset_t *oldset;
 
 	current->thread.esp0 = (unsigned long) regs;
+
+	if (test_thread_flag(TIF_RESTORE_SIGMASK))
+		oldset = &current->saved_sigmask;
+	else
+		oldset = &current->blocked;
 
 	signr = get_signal_to_deliver(&info, &ka, regs, NULL);
 	if (signr > 0) {
 		/* Whee!  Actually deliver the signal.  */
-		handle_signal(signr, &ka, &info, regs);
+		handle_signal(signr, &ka, &info, oldset, regs);
 		return;
 	}
 
@@ -1119,14 +1125,8 @@ asmlinkage void do_signal(struct pt_regs *regs)
 		handle_restart(regs, NULL, 0);
 
 	/* If there's no signal to deliver, we just restore the saved mask.  */
-	restore_saved_sigmask();
-}
-
-void do_notify_resume(struct pt_regs *regs)
-{
-	if (test_thread_flag(TIF_SIGPENDING))
-		do_signal(regs);
-
-	if (test_and_clear_thread_flag(TIF_NOTIFY_RESUME))
-		tracehook_notify_resume(regs);
+	if (test_thread_flag(TIF_RESTORE_SIGMASK)) {
+		clear_thread_flag(TIF_RESTORE_SIGMASK);
+		sigprocmask(SIG_SETMASK, &current->saved_sigmask, NULL);
+	}
 }

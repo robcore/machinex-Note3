@@ -9,7 +9,6 @@
 #include <linux/nsproxy.h>
 #include <linux/slab.h>
 #include <linux/user_namespace.h>
-#include <linux/proc_ns.h>
 #include <linux/highuid.h>
 #include <linux/cred.h>
 
@@ -28,17 +27,10 @@ int create_user_ns(struct cred *new)
 	struct user_namespace *ns;
 	struct user_struct *root_user;
 	int n;
-	int ret;
 
 	ns = kmem_cache_alloc(user_ns_cachep, GFP_KERNEL);
 	if (!ns)
 		return -ENOMEM;
-
-	ret = proc_alloc_inum(&ns->proc_inum);
-	if (ret) {
-		kmem_cache_free(user_ns_cachep, ns);
-		return ret;
-	}
 
 	kref_init(&ns->kref);
 
@@ -81,7 +73,6 @@ static void free_user_ns_work(struct work_struct *work)
 	struct user_namespace *ns =
 		container_of(work, struct user_namespace, destroyer);
 	free_uid(ns->creator);
-	proc_free_inum(ns->proc_inum);
 	kmem_cache_free(user_ns_cachep, ns);
 }
 
@@ -99,7 +90,7 @@ uid_t user_ns_map_uid(struct user_namespace *to, const struct cred *cred, uid_t 
 {
 	struct user_namespace *tmp;
 
-	if (likely(to == cred->user_ns))
+	if (likely(to == cred->user->user_ns))
 		return uid;
 
 
@@ -121,7 +112,7 @@ gid_t user_ns_map_gid(struct user_namespace *to, const struct cred *cred, gid_t 
 {
 	struct user_namespace *tmp;
 
-	if (likely(to == cred->user_ns))
+	if (likely(to == cred->user->user_ns))
 		return gid;
 
 	/* Is cred->user the creator of the target user_ns

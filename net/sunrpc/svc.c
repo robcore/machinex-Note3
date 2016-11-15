@@ -1038,21 +1038,23 @@ static void svc_unregister(const struct svc_serv *serv, struct net *net)
  * Printk the given error with the address of the client that caused it.
  */
 static __printf(2, 3)
-void svc_printk(struct svc_rqst *rqstp, const char *fmt, ...)
+int svc_printk(struct svc_rqst *rqstp, const char *fmt, ...)
 {
-	struct va_format vaf;
 	va_list args;
+	int 	r;
 	char 	buf[RPC_MAX_ADDRBUFLEN];
 
+	if (!net_ratelimit())
+		return 0;
+
+	printk(KERN_WARNING "svc: %s: ",
+		svc_print_addr(rqstp, buf, sizeof(buf)));
+
 	va_start(args, fmt);
-
-	vaf.fmt = fmt;
-	vaf.va = &args;
-
-	net_warn_ratelimited("svc: %s: %pV",
-			     svc_print_addr(rqstp, buf, sizeof(buf)), &vaf);
-
+	r = vprintk(fmt, args);
 	va_end(args);
+
+	return r;
 }
 
 /*

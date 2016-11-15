@@ -653,7 +653,7 @@ static unsigned int refill_fl(struct adapter *adapter, struct sge_fl *fl,
 
 alloc_small_pages:
 	while (n--) {
-		page = __skb_alloc_page(gfp | __GFP_NOWARN, NULL);
+		page = alloc_page(gfp | __GFP_NOWARN | __GFP_COLD);
 		if (unlikely(!page)) {
 			fl->alloc_failed++;
 			break;
@@ -1944,7 +1944,7 @@ static void sge_rx_timer_cb(unsigned long data)
 			struct sge_fl *fl = s->egr_map[id];
 
 			clear_bit(id, s->starving_fl);
-			smp_mb__after_atomic();
+			smp_mb__after_clear_bit();
 
 			/*
 			 * Since we are accessing fl without a lock there's a

@@ -240,8 +240,6 @@ static void audit_watch_log_rule_change(struct audit_krule *r, struct audit_watc
 	if (audit_enabled) {
 		struct audit_buffer *ab;
 		ab = audit_log_start(NULL, GFP_NOFS, AUDIT_CONFIG_CHANGE);
-		if (unlikely(!ab))
-			return;
 		audit_log_format(ab, "auid=%u ses=%u op=",
 				 audit_get_loginuid(current),
 				 audit_get_sessionid(current));
@@ -267,8 +265,7 @@ static void audit_update_watch(struct audit_parent *parent,
 	/* Run all of the watches on this parent looking for the one that
 	 * matches the given dname */
 	list_for_each_entry_safe(owatch, nextw, &parent->watches, wlist) {
-		if (audit_compare_dname_path(dname, owatch->path,
-					     AUDIT_NAME_FULL))
+		if (audit_compare_dname_path(dname, owatch->path, NULL))
 			continue;
 
 		/* If the update involves invalidating rules, do the inode-based
@@ -352,21 +349,40 @@ static void audit_remove_parent_watches(struct audit_parent *parent)
 	}
 	mutex_unlock(&audit_filter_mutex);
 
-	fsnotify_destroy_mark(&parent->mark, audit_watch_group);
+	fsnotify_destroy_mark(&parent->mark);
 }
 
 /* Get path information necessary for adding watches. */
 static int audit_get_nd(struct audit_watch *watch, struct path *parent)
 {
-	struct dentry *d = kern_path_locked(watch->path, parent);
-	if (IS_ERR(d))
+	struct nameidata nd;
+	struct dentry *d;
+	int err;
+
+	err = kern_path_parent(watch->path, &nd);
+	if (err)
+		return err;
+
+	if (nd.last_type != LAST_NORM) {
+		path_put(&nd.path);
+		return -EINVAL;
+	}
+
+	mutex_lock_nested(&nd.path.dentry->d_inode->i_mutex, I_MUTEX_PARENT);
+	d = lookup_one_len(nd.last.name, nd.path.dentry, nd.last.len);
+	if (IS_ERR(d)) {
+		mutex_unlock(&nd.path.dentry->d_inode->i_mutex);
+		path_put(&nd.path);
 		return PTR_ERR(d);
-	mutex_unlock(&parent->dentry->d_inode->i_mutex);
+	}
 	if (d->d_inode) {
 		/* update watch filter fields */
 		watch->dev = d->d_inode->i_sb->s_dev;
 		watch->ino = d->d_inode->i_ino;
 	}
+	mutex_unlock(&nd.path.dentry->d_inode->i_mutex);
+
+	*parent = nd.path;
 	dput(d);
 	return 0;
 }
@@ -459,7 +475,7 @@ void audit_remove_watch_rule(struct audit_krule *krule)
 
 		if (list_empty(&parent->watches)) {
 			audit_get_parent(parent);
-			fsnotify_destroy_mark(&parent->mark, audit_watch_group);
+			fsnotify_destroy_mark(&parent->mark);
 			audit_put_parent(parent);
 		}
 	}

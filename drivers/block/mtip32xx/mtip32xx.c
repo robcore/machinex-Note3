@@ -231,9 +231,9 @@ static int get_slot(struct mtip_port *port)
  */
 static inline void release_slot(struct mtip_port *port, int tag)
 {
-	smp_mb__before_atomic();
+	smp_mb__before_clear_bit();
 	clear_bit(tag, port->allocated);
-	smp_mb__after_atomic();
+	smp_mb__after_clear_bit();
 }
 
 /*
@@ -3632,7 +3632,6 @@ skip_create_disk:
 
 	/* Set device limits. */
 	set_bit(QUEUE_FLAG_NONROT, &dd->queue->queue_flags);
-	clear_bit(QUEUE_FLAG_ADD_RANDOM, &dd->queue->queue_flags);
 	blk_queue_max_segments(dd->queue, MTIP_MAX_SG);
 	blk_queue_physical_block_size(dd->queue, 4096);
 	blk_queue_io_min(dd->queue, 4096);

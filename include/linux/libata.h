@@ -292,12 +292,6 @@ enum {
 	 */
 	ATA_TMOUT_SPURIOUS_PHY	= 10000,
 
-	/* When the LPM policy is set to ATA_LPM_MAX_POWER, there might
-	 * be a spurious PHY event, so ignore the first PHY event that
-	 * occurs within 10s after the policy change.
-	 */
-	ATA_TMOUT_SPURIOUS_PHY	= 10000,
-
 	/* ATA bus states */
 	BUS_UNKNOWN		= 0,
 	BUS_DMA			= 1,

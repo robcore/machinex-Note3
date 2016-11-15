@@ -23,7 +23,6 @@
 #include "acl.h"
 #include "v9fs.h"
 #include "v9fs_vfs.h"
-#include "fid.h"
 
 static struct posix_acl *__v9fs_get_acl(struct p9_fid *fid, char *name)
 {
@@ -38,7 +37,7 @@ static struct posix_acl *__v9fs_get_acl(struct p9_fid *fid, char *name)
 			return ERR_PTR(-ENOMEM);
 		size = v9fs_fid_xattr_get(fid, name, value, size);
 		if (size > 0) {
-			acl = posix_acl_from_xattr(&init_user_ns, value, size);
+			acl = posix_acl_from_xattr(value, size);
 			if (IS_ERR(acl))
 				goto err_out;
 		}
@@ -114,12 +113,16 @@ struct posix_acl *v9fs_iop_get_acl(struct inode *inode, int type)
 
 }
 
-static int v9fs_set_acl(struct p9_fid *fid, int type, struct posix_acl *acl)
+static int v9fs_set_acl(struct dentry *dentry, int type, struct posix_acl *acl)
 {
 	int retval;
 	char *name;
 	size_t size;
 	void *buffer;
+	struct inode *inode = dentry->d_inode;
+
+	set_cached_acl(inode, type, acl);
+
 	if (!acl)
 		return 0;
 
@@ -128,7 +131,7 @@ static int v9fs_set_acl(struct p9_fid *fid, int type, struct posix_acl *acl)
 	buffer = kmalloc(size, GFP_KERNEL);
 	if (!buffer)
 		return -ENOMEM;
-	retval = posix_acl_to_xattr(&init_user_ns, acl, buffer, size);
+	retval = posix_acl_to_xattr(acl, buffer, size);
 	if (retval < 0)
 		goto err_free_out;
 	switch (type) {
@@ -141,16 +144,17 @@ static int v9fs_set_acl(struct p9_fid *fid, int type, struct posix_acl *acl)
 	default:
 		BUG();
 	}
-	retval = v9fs_fid_xattr_set(fid, name, buffer, size, 0);
+	retval = v9fs_xattr_set(dentry, name, buffer, size, 0);
 err_free_out:
 	kfree(buffer);
 	return retval;
 }
 
-int v9fs_acl_chmod(struct inode *inode, struct p9_fid *fid)
+int v9fs_acl_chmod(struct dentry *dentry)
 {
 	int retval = 0;
 	struct posix_acl *acl;
+	struct inode *inode = dentry->d_inode;
 
 	if (S_ISLNK(inode->i_mode))
 		return -EOPNOTSUPP;
@@ -159,28 +163,23 @@ int v9fs_acl_chmod(struct inode *inode, struct p9_fid *fid)
 		retval = posix_acl_chmod(&acl, GFP_KERNEL, inode->i_mode);
 		if (retval)
 			return retval;
-		set_cached_acl(inode, ACL_TYPE_ACCESS, acl);
-		retval = v9fs_set_acl(fid, ACL_TYPE_ACCESS, acl);
+		retval = v9fs_set_acl(dentry, ACL_TYPE_ACCESS, acl);
 		posix_acl_release(acl);
 	}
 	return retval;
 }
 
-int v9fs_set_create_acl(struct inode *inode, struct p9_fid *fid,
-			struct posix_acl *dacl, struct posix_acl *acl)
+int v9fs_set_create_acl(struct dentry *dentry,
+			struct posix_acl **dpacl, struct posix_acl **pacl)
 {
-	set_cached_acl(inode, ACL_TYPE_DEFAULT, dacl);
-	set_cached_acl(inode, ACL_TYPE_ACCESS, acl);
-	v9fs_set_acl(fid, ACL_TYPE_DEFAULT, dacl);
-	v9fs_set_acl(fid, ACL_TYPE_ACCESS, acl);
+	if (dentry) {
+		v9fs_set_acl(dentry, ACL_TYPE_DEFAULT, *dpacl);
+		v9fs_set_acl(dentry, ACL_TYPE_ACCESS, *pacl);
+	}
+	posix_acl_release(*dpacl);
+	posix_acl_release(*pacl);
+	*dpacl = *pacl = NULL;
 	return 0;
-}
-
-void v9fs_put_acl(struct posix_acl *dacl,
-		  struct posix_acl *acl)
-{
-	posix_acl_release(dacl);
-	posix_acl_release(acl);
 }
 
 int v9fs_acl_mode(struct inode *dir, umode_t *modep,
@@ -252,7 +251,7 @@ static int v9fs_xattr_get_acl(struct dentry *dentry, const char *name,
 		return PTR_ERR(acl);
 	if (acl == NULL)
 		return -ENODATA;
-	error = posix_acl_to_xattr(&init_user_ns, acl, buffer, size);
+	error = posix_acl_to_xattr(acl, buffer, size);
 	posix_acl_release(acl);
 
 	return error;
@@ -305,7 +304,7 @@ static int v9fs_xattr_set_acl(struct dentry *dentry, const char *name,
 		return -EPERM;
 	if (value) {
 		/* update the cached acl value */
-		acl = posix_acl_from_xattr(&init_user_ns, value, size);
+		acl = posix_acl_from_xattr(value, size);
 		if (IS_ERR(acl))
 			return PTR_ERR(acl);
 		else if (acl) {

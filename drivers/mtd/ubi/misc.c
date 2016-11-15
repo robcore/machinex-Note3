@@ -76,8 +76,6 @@ int ubi_check_volume(struct ubi_device *ubi, int vol_id)
 
 		cond_resched();
 
-		cond_resched();
-
 		if (i == vol->used_ebs - 1)
 			size = vol->last_eb_bytes;
 		else

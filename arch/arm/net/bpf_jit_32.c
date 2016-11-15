@@ -296,15 +296,6 @@ static u16 imm_offset(u32 k, struct jit_ctx *ctx)
 		return 0;
 	}
 
-	if (imm & ~0xfff) {
-		/*
-		 * literal pool is too far, signal it into flags. we
-		 * can only detect it on the second pass unfortunately.
-		 */
-		ctx->flags |= FLAG_IMM_OVERFLOW;
-		return 0;
-	}
-
 	return imm;
 }
 

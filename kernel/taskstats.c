@@ -415,15 +415,16 @@ static int cgroupstats_user_cmd(struct sk_buff *skb, struct genl_info *info)
 	struct nlattr *na;
 	size_t size;
 	u32 fd;
-	struct fd f;
+	struct file *file;
+	int fput_needed;
 
 	na = info->attrs[CGROUPSTATS_CMD_ATTR_FD];
 	if (!na)
 		return -EINVAL;
 
 	fd = nla_get_u32(info->attrs[CGROUPSTATS_CMD_ATTR_FD]);
-	f = fdget(fd);
-	if (!f.file)
+	file = fget_light(fd, &fput_needed);
+	if (!file)
 		return 0;
 
 	size = nla_total_size(sizeof(struct cgroupstats));
@@ -435,16 +436,10 @@ static int cgroupstats_user_cmd(struct sk_buff *skb, struct genl_info *info)
 
 	na = nla_reserve(rep_skb, CGROUPSTATS_TYPE_CGROUP_STATS,
 				sizeof(struct cgroupstats));
-	if (na == NULL) {
-		nlmsg_free(rep_skb);
-		rc = -EMSGSIZE;
-		goto err;
-	}
-
 	stats = nla_data(na);
 	memset(stats, 0, sizeof(*stats));
 
-	rc = cgroupstats_build(stats, f.file->f_dentry);
+	rc = cgroupstats_build(stats, file->f_dentry);
 	if (rc < 0) {
 		nlmsg_free(rep_skb);
 		goto err;
@@ -453,7 +448,7 @@ static int cgroupstats_user_cmd(struct sk_buff *skb, struct genl_info *info)
 	rc = send_reply(rep_skb, info);
 
 err:
-	fdput(f);
+	fput_light(file, fput_needed);
 	return rc;
 }
 

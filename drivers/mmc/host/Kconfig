@@ -81,18 +81,6 @@ config MMC_RICOH_MMC
 
 	  If unsure, say Y.
 
-config MMC_SDHCI_ACPI
-	tristate "SDHCI support for ACPI enumerated SDHCI controllers"
-	depends on MMC_SDHCI && ACPI
-	help
-	  This selects support for ACPI enumerated SDHCI controllers,
-	  identified by ACPI Compatibility ID PNP0D40 or specific
-	  ACPI Hardware IDs.
-
-	  If you have a controller with this interface, say Y or M here.
-
-	  If unsure, say N.
-
 config MMC_SDHCI_PLTFM
 	tristate "SDHCI platform and OF driver helper"
 	depends on MMC_SDHCI
@@ -319,6 +307,14 @@ config MMC_IMX
 
 	  If unsure, say N.
 
+config MMC_MSM
+	tristate "Qualcomm SDCC Controller Support"
+	depends on MMC && ARCH_MSM
+	help
+	  This provides support for the SD/MMC cell found in the
+	  MSM and QSD SOCs from Qualcomm. The controller also has
+	  support for SDIO devices.
+
 config MMC_MXC
 	tristate "Freescale i.MX21/27/31 Multimedia Card Interface support"
 	depends on ARCH_MXC
@@ -465,20 +461,12 @@ config MMC_SDHCI_MSM
 
 	  If unsure, say N.
 
-config MMC_SDHCI_MSM_DEBUG
-	tristate "Qualcomm SDHCI Controller Debugging"
-	depends on ARCH_MSM
-	depends on MMC_SDHCI_PLTFM
-	depends on DEBUG_FS
-	default n
-
 config MMC_MSM
 	tristate "Qualcomm SDCC Controller Support"
 	depends on MMC && ARCH_MSM
 	help
 	  This provides support for the SD/MMC cell found in the
-	  MSM and QSD SOCs from Qualcomm. The controller also has
-	  support for SDIO devices.
+          MSM and QSD SOCs from Qualcomm.
 
 config MMC_MSM_SDC1_SUPPORT
 	boolean "Qualcomm SDC1 support"

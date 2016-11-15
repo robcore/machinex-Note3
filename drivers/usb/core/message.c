@@ -1771,20 +1771,6 @@ free_interfaces:
 		goto free_interfaces;
 	}
 
-	/* Make sure we have bandwidth (and available HCD resources) for this
-	 * configuration.  Remove endpoints from the schedule if we're dropping
-	 * this configuration to set configuration 0.  After this point, the
-	 * host controller will not allow submissions to dropped endpoints.  If
-	 * this call fails, the device state is unchanged.
-	 */
-	mutex_lock(hcd->bandwidth_mutex);
-	ret = usb_hcd_alloc_bandwidth(dev, cp, NULL, NULL);
-	if (ret < 0) {
-		mutex_unlock(hcd->bandwidth_mutex);
-		usb_autosuspend_device(dev);
-		goto free_interfaces;
-	}
-
 	/*
 	 * Initialize the new interface structures and the
 	 * hc/hcd/usbcore interface/endpoint state.
@@ -1850,11 +1836,7 @@ free_interfaces:
 	dev->actconfig = cp;
 	mutex_unlock(hcd->bandwidth_mutex);
 
-	if (cp)
-		usb_notify_config_device(dev);
-
 	if (!cp) {
-		usb_notify_config_device(dev);
 		usb_set_device_state(dev, USB_STATE_ADDRESS);
 
 		/* Leave LPM disabled while the device is unconfigured. */

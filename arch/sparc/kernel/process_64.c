@@ -184,8 +184,6 @@ static void show_regwindow(struct pt_regs *regs)
 
 void show_regs(struct pt_regs *regs)
 {
-	show_regs_print_info(KERN_DEFAULT);
-
 	printk("TSTATE: %016lx TPC: %016lx TNPC: %016lx Y: %08x    %s\n", regs->tstate,
 	       regs->tpc, regs->tnpc, regs->y, print_tainted());
 	printk("TPC: <%pS>\n", (void *) regs->tpc);
@@ -519,7 +517,8 @@ asmlinkage long sparc_do_fork(unsigned long clone_flags,
 		child_tid_ptr = (int __user *) regs->u_regs[UREG_I4];
 	}
 
-	ret = do_fork(clone_flags, stack_start, stack_size,
+	ret = do_fork(clone_flags, stack_start,
+		      regs, stack_size,
 		      parent_tid_ptr, child_tid_ptr);
 
 	/* If we get an error and potentially restart the system
@@ -723,7 +722,7 @@ EXPORT_SYMBOL(dump_fpu);
 asmlinkage int sparc_execve(struct pt_regs *regs)
 {
 	int error, base = 0;
-	struct filename *filename;
+	char *filename;
 
 	/* User register window flush is done by entry.S */
 
@@ -735,7 +734,7 @@ asmlinkage int sparc_execve(struct pt_regs *regs)
 	error = PTR_ERR(filename);
 	if (IS_ERR(filename))
 		goto out;
-	error = do_execve(filename->name,
+	error = do_execve(filename,
 			  (const char __user *const __user *)
 			  regs->u_regs[base + UREG_I1],
 			  (const char __user *const __user *)

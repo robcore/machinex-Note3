@@ -81,5 +81,5 @@ int __net_init xfrm_proc_init(struct net *net)
 
 void xfrm_proc_fini(struct net *net)
 {
-	remove_proc_entry("xfrm_stat", net->proc_net);
+	proc_net_remove(net, "xfrm_stat");
 }

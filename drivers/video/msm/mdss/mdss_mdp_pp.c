@@ -445,7 +445,7 @@ static inline void pp_sts_set_split_bits(u32 *sts, u32 bits);
 
 static u32 last_sts, last_state;
 
-static inline int linear_map(int in, int *out, int in_max, int out_max)
+inline int linear_map(int in, int *out, int in_max, int out_max)
 {
 	if (in < 0 || !out || in_max <= 0 || out_max <= 0)
 		return -EINVAL;
@@ -1460,9 +1460,7 @@ static int pp_histogram_setup(u32 *op, u32 block, struct mdss_mdp_mixer *mix)
 		goto error;
 	}
 
-	if (!mutex_is_locked(&hist_info->hist_mutex))
-		mutex_lock(&hist_info->hist_mutex);
-
+	mutex_lock(&hist_info->hist_mutex);
 	spin_lock_irqsave(&hist_info->hist_lock, flag);
 	if (hist_info->col_en) {
 		*op |= op_flags;
@@ -4606,10 +4604,10 @@ static int mdss_mdp_ad_setup(struct msm_fb_data_type *mfd)
 			/* Clear state and regs when going to off state*/
 			ad->sts = 0;
 			ad->sts |= PP_AD_STS_DIRTY_VSYNC;
-			ad->state &= ~PP_AD_STATE_INIT;
-			ad->state &= ~PP_AD_STATE_CFG;
-			ad->state &= ~PP_AD_STATE_DATA;
-			ad->state &= ~PP_AD_STATE_BL_LIN;
+			ad->state &= !PP_AD_STATE_INIT;
+			ad->state &= !PP_AD_STATE_CFG;
+			ad->state &= !PP_AD_STATE_DATA;
+			ad->state &= !PP_AD_STATE_BL_LIN;
 			ad->bl_bright_shift = 0;
 			ad->ad_data = 0;
 			ad->ad_data_mode = 0;

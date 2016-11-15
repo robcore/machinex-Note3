@@ -245,11 +245,12 @@ static void stop_tracking_chunk(struct dm_snapshot *s,
 static int __chunk_is_tracked(struct dm_snapshot *s, chunk_t chunk)
 {
 	struct dm_snap_tracked_chunk *c;
+	struct hlist_node *hn;
 	int found = 0;
 
 	spin_lock_irq(&s->tracked_chunk_lock);
 
-	hlist_for_each_entry(c,
+	hlist_for_each_entry(c, hn,
 	    &s->tracked_chunk_hash[DM_TRACKED_CHUNK_HASH(chunk)], node) {
 		if (c->chunk == chunk) {
 			found = 1;
@@ -637,7 +638,7 @@ static void free_pending_exception(struct dm_snap_pending_exception *pe)
 	struct dm_snapshot *s = pe->snap;
 
 	mempool_free(pe, s->pending_pool);
-	smp_mb__before_atomic();
+	smp_mb__before_atomic_dec();
 	atomic_dec(&s->pending_exceptions_count);
 }
 
@@ -778,7 +779,7 @@ static int init_hash_tables(struct dm_snapshot *s)
 static void merge_shutdown(struct dm_snapshot *s)
 {
 	clear_bit_unlock(RUNNING_MERGE, &s->state_bits);
-	smp_mb__after_atomic();
+	smp_mb__after_clear_bit();
 	wake_up_bit(&s->state_bits, RUNNING_MERGE);
 }
 
@@ -1392,9 +1393,8 @@ static void __invalidate_snapshot(struct dm_snapshot *s, int err)
 	dm_table_event(s->ti->table);
 }
 
-static void pending_complete(void *context, int success)
+static void pending_complete(struct dm_snap_pending_exception *pe, int success)
 {
-	struct dm_snap_pending_exception *pe = context;
 	struct dm_exception *e;
 	struct dm_snapshot *s = pe->snap;
 	struct bio *origin_bios = NULL;
@@ -1464,13 +1464,24 @@ out:
 	free_pending_exception(pe);
 }
 
+static void commit_callback(void *context, int success)
+{
+	struct dm_snap_pending_exception *pe = context;
+
+	pending_complete(pe, success);
+}
+
 static void complete_exception(struct dm_snap_pending_exception *pe)
 {
 	struct dm_snapshot *s = pe->snap;
 
-	/* Update the metadata if we are persistent */
-	s->store->type->commit_exception(s->store, &pe->e, !pe->copy_error,
-					 pending_complete, pe);
+	if (unlikely(pe->copy_error))
+		pending_complete(pe, 0);
+
+	else
+		/* Update the metadata if we are persistent */
+		s->store->type->commit_exception(s->store, &pe->e,
+						 commit_callback, pe);
 }
 
 /*

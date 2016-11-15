@@ -148,6 +148,17 @@ end_offset(u64 start, u64 len)
 	return end >= start ? end : NFS4_MAX_UINT64;
 }
 
+/* last octet in a range */
+static inline u64
+last_byte_offset(u64 start, u64 len)
+{
+	u64 end;
+
+	BUG_ON(!len);
+	end = start + len;
+	return end > start ? end - 1 : NFS4_MAX_UINT64;
+}
+
 static void _fix_verify_io_params(struct pnfs_layout_segment *lseg,
 			   struct page ***p_pages, unsigned *p_pgbase,
 			   u64 offset, unsigned long count)
@@ -247,7 +258,7 @@ objlayout_read_done(struct objlayout_io_res *oir, ssize_t status, bool sync)
 	if (status >= 0)
 		rdata->res.count = status;
 	else
-		rdata->header->pnfs_error = status;
+		rdata->pnfs_error = status;
 	objlayout_iodone(oir);
 	/* must not use oir after this point */
 
@@ -268,14 +279,12 @@ objlayout_read_done(struct objlayout_io_res *oir, ssize_t status, bool sync)
 enum pnfs_try_status
 objlayout_read_pagelist(struct nfs_read_data *rdata)
 {
-	struct nfs_pgio_header *hdr = rdata->header;
-	struct inode *inode = hdr->inode;
 	loff_t offset = rdata->args.offset;
 	size_t count = rdata->args.count;
 	int err;
 	loff_t eof;
 
-	eof = i_size_read(inode);
+	eof = i_size_read(rdata->inode);
 	if (unlikely(offset + count > eof)) {
 		if (offset >= eof) {
 			err = 0;
@@ -288,17 +297,17 @@ objlayout_read_pagelist(struct nfs_read_data *rdata)
 	}
 
 	rdata->res.eof = (offset + count) >= eof;
-	_fix_verify_io_params(hdr->lseg, &rdata->args.pages,
+	_fix_verify_io_params(rdata->lseg, &rdata->args.pages,
 			      &rdata->args.pgbase,
 			      rdata->args.offset, rdata->args.count);
 
 	dprintk("%s: inode(%lx) offset 0x%llx count 0x%Zx eof=%d\n",
-		__func__, inode->i_ino, offset, count, rdata->res.eof);
+		__func__, rdata->inode->i_ino, offset, count, rdata->res.eof);
 
 	err = objio_read_pagelist(rdata);
  out:
 	if (unlikely(err)) {
-		hdr->pnfs_error = err;
+		rdata->pnfs_error = err;
 		dprintk("%s: Returned Error %d\n", __func__, err);
 		return PNFS_NOT_ATTEMPTED;
 	}
@@ -331,7 +340,7 @@ objlayout_write_done(struct objlayout_io_res *oir, ssize_t status, bool sync)
 		wdata->res.count = status;
 		wdata->verf.committed = oir->committed;
 	} else {
-		wdata->header->pnfs_error = status;
+		wdata->pnfs_error = status;
 	}
 	objlayout_iodone(oir);
 	/* must not use oir after this point */
@@ -354,16 +363,15 @@ enum pnfs_try_status
 objlayout_write_pagelist(struct nfs_write_data *wdata,
 			 int how)
 {
-	struct nfs_pgio_header *hdr = wdata->header;
 	int err;
 
-	_fix_verify_io_params(hdr->lseg, &wdata->args.pages,
+	_fix_verify_io_params(wdata->lseg, &wdata->args.pages,
 			      &wdata->args.pgbase,
 			      wdata->args.offset, wdata->args.count);
 
 	err = objio_write_pagelist(wdata, how);
 	if (unlikely(err)) {
-		hdr->pnfs_error = err;
+		wdata->pnfs_error = err;
 		dprintk("%s: Returned Error %d\n", __func__, err);
 		return PNFS_NOT_ATTEMPTED;
 	}

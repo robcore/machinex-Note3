@@ -67,7 +67,4 @@ obj-$(CONFIG_TILE_SROM)		+= tile-srom.o
 obj-$(CONFIG_MSM_ROTATOR)	+= msm_rotator.o
 obj-$(CONFIG_DIAG_CHAR)		+= diag/
 obj-$(CONFIG_MSM_ADSPRPC)       += adsprpc.o
-ifdef CONFIG_COMPAT
-obj-$(CONFIG_MSM_ADSPRPC)       += adsprpc_compat.o
-endif
 obj-$(CONFIG_MSM_RDBG)       += rdbg.o

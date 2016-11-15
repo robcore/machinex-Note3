@@ -37,11 +37,11 @@
  *
  * A thing to keep in mind: inode @i_mutex is locked in most VFS operations we
  * implement. However, this is not true for 'ubifs_writepage()', which may be
- * called with @i_mutex unlocked. For example, when flusher thread is doing
- * background write-back, it calls 'ubifs_writepage()' with unlocked @i_mutex.
- * At "normal" work-paths the @i_mutex is locked in 'ubifs_writepage()', e.g.
- * in the "sys_write -> alloc_pages -> direct reclaim path". So, in
- * 'ubifs_writepage()' we are only guaranteed that the page is locked.
+ * called with @i_mutex unlocked. For example, when pdflush is doing background
+ * write-back, it calls 'ubifs_writepage()' with unlocked @i_mutex. At "normal"
+ * work-paths the @i_mutex is locked in 'ubifs_writepage()', e.g. in the
+ * "sys_write -> alloc_pages -> direct reclaim path". So, in 'ubifs_writepage()'
+ * we are only guaranteed that the page is locked.
  *
  * Similarly, @i_mutex is not always locked in 'ubifs_readpage()', e.g., the
  * read-ahead path does not lock it ("sys_read -> generic_file_aio_read ->
@@ -50,7 +50,6 @@
  */
 
 #include "ubifs.h"
-#include <linux/aio.h>
 #include <linux/mount.h>
 #include <linux/namei.h>
 #include <linux/slab.h>
@@ -98,7 +97,7 @@ static int read_block(struct inode *inode, void *addr, unsigned int block,
 dump:
 	ubifs_err("bad data node (block %u, inode %lu)",
 		  block, inode->i_ino);
-	ubifs_dump_node(c, dn);
+	dbg_dump_node(c, dn);
 	return -EINVAL;
 }
 
@@ -1277,14 +1276,13 @@ int ubifs_setattr(struct dentry *dentry, struct iattr *attr)
 	return err;
 }
 
-static void ubifs_invalidatepage(struct page *page, unsigned int offset,
-				 unsigned int length)
+static void ubifs_invalidatepage(struct page *page, unsigned long offset)
 {
 	struct inode *inode = page->mapping->host;
 	struct ubifs_info *c = inode->i_sb->s_fs_info;
 
 	ubifs_assert(PagePrivate(page));
-	if (offset || length < PAGE_CACHE_SIZE)
+	if (offset)
 		/* Partial page remains dirty */
 		return;
 
@@ -1446,7 +1444,7 @@ static int ubifs_vm_page_mkwrite(struct vm_area_struct *vma,
 				 struct vm_fault *vmf)
 {
 	struct page *page = vmf->page;
-	struct inode *inode = file_inode(vma->vm_file);
+	struct inode *inode = vma->vm_file->f_path.dentry->d_inode;
 	struct ubifs_info *c = inode->i_sb->s_fs_info;
 	struct timespec now = ubifs_current_time(inode);
 	struct ubifs_budget_req req = { .new_page = 1 };
@@ -1488,8 +1486,8 @@ static int ubifs_vm_page_mkwrite(struct vm_area_struct *vma,
 	err = ubifs_budget_space(c, &req);
 	if (unlikely(err)) {
 		if (err == -ENOSPC)
-			ubifs_warn("out of space for mmapped file (inode number %lu)",
-				   inode->i_ino);
+			ubifs_warn("out of space for mmapped file "
+				   "(inode number %lu)", inode->i_ino);
 		return VM_FAULT_SIGBUS;
 	}
 
@@ -1524,8 +1522,8 @@ static int ubifs_vm_page_mkwrite(struct vm_area_struct *vma,
 			ubifs_release_dirty_inode_budget(c, ui);
 	}
 
-	wait_for_stable_page(page);
-	return VM_FAULT_LOCKED;
+	unlock_page(page);
+	return 0;
 
 out_unlock:
 	unlock_page(page);
@@ -1538,7 +1536,6 @@ out_unlock:
 static const struct vm_operations_struct ubifs_file_vm_ops = {
 	.fault        = filemap_fault,
 	.page_mkwrite = ubifs_vm_page_mkwrite,
-	.remap_pages = generic_file_remap_pages,
 };
 
 static int ubifs_file_mmap(struct file *file, struct vm_area_struct *vma)
@@ -1565,10 +1562,12 @@ const struct address_space_operations ubifs_file_address_operations = {
 const struct inode_operations ubifs_file_inode_operations = {
 	.setattr     = ubifs_setattr,
 	.getattr     = ubifs_getattr,
+#ifdef CONFIG_UBIFS_FS_XATTR
 	.setxattr    = ubifs_setxattr,
 	.getxattr    = ubifs_getxattr,
 	.listxattr   = ubifs_listxattr,
 	.removexattr = ubifs_removexattr,
+#endif
 };
 
 const struct inode_operations ubifs_symlink_inode_operations = {

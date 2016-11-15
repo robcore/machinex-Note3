@@ -15,13 +15,17 @@
 EXPORT_SYMBOL(block_signals);
 EXPORT_SYMBOL(unblock_signals);
 
+#define _S(nr) (1<<((nr)-1))
+
+#define _BLOCKABLE (~(_S(SIGKILL) | _S(SIGSTOP)))
+
 /*
  * OK, we're invoking a handler
  */
-static void handle_signal(struct pt_regs *regs, unsigned long signr,
-			 struct k_sigaction *ka, siginfo_t *info)
+static int handle_signal(struct pt_regs *regs, unsigned long signr,
+			 struct k_sigaction *ka, siginfo_t *info,
+			 sigset_t *oldset)
 {
-	sigset_t *oldset = sigmask_to_save();
 	unsigned long sp;
 	int err;
 
@@ -64,7 +68,9 @@ static void handle_signal(struct pt_regs *regs, unsigned long signr,
 	if (err)
 		force_sigsegv(signr, current);
 	else
-		signal_delivered(signr, info, ka, regs, 0);
+		block_sigmask(ka, signr);
+
+	return err;
 }
 
 static int kern_do_signal(struct pt_regs *regs)
@@ -82,7 +88,17 @@ static int kern_do_signal(struct pt_regs *regs)
 	while ((sig = get_signal_to_deliver(&info, &ka_copy, regs, NULL)) > 0) {
 		handled_sig = 1;
 		/* Whee!  Actually deliver the signal.  */
-		handle_signal(regs, sig, &ka_copy, &info);
+		if (!handle_signal(regs, sig, &ka_copy, &info, oldset)) {
+			/*
+			 * a signal was successfully delivered; the saved
+			 * sigmask will have been stored in the signal frame,
+			 * and will be restored by sigreturn, so we can simply
+			 * clear the TIF_RESTORE_SIGMASK flag
+			 */
+			if (test_thread_flag(TIF_RESTORE_SIGMASK))
+				clear_thread_flag(TIF_RESTORE_SIGMASK);
+			break;
+		}
 	}
 
 	/* Did we come from a system call? */
@@ -118,8 +134,10 @@ static int kern_do_signal(struct pt_regs *regs)
 	 * if there's no signal to deliver, we just put the saved sigmask
 	 * back
 	 */
-	if (!handled_sig)
-		restore_saved_sigmask();
+	if (!handled_sig && test_thread_flag(TIF_RESTORE_SIGMASK)) {
+		clear_thread_flag(TIF_RESTORE_SIGMASK);
+		sigprocmask(SIG_SETMASK, &current->saved_sigmask, NULL);
+	}
 	return handled_sig;
 }
 
@@ -136,4 +154,9 @@ long sys_sigsuspend(int history0, int history1, old_sigset_t mask)
 	sigset_t blocked;
 	siginitset(&blocked, mask);
 	return sigsuspend(&blocked);
+}
+
+long sys_sigaltstack(const stack_t __user *uss, stack_t __user *uoss)
+{
+	return do_sigaltstack(uss, uoss, PT_REGS_SP(&current->thread.regs));
 }

@@ -55,6 +55,14 @@
 	add	\rd, \phys, #TEXT_OFFSET - PG_DIR_SIZE
 	.endm
 
+#ifdef CONFIG_XIP_KERNEL
+#define KERNEL_START	XIP_VIRT_ADDR(CONFIG_XIP_PHYS_ADDR)
+#define KERNEL_END	_edata_loc
+#else
+#define KERNEL_START	KERNEL_RAM_VADDR
+#define KERNEL_END	_end
+#endif
+
 /*
  * Kernel startup entry point.
  * ---------------------------
@@ -83,12 +91,8 @@ ENTRY(stext)
  THUMB(	.thumb			)	@ switch to Thumb now.
  THUMB(1:			)
 
-#ifdef CONFIG_ARM_VIRT_EXT
-	bl	__hyp_stub_install
-#endif
-	@ ensure svc mode and all interrupts masked
-	safe_svcmode_maskall r9
-
+	setmode	PSR_F_BIT | PSR_I_BIT | SVC_MODE, r9 @ ensure svc mode
+						@ and irqs disabled
 	mrc	p15, 0, r9, c0, c0		@ get processor id
 	bl	__lookup_processor_type		@ r5=procinfo r9=cpuid
 	movs	r10, r5				@ invalid processor (r5=0)?
@@ -109,7 +113,7 @@ ENTRY(stext)
 	sub	r4, r3, r4			@ (PHYS_OFFSET - PAGE_OFFSET)
 	add	r8, r8, r4			@ PHYS_OFFSET
 #else
-	ldr	r8, =PLAT_PHYS_OFFSET		@ always constant in this case
+	ldr	r8, =PHYS_OFFSET		@ always constant in this case
 #endif
 
 	/*
@@ -138,7 +142,7 @@ ENTRY(stext)
 	mov	r8, r4				@ set TTBR1 to swapper_pg_dir
  ARM(	add	pc, r10, #PROCINFO_INITFUNC	)
  THUMB(	add	r12, r10, #PROCINFO_INITFUNC	)
- THUMB(	ret	r12				)
+ THUMB(	mov	pc, r12				)
 1:	b	__enable_mmu
 ENDPROC(stext)
 	.ltorg
@@ -184,22 +188,13 @@ __create_page_tables:
 	orr	r3, r3, #3			@ PGD block type
 	mov	r6, #4				@ PTRS_PER_PGD
 	mov	r7, #1 << (55 - 32)		@ L_PGD_SWAPPER
-1:
-#ifdef CONFIG_CPU_ENDIAN_BE8
+1:	str	r3, [r0], #4			@ set bottom PGD entry bits
 	str	r7, [r0], #4			@ set top PGD entry bits
-	str	r3, [r0], #4			@ set bottom PGD entry bits
-#else
-	str	r3, [r0], #4			@ set bottom PGD entry bits
-	str	r7, [r0], #4			@ set top PGD entry bits
-#endif
 	add	r3, r3, #0x1000			@ next PMD table
 	subs	r6, r6, #1
 	bne	1b
 
 	add	r4, r4, #0x1000			@ point to the PMD tables
-#ifdef CONFIG_CPU_ENDIAN_BE8
-	add	r4, r4, #4			@ we only write the bottom word
-#endif
 #endif
 
 	ldr	r7, [r10, #PROCINFO_MM_MMUFLAGS] @ mm_mmuflags
@@ -223,54 +218,54 @@ __create_page_tables:
 	blo	1b
 
 	/*
-	 * Map our RAM from the start to the end of the kernel .bss section.
+	 * Now setup the pagetables for our kernel direct
+	 * mapped region.
 	 */
-	add	r0, r4, #PAGE_OFFSET >> (SECTION_SHIFT - PMD_ORDER)
-	ldr	r6, =(_end - 1)
-	orr	r3, r8, r7
-	add	r6, r4, r6, lsr #(SECTION_SHIFT - PMD_ORDER)
-1:	str	r3, [r0], #1 << PMD_ORDER
-	add	r3, r3, #1 << SECTION_SHIFT
-	cmp	r0, r6
-	bls	1b
-
-#ifdef CONFIG_XIP_KERNEL
-	/*
-	 * Map the kernel image separately as it is not located in RAM.
-	 */
-#define XIP_START XIP_VIRT_ADDR(CONFIG_XIP_PHYS_ADDR)
 	mov	r3, pc
 	mov	r3, r3, lsr #SECTION_SHIFT
 	orr	r3, r7, r3, lsl #SECTION_SHIFT
-	add	r0, r4,  #(XIP_START & 0xff000000) >> (SECTION_SHIFT - PMD_ORDER)
-	str	r3, [r0, #((XIP_START & 0x00f00000) >> SECTION_SHIFT) << PMD_ORDER]!
-	ldr	r6, =(_edata_loc - 1)
+	add	r0, r4,  #(KERNEL_START & 0xff000000) >> (SECTION_SHIFT - PMD_ORDER)
+	str	r3, [r0, #((KERNEL_START & 0x00f00000) >> SECTION_SHIFT) << PMD_ORDER]!
+	ldr	r6, =(KERNEL_END - 1)
 	add	r0, r0, #1 << PMD_ORDER
 	add	r6, r4, r6, lsr #(SECTION_SHIFT - PMD_ORDER)
 1:	cmp	r0, r6
 	add	r3, r3, #1 << SECTION_SHIFT
 	strls	r3, [r0], #1 << PMD_ORDER
 	bls	1b
+
+#ifdef CONFIG_XIP_KERNEL
+	/*
+	 * Map some ram to cover our .data and .bss areas.
+	 */
+	add	r3, r8, #TEXT_OFFSET
+	orr	r3, r3, r7
+	add	r0, r4,  #(KERNEL_RAM_VADDR & 0xff000000) >> (SECTION_SHIFT - PMD_ORDER)
+	str	r3, [r0, #(KERNEL_RAM_VADDR & 0x00f00000) >> (SECTION_SHIFT - PMD_ORDER)]!
+	ldr	r6, =(_end - 1)
+	add	r0, r0, #4
+	add	r6, r4, r6, lsr #(SECTION_SHIFT - PMD_ORDER)
+1:	cmp	r0, r6
+	add	r3, r3, #1 << 20
+	strls	r3, [r0], #4
+	bls	1b
 #endif
 
 	/*
-	 * Then map boot params address in r2 if specified.
+	 * Then map boot params address in r2 or the first 1MB (2MB with LPAE)
+	 * of ram if boot params address is not specified.
 	 * We map 2 sections in case the ATAGs/DTB crosses a section boundary.
 	 */
 	mov	r0, r2, lsr #SECTION_SHIFT
 	movs	r0, r0, lsl #SECTION_SHIFT
-	subne	r3, r0, r8
-	addne	r3, r3, #PAGE_OFFSET
-	addne	r3, r4, r3, lsr #(SECTION_SHIFT - PMD_ORDER)
-	orrne	r6, r7, r0
-	strne	r6, [r3], #1 << PMD_ORDER
-	addne	r6, r6, #1 << SECTION_SHIFT
-	strne	r6, [r3]
-
-#if defined(CONFIG_ARM_LPAE) && defined(CONFIG_CPU_ENDIAN_BE8)
-	sub	r4, r4, #4			@ Fixup page table pointer
-						@ for 64-bit descriptors
-#endif
+	moveq	r0, r8
+	sub	r3, r0, r8
+	add	r3, r3, #PAGE_OFFSET
+	add	r3, r4, r3, lsr #(SECTION_SHIFT - PMD_ORDER)
+	orr	r6, r7, r0
+	str	r6, [r3], #1 << PMD_ORDER
+	add	r6, r6, #1 << SECTION_SHIFT
+	str	r6, [r3]
 
 #ifdef CONFIG_DEBUG_LL
 #if !defined(CONFIG_DEBUG_ICEDCC) && !defined(CONFIG_DEBUG_SEMIHOSTING)
@@ -285,22 +280,25 @@ __create_page_tables:
 	mov	r3, r3, lsl #PMD_ORDER
 
 	add	r0, r4, r3
+	rsb	r3, r3, #0x4000			@ PTRS_PER_PGD*sizeof(long)
+	cmp	r3, #0x0800			@ limit to 512MB
+	movhi	r3, #0x0800
+	add	r6, r0, r3
 	mov	r3, r7, lsr #SECTION_SHIFT
 	ldr	r7, [r10, #PROCINFO_IO_MMUFLAGS] @ io_mmuflags
 	orr	r3, r7, r3, lsl #SECTION_SHIFT
 #ifdef CONFIG_ARM_LPAE
 	mov	r7, #1 << (54 - 32)		@ XN
-#ifdef CONFIG_CPU_ENDIAN_BE8
-	str	r7, [r0], #4
-	str	r3, [r0], #4
-#else
-	str	r3, [r0], #4
-	str	r7, [r0], #4
-#endif
 #else
 	orr	r3, r3, #PMD_SECT_XN
-	str	r3, [r0], #4
 #endif
+1:	str	r3, [r0], #4
+#ifdef CONFIG_ARM_LPAE
+	str	r7, [r0], #4
+#endif
+	add	r3, r3, #1 << SECTION_SHIFT
+	cmp	r0, r6
+	blo	1b
 
 #else /* CONFIG_DEBUG_ICEDCC || CONFIG_DEBUG_SEMIHOSTING */
 	/* we don't need any serial debugging mappings */
@@ -332,7 +330,7 @@ __create_page_tables:
 #ifdef CONFIG_ARM_LPAE
 	sub	r4, r4, #0x1000		@ point to the PGD table
 #endif
-	ret	lr
+	mov	pc, lr
 ENDPROC(__create_page_tables)
 	.ltorg
 	.align
@@ -351,11 +349,7 @@ ENTRY(secondary_startup)
 	 * the processor type - there is no need to check the machine type
 	 * as it has already been validated by the primary processor.
 	 */
-#ifdef CONFIG_ARM_VIRT_EXT
-	bl	__hyp_stub_install_secondary
-#endif
-	safe_svcmode_maskall r9
-
+	setmode	PSR_F_BIT | PSR_I_BIT | SVC_MODE, r9
 	mrc	p15, 0, r9, c0, c0		@ get processor id
 	bl	__lookup_processor_type
 	movs	r10, r5				@ invalid processor?
@@ -377,7 +371,7 @@ ENTRY(secondary_startup)
  ARM(	add	pc, r10, #PROCINFO_INITFUNC	) @ initialise processor
 						  @ (return control reg)
  THUMB(	add	r12, r10, #PROCINFO_INITFUNC	)
- THUMB(	ret	r12				)
+ THUMB(	mov	pc, r12				)
 ENDPROC(secondary_startup)
 
 	/*
@@ -494,7 +488,7 @@ ENTRY(__turn_mmu_on)
 	mcreq	p15, 7, r3, c15, c0, 2
 #endif
 	mov	r3, r13
-	ret	r3
+	mov	pc, r3
 __turn_mmu_on_end:
 ENDPROC(__turn_mmu_on)
 	.popsection
@@ -513,12 +507,12 @@ __fixup_smp:
 	orr	r4, r4, #0x0000b000
 	orr	r4, r4, #0x00000020	@ val 0x4100b020
 	teq	r3, r4			@ ARM 11MPCore?
-	reteq	lr			@ yes, assume SMP
+	moveq	pc, lr			@ yes, assume SMP
 
 	mrc	p15, 0, r0, c0, c0, 5	@ read MPIDR
 	and	r0, r0, #0xc0000000	@ multiprocessing extensions and
 	teq	r0, #0x80000000		@ not part of a uniprocessor system?
-	retne	lr
+	moveq	pc, lr			@ yes, assume SMP
 
 __fixup_smp_on_up:
 	adr	r0, 1f
@@ -545,7 +539,7 @@ smp_on_up:
 	.text
 __do_fixup_smp_on_up:
 	cmp	r4, r5
-	reths	lr
+	movhs	pc, lr
 	ldmia	r4!, {r0, r6}
  ARM(	str	r6, [r0, r3]	)
  THUMB(	add	r0, r0, r3	)
@@ -629,7 +623,7 @@ __fixup_a_pv_table:
 2:	cmp	r4, r5
 	ldrcc	r7, [r4], #4	@ use branch for delay slot
 	bcc	1b
-	ret	lr
+	mov	pc, lr
 #endif
 ENDPROC(__fixup_a_pv_table)
 

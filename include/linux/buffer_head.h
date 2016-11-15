@@ -128,6 +128,7 @@ BUFFER_FNS(Unwritten, unwritten)
 BUFFER_FNS(Sync_Flush, sync_flush)
 
 #define bh_offset(bh)		((unsigned long)(bh)->b_data & ~PAGE_MASK)
+#define touch_buffer(bh)	mark_page_accessed(bh->b_page)
 
 /* If we *know* page->private refers to buffer_heads */
 #define page_buffers(page)					\
@@ -137,9 +138,6 @@ BUFFER_FNS(Sync_Flush, sync_flush)
 	})
 #define page_has_buffers(page)	PagePrivate(page)
 
-void buffer_check_dirty_writeback(struct page *page,
-				     bool *dirty, bool *writeback);
-
 /*
  * Declarations
  */
@@ -147,7 +145,6 @@ void buffer_check_dirty_writeback(struct page *page,
 void mark_buffer_dirty(struct buffer_head *bh);
 void mark_buffer_dirty_sync(struct buffer_head *bh);
 void init_buffer(struct buffer_head *, bh_end_io_t *, void *);
-void touch_buffer(struct buffer_head *bh);
 void set_bh_page(struct buffer_head *bh,
 		struct page *page, unsigned long offset);
 int try_to_free_buffers(struct page *);
@@ -189,7 +186,6 @@ void ll_rw_block(int, int, struct buffer_head * bh[]);
 int sync_dirty_buffer(struct buffer_head *bh);
 int __sync_dirty_buffer(struct buffer_head *bh, int rw);
 void write_dirty_buffer(struct buffer_head *bh, int rw);
-int _submit_bh(int rw, struct buffer_head *bh, unsigned long bio_flags);
 int submit_bh(int, struct buffer_head *);
 void write_boundary_block(struct block_device *bdev,
 			sector_t bblock, unsigned blocksize);
@@ -202,8 +198,7 @@ extern int buffer_heads_over_limit;
  * Generic address_space_operations implementations for buffer_head-backed
  * address_spaces.
  */
-void block_invalidatepage(struct page *page, unsigned int offset,
-			  unsigned int length);
+void block_invalidatepage(struct page *page, unsigned long offset);
 int block_write_full_page(struct page *page, get_block_t *get_block,
 				struct writeback_control *wbc);
 int block_write_full_page_endio(struct page *page, get_block_t *get_block,
@@ -277,7 +272,7 @@ static inline void get_bh(struct buffer_head *bh)
 
 static inline void put_bh(struct buffer_head *bh)
 {
-        smp_mb__before_atomic();
+        smp_mb__before_atomic_dec();
         atomic_dec(&bh->b_count);
 }
 
@@ -303,18 +298,6 @@ static inline struct buffer_head *
 sb_bread_unmovable(struct super_block *sb, sector_t block)
 {
 	return __bread_gfp(sb->s_bdev, block, sb->s_blocksize, 0);
-}
-
-static inline struct buffer_head *
-sb_bread_unmovable(struct super_block *sb, sector_t block)
-{
-	return sb_bread(sb, block);
-}
-
-static inline struct buffer_head *getblk_unmovable(struct block_device *bdev,
-					sector_t block, unsigned size)
-{
-	return __getblk(bdev, block, size);
 }
 
 static inline void
@@ -368,36 +351,6 @@ static inline void lock_buffer(struct buffer_head *bh)
 	might_sleep();
 	if (!trylock_buffer(bh))
 		__lock_buffer(bh);
-}
-
-static inline struct buffer_head *getblk_unmovable(struct block_device *bdev,
-						   sector_t block,
-						   unsigned size)
-{
-	return __getblk_gfp(bdev, block, size, 0);
-}
-
-static inline struct buffer_head *__getblk(struct block_device *bdev,
-					   sector_t block,
-					   unsigned size)
-{
-	return __getblk_gfp(bdev, block, size, __GFP_MOVABLE);
-}
-
-/**
- *  __bread() - reads a specified block and returns the bh
- *  @bdev: the block_device to read from
- *  @block: number of block
- *  @size: size (in bytes) to read
- *
- *  Reads a specified block, and returns buffer head that contains it.
- *  The page cache is allocated from movable area so that it can be migrated.
- *  It returns NULL if the block was unreadable.
- */
-static inline struct buffer_head *
-__bread(struct block_device *bdev, sector_t block, unsigned size)
-{
-	return __bread_gfp(bdev, block, size, __GFP_MOVABLE);
 }
 
 static inline struct buffer_head *getblk_unmovable(struct block_device *bdev,

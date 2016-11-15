@@ -1408,7 +1408,7 @@ static int idecd_capacity_proc_show(struct seq_file *m, void *v)
 
 static int idecd_capacity_proc_open(struct inode *inode, struct file *file)
 {
-	return single_open(file, idecd_capacity_proc_show, PDE_DATA(inode));
+	return single_open(file, idecd_capacity_proc_show, PDE(inode)->data);
 }
 
 static const struct file_operations idecd_capacity_proc_fops = {
@@ -1606,7 +1606,7 @@ out:
 	return rc;
 }
 
-static void idecd_release(struct gendisk *disk, fmode_t mode)
+static int idecd_release(struct gendisk *disk, fmode_t mode)
 {
 	struct cdrom_info *info = ide_drv_g(disk, cdrom_info);
 
@@ -1615,6 +1615,8 @@ static void idecd_release(struct gendisk *disk, fmode_t mode)
 
 	ide_cd_put(info);
 	mutex_unlock(&ide_cd_mutex);
+
+	return 0;
 }
 
 static int idecd_set_spindown(struct cdrom_device_info *cdi, unsigned long arg)

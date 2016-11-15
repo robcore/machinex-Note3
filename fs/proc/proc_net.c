@@ -26,10 +26,6 @@
 
 #include "internal.h"
 
-static inline struct net *PDE_NET(struct proc_dir_entry *pde)
-{
-	return pde->parent->data;
-}
 
 static struct net *get_proc_net(const struct inode *inode)
 {
@@ -113,11 +109,9 @@ static struct net *get_proc_task_net(struct inode *dir)
 	rcu_read_lock();
 	task = pid_task(proc_pid(dir), PIDTYPE_PID);
 	if (task != NULL) {
-		task_lock(task);
-		ns = task->nsproxy;
+		ns = task_nsproxy(task);
 		if (ns != NULL)
 			net = get_net(ns->net_ns);
-		task_unlock(task);
 	}
 	rcu_read_unlock();
 
@@ -125,7 +119,7 @@ static struct net *get_proc_task_net(struct inode *dir)
 }
 
 static struct dentry *proc_tgid_net_lookup(struct inode *dir,
-		struct dentry *dentry, unsigned int flags)
+		struct dentry *dentry, struct nameidata *nd)
 {
 	struct dentry *de;
 	struct net *net;
@@ -169,7 +163,7 @@ static int proc_tgid_net_readdir(struct file *filp, void *dirent,
 	struct net *net;
 
 	ret = -EINVAL;
-	net = get_proc_task_net(file_inode(filp));
+	net = get_proc_task_net(filp->f_path.dentry->d_inode);
 	if (net != NULL) {
 		ret = proc_readdir_de(net->proc_net, filp, dirent, filldir);
 		put_net(net);

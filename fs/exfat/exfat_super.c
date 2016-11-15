@@ -77,7 +77,9 @@
 #include <linux/exportfs.h>
 #include <linux/mount.h>
 #include <linux/vfs.h>
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
 #include <linux/aio.h>
+#endif
 #include <linux/parser.h>
 #include <linux/uio.h>
 #include <linux/writeback.h>
@@ -258,14 +260,22 @@ static void exfat_write_super(struct super_block *sb);
 
 static void __lock_super(struct super_block *sb)
 {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,7,0)
+	lock_super(sb);
+#else
 	struct exfat_sb_info *sbi = EXFAT_SB(sb);
 	mutex_lock(&sbi->s_lock);
+#endif
 }
 
 static void __unlock_super(struct super_block *sb)
 {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,7,0)
+	unlock_super(sb);
+#else
 	struct exfat_sb_info *sbi = EXFAT_SB(sb);
 	mutex_unlock(&sbi->s_lock);
+#endif
 }
 
 static int __is_sb_dirty(struct super_block *sb)
@@ -719,8 +729,13 @@ static int exfat_d_anon_disconn(struct dentry *dentry)
 	return IS_ROOT(dentry) && (dentry->d_flags & DCACHE_DISCONNECTED);
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,7,00)
 static struct dentry *exfat_lookup(struct inode *dir, struct dentry *dentry,
 						   unsigned int flags)
+#else
+static struct dentry *exfat_lookup(struct inode *dir, struct dentry *dentry,
+						   struct nameidata *nd)
+#endif
 {
 	struct super_block *sb = dir->i_sb;
 	struct inode *inode;
@@ -1572,7 +1587,11 @@ static ssize_t exfat_direct_IO(int rw, struct kiocb *iocb,
 
 #if LINUX_VERSION_CODE > KERNEL_VERSION(2,6,34)
 	if ((ret < 0) && (rw & WRITE))
+#ifdef CONFIG_AIO_OPTIMIZATION
+		exfat_write_failed(mapping, offset+iov_iter_count(iter));
+#else
 		exfat_write_failed(mapping, offset+iov_length(iov, nr_segs));
+#endif
 #endif
 	return ret;
 
@@ -1619,8 +1638,15 @@ static struct inode *exfat_iget(struct super_block *sb, loff_t i_pos) {
 	struct exfat_inode_info *info;
 	struct hlist_head *head = sbi->inode_hashtable + exfat_hash(i_pos);
 	struct inode *inode = NULL;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,9,0)
+	struct hlist_node *node;
+
+	spin_lock(&sbi->inode_hash_lock);
+	hlist_for_each_entry(info, node, head, i_hash_fat) {
+#else
 	spin_lock(&sbi->inode_hash_lock);
 	hlist_for_each_entry(info, head, i_hash_fat) {
+#endif
 		CHECK_ERR(info->vfs_inode.i_sb != sb);
 
 		if (i_pos != info->i_pos)

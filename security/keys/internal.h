@@ -16,8 +16,6 @@
 #include <linux/key-type.h>
 #include <linux/task_work.h>
 
-struct iovec;
-
 #ifdef __KDEBUG
 #define kenter(FMT, ...) \
 	printk(KERN_DEBUG "==> %s("FMT")\n", __func__, ##__VA_ARGS__)
@@ -244,7 +242,7 @@ extern long keyctl_instantiate_key_iov(key_serial_t,
 extern long keyctl_invalidate_key(key_serial_t);
 
 extern long keyctl_instantiate_key_common(key_serial_t,
-					  const struct iovec *,
+					  const struct iovec __user *,
 					  unsigned, size_t, key_serial_t);
 
 /*

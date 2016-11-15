@@ -3,6 +3,8 @@
  *
  *  Copyright (C) 1995-1999 Russell King
  *
+ *  Copyright (c) 2014, NVIDIA CORPORATION.  All rights reserved.
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
@@ -84,7 +86,12 @@ unsigned long get_wchan(struct task_struct *p);
 #define cpu_relax()			barrier()
 #endif
 
-#define cpu_relax_lowlatency()                cpu_relax()
+void cpu_idle_wait(void);
+
+/*
+ * Create a new kernel thread
+ */
+extern int kernel_thread(int (*fn)(void *), void *arg, unsigned long flags);
 
 #define task_pt_regs(p) \
 	((struct pt_regs *)(THREAD_START_SP + task_stack_page(p)) - 1)
@@ -102,7 +109,9 @@ static inline void prefetch(const void *ptr)
 {
 	__asm__ __volatile__(
 		"pld\t%a0"
-		:: "p" (ptr));
+		:
+		: "p" (ptr)
+		: "cc");
 }
 
 #define ARCH_HAS_PREFETCHW
@@ -116,5 +125,7 @@ static inline void prefetch(const void *ptr)
 #define HAVE_ARCH_PICK_MMAP_LAYOUT
 
 #endif
+
+#include <asm-generic/processor.h>
 
 #endif /* __ASM_ARM_PROCESSOR_H */

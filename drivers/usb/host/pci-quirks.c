@@ -809,19 +809,6 @@ void usb_enable_xhci_ports(struct pci_dev *xhci_pdev)
 		return;
 	}
 
-	/* Don't switchover the ports if the user hasn't compiled the xHCI
-	 * driver.  Otherwise they will see "dead" USB ports that don't power
-	 * the devices.
-	*/
-	if (!IS_ENABLED(CONFIG_USB_XHCI_HCD)) {
-		dev_warn(&xhci_pdev->dev,
-				"CONFIG_USB_XHCI_HCD is turned off, "
-				"defaulting to EHCI.\n");
-		dev_warn(&xhci_pdev->dev,
-				"USB 3.0 devices will work at USB 2.0 speeds.\n");
-		return;
-	}
-
 	/* Read USB3PRM, the USB 3.0 Port Routing Mask Register
 	 * Indicate the ports that can be changed from OS.
 	 */

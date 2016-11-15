@@ -94,15 +94,10 @@ struct mmu_gather {
 #ifdef CONFIG_HAVE_RCU_TABLE_FREE
 	struct mmu_table_batch	*batch;
 #endif
-	unsigned long		start;
-	unsigned long		end;
 	unsigned int		need_flush : 1,	/* Did free PTEs */
-	/* we are in the middle of an operation to clear
-	 * a full mm and can make some optimizations */
-				fullmm : 1,
-	/* we have performed an operation which
-	 * requires a complete flush of the tlb */
-				need_flush_all : 1;
+				fast_mode  : 1; /* No batching   */
+
+	unsigned int		fullmm;
 
 	struct mmu_gather_batch *active;
 	struct mmu_gather_batch	local;
@@ -112,7 +107,20 @@ struct mmu_gather {
 
 #define HAVE_GENERIC_MMU_GATHER
 
-void tlb_gather_mmu(struct mmu_gather *tlb, struct mm_struct *mm, unsigned long start, unsigned long end);
+static inline int tlb_fast_mode(struct mmu_gather *tlb)
+{
+#ifdef CONFIG_SMP
+	return tlb->fast_mode;
+#else
+	/*
+	 * For UP we don't need to worry about TLB flush
+	 * and page free order so much..
+	 */
+	return 1;
+#endif
+}
+
+void tlb_gather_mmu(struct mmu_gather *tlb, struct mm_struct *mm, bool fullmm);
 void tlb_flush_mmu(struct mmu_gather *tlb);
 void tlb_finish_mmu(struct mmu_gather *tlb, unsigned long start, unsigned long end);
 int __tlb_remove_page(struct mmu_gather *tlb, struct page *page);

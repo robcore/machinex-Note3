@@ -78,6 +78,7 @@ static void r1bio_pool_free(void *r1_bio, void *data)
 static void * r1buf_pool_alloc(gfp_t gfp_flags, void *data)
 {
 	struct pool_info *pi = data;
+	struct page *page;
 	struct r1bio *r1_bio;
 	struct bio *bio;
 	int i, j;
@@ -107,10 +108,14 @@ static void * r1buf_pool_alloc(gfp_t gfp_flags, void *data)
 		j = 1;
 	while(j--) {
 		bio = r1_bio->bios[j];
-		bio->bi_vcnt = RESYNC_PAGES;
+		for (i = 0; i < RESYNC_PAGES; i++) {
+			page = alloc_page(gfp_flags);
+			if (unlikely(!page))
+				goto out_free_pages;
 
-		if (bio_alloc_pages(bio, gfp_flags))
-			goto out_free_bio;
+			bio->bi_io_vec[i].bv_page = page;
+			bio->bi_vcnt = i+1;
+		}
 	}
 	/* If not user-requests, copy the page pointers to all bios */
 	if (!test_bit(MD_RECOVERY_REQUESTED, &pi->mddev->recovery)) {
@@ -124,6 +129,11 @@ static void * r1buf_pool_alloc(gfp_t gfp_flags, void *data)
 
 	return r1_bio;
 
+out_free_pages:
+	for (j=0 ; j < pi->raid_disks; j++)
+		for (i=0; i < r1_bio->bios[j]->bi_vcnt ; i++)
+			put_page(r1_bio->bios[j]->bi_io_vec[i].bv_page);
+	j = -1;
 out_free_bio:
 	while (++j < pi->raid_disks)
 		bio_put(r1_bio->bios[j]);
@@ -191,7 +201,6 @@ static void reschedule_retry(struct r1bio *r1_bio)
 	unsigned long flags;
 	struct mddev *mddev = r1_bio->mddev;
 	struct r1conf *conf = mddev->private;
-	unsigned long flags;
 
 	spin_lock_irqsave(&conf->device_lock, flags);
 	list_add(&r1_bio->retry_list, &conf->retry_list);
@@ -744,7 +753,7 @@ static void raise_barrier(struct r1conf *conf)
 
 	/* Wait until no block IO is waiting */
 	wait_event_lock_irq(conf->wait_barrier, !conf->nr_waiting,
-			    conf->resync_lock);
+			    conf->resync_lock, );
 
 	/* block any new IO from starting */
 	conf->barrier++;
@@ -752,7 +761,7 @@ static void raise_barrier(struct r1conf *conf)
 	/* Now wait for all pending IO to complete */
 	wait_event_lock_irq(conf->wait_barrier,
 			    !conf->nr_pending && conf->barrier < RESYNC_DEPTH,
-			    conf->resync_lock);
+			    conf->resync_lock, );
 
 	spin_unlock_irq(&conf->resync_lock);
 }
@@ -786,7 +795,8 @@ static void wait_barrier(struct r1conf *conf)
 				    (conf->nr_pending &&
 				     current->bio_list &&
 				     !bio_list_empty(current->bio_list)),
-				    conf->resync_lock);
+				    conf->resync_lock,
+			);
 		conf->nr_waiting--;
 	}
 	conf->nr_pending++;
@@ -819,10 +829,10 @@ static void freeze_array(struct r1conf *conf, int extra)
 	spin_lock_irq(&conf->resync_lock);
 	conf->barrier++;
 	conf->nr_waiting++;
-	wait_event_lock_irq_cmd(conf->wait_barrier,
-				conf->nr_pending == conf->nr_queued+1,
-				conf->resync_lock,
-				flush_pending_writes(conf));
+	wait_event_lock_irq(conf->wait_barrier,
+			    conf->nr_pending == conf->nr_queued+extra,
+			    conf->resync_lock,
+			    flush_pending_writes(conf));
 	spin_unlock_irq(&conf->resync_lock);
 }
 static void unfreeze_array(struct r1conf *conf)
@@ -847,7 +857,7 @@ static void alloc_behind_pages(struct bio *bio, struct r1bio *r1_bio)
 	if (unlikely(!bvecs))
 		return;
 
-	bio_for_each_segment_all(bvec, bio, i) {
+	bio_for_each_segment(bvec, bio, i) {
 		bvecs[i] = *bvec;
 		bvecs[i].bv_page = alloc_page(GFP_NOIO);
 		if (unlikely(!bvecs[i].bv_page))
@@ -897,7 +907,7 @@ static void make_request(struct mddev *mddev, struct bio * bio)
 	md_write_start(mddev, bio); /* wait on superblock update early */
 
 	if (bio_data_dir(bio) == WRITE &&
-	    bio_end_sector(bio) > mddev->suspend_lo &&
+	    bio->bi_sector + bio->bi_size/512 > mddev->suspend_lo &&
 	    bio->bi_sector < mddev->suspend_hi) {
 		/* As the suspend_* range is controlled by
 		 * userspace, we want an interruptible
@@ -908,7 +918,7 @@ static void make_request(struct mddev *mddev, struct bio * bio)
 			flush_signals(current);
 			prepare_to_wait(&conf->wait_barrier,
 					&w, TASK_INTERRUPTIBLE);
-			if (bio_end_sector(bio) <= mddev->suspend_lo ||
+			if (bio->bi_sector + bio->bi_size/512 <= mddev->suspend_lo ||
 			    bio->bi_sector >= mddev->suspend_hi)
 				break;
 			schedule();
@@ -1164,10 +1174,14 @@ read_again:
 			struct bio_vec *bvec;
 			int j;
 
-			/*
-			 * We trimmed the bio, so _all is legit
+			/* Yes, I really want the '__' version so that
+			 * we clear any unused pointer in the io_vec, rather
+			 * than leave them unchanged.  This is important
+			 * because when we come to free the pages, we won't
+			 * know the original bi_idx, so we just free
+			 * them all
 			 */
-			bio_for_each_segment_all(bvec, mbio, j)
+			__bio_for_each_segment(bvec, mbio, j, 0)
 				bvec->bv_page = r1_bio->behind_bvecs[j].bv_page;
 			if (test_bit(WriteMostly, &conf->mirrors[i].rdev->flags))
 				atomic_inc(&r1_bio->behind_remaining);
@@ -1918,6 +1932,25 @@ static void fix_read_error(struct r1conf *conf, int read_disk,
 	}
 }
 
+static void bi_complete(struct bio *bio, int error)
+{
+	complete((struct completion *)bio->bi_private);
+}
+
+static int submit_bio_wait(int rw, struct bio *bio)
+{
+	struct completion event;
+	rw |= REQ_SYNC;
+
+	init_completion(&event);
+	bio->bi_private = &event;
+	bio->bi_end_io = bi_complete;
+	submit_bio(rw, bio);
+	wait_for_completion(&event);
+
+	return test_bit(BIO_UPTODATE, &bio->bi_flags);
+}
+
 static int narrow_write_error(struct r1bio *r1_bio, int i)
 {
 	struct mddev *mddev = r1_bio->mddev;
@@ -2155,29 +2188,6 @@ static void raid1d(struct mddev *mddev)
 	struct blk_plug plug;
 
 	md_check_recovery(mddev);
-
-	if (!list_empty_careful(&conf->bio_end_io_list) &&
-	    !test_bit(MD_CHANGE_PENDING, &mddev->flags)) {
-		LIST_HEAD(tmp);
-		spin_lock_irqsave(&conf->device_lock, flags);
-		if (!test_bit(MD_CHANGE_PENDING, &mddev->flags)) {
-			while (!list_empty(&conf->bio_end_io_list)) {
-				list_move(conf->bio_end_io_list.prev, &tmp);
-				conf->nr_queued--;
-			}
-		}
-		spin_unlock_irqrestore(&conf->device_lock, flags);
-		while (!list_empty(&tmp)) {
-			r1_bio = list_first_entry(&conf->bio_end_io_list,
-						  struct r1bio, retry_list);
-			list_del(&r1_bio->retry_list);
-			if (mddev->degraded)
-				set_bit(R1BIO_Degraded, &r1_bio->state);
-			if (test_bit(R1BIO_WriteError, &r1_bio->state))
-				close_write(r1_bio);
-			raid_end_bio_io(r1_bio);
-		}
-	}
 
 	if (!list_empty_careful(&conf->bio_end_io_list) &&
 	    !test_bit(MD_CHANGE_PENDING, &mddev->flags)) {

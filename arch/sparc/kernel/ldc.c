@@ -953,8 +953,9 @@ static HLIST_HEAD(ldc_channel_list);
 static int __ldc_channel_exists(unsigned long id)
 {
 	struct ldc_channel *lp;
+	struct hlist_node *n;
 
-	hlist_for_each_entry(lp, &ldc_channel_list, list) {
+	hlist_for_each_entry(lp, n, &ldc_channel_list, list) {
 		if (lp->id == id)
 			return 1;
 	}

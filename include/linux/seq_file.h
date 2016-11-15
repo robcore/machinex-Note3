@@ -101,7 +101,6 @@ int seq_puts(struct seq_file *m, const char *s);
 int seq_write(struct seq_file *seq, const void *data, size_t len);
 
 __printf(2, 3) int seq_printf(struct seq_file *, const char *, ...);
-__printf(2, 0) int seq_vprintf(struct seq_file *, const char *, va_list args);
 
 int seq_path(struct seq_file *, const struct path *, const char *);
 int seq_dentry(struct seq_file *, struct dentry *, const char *);
@@ -134,7 +133,6 @@ static inline int seq_nodemask_list(struct seq_file *m, nodemask_t *mask)
 }
 
 int single_open(struct file *, int (*)(struct seq_file *, void *), void *);
-int single_open_size(struct file *, int (*)(struct seq_file *, void *), void *, size_t);
 int single_release(struct inode *, struct file *);
 void *__seq_open_private(struct file *, const struct seq_operations *, int);
 int seq_open_private(struct file *, const struct seq_operations *, int);
@@ -143,41 +141,6 @@ int seq_put_decimal_ull(struct seq_file *m, char delimiter,
 			unsigned long long num);
 int seq_put_decimal_ll(struct seq_file *m, char delimiter,
 			long long num);
-
-/**
- * seq_show_options - display mount options with appropriate escapes.
- * @m: the seq_file handle
- * @name: the mount option name
- * @value: the mount option name's value, can be NULL
- */
-static inline void seq_show_option(struct seq_file *m, const char *name,
-				   const char *value)
-{
-	seq_putc(m, ',');
-	seq_escape(m, name, ",= \t\n\\");
-	if (value) {
-		seq_putc(m, '=');
-		seq_escape(m, value, ", \t\n\\");
-	}
-}
-
-/**
- * seq_show_option_n - display mount options with appropriate escapes
- *		       where @value must be a specific length.
- * @m: the seq_file handle
- * @name: the mount option name
- * @value: the mount option name's value, cannot be NULL
- * @length: the length of @value to display
- *
- * This is a macro since this uses "length" to define the size of the
- * stack buffer.
- */
-#define seq_show_option_n(m, name, value, length) {	\
-	char val_buf[length + 1];			\
-	strncpy(val_buf, value, length);		\
-	val_buf[length] = '\0';				\
-	seq_show_option(m, name, val_buf);		\
-}
 
 /**
  * seq_show_options - display mount options with appropriate escapes.

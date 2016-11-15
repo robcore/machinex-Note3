@@ -18,14 +18,14 @@
 
 	.globl sys_call_table32
 sys_call_table32:
-/*0*/	.word sys_restart_syscall, sparc_exit, sys_fork, sys_read, sys_write
-/*5*/	.word compat_sys_open, sys_close, compat_sys_wait4, sys_creat, sys_link
-/*10*/  .word sys_unlink, sunos_execv, sys_chdir, sys_chown16, sys_mknod
-/*15*/	.word sys_chmod, sys_lchown16, sys_brk, sys_nis_syscall, compat_sys_lseek
+/*0*/	.word sys_restart_syscall, sys32_exit, sys_fork, sys_read, sys_write
+/*5*/	.word sys32_open, sys_close, sys32_wait4, sys32_creat, sys_link
+/*10*/  .word sys_unlink, sunos_execv, sys_chdir, sys_chown16, sys32_mknod
+/*15*/	.word sys_chmod, sys_lchown16, sys_brk, sys_nis_syscall, sys32_lseek
 /*20*/	.word sys_getpid, sys_capget, sys_capset, sys_setuid16, sys_getuid16
-/*25*/	.word compat_sys_vmsplice, compat_sys_ptrace, sys_alarm, compat_sys_sigaltstack, sys_pause
-/*30*/	.word compat_sys_utime, sys_lchown, sys_fchown, sys_access, sys_nice
-	.word sys_chown, sys_sync, sys_kill, compat_sys_newstat, compat_sys_sendfile
+/*25*/	.word sys32_vmsplice, compat_sys_ptrace, sys_alarm, sys32_sigaltstack, sys_pause
+/*30*/	.word compat_sys_utime, sys_lchown, sys_fchown, sys32_access, sys32_nice
+	.word sys_chown, sys_sync, sys32_kill, compat_sys_newstat, sys32_sendfile
 /*40*/	.word compat_sys_newlstat, sys_dup, sys_sparc_pipe, compat_sys_times, sys_getuid
 	.word sys32_umount, sys_setgid16, sys_getgid16, sys32_signal, sys_geteuid16
 /*50*/	.word sys_getegid16, sys_acct, sys_nis_syscall, sys_getgid, compat_sys_ioctl
@@ -84,7 +84,7 @@ sys_call_table32:
 	.word compat_sys_timerfd_settime, compat_sys_timerfd_gettime, compat_sys_signalfd4, sys_eventfd2, sys_epoll_create1
 /*320*/	.word sys_dup3, sys_pipe2, sys_inotify_init1, sys_accept4, compat_sys_preadv
 	.word compat_sys_pwritev, compat_sys_rt_tgsigqueueinfo, sys_perf_event_open, compat_sys_recvmmsg, sys_fanotify_init
-/*330*/	.word compat_sys_fanotify_mark, sys_prlimit64, sys_name_to_handle_at, compat_sys_open_by_handle_at, compat_sys_clock_adjtime
+/*330*/	.word sys32_fanotify_mark, sys_prlimit64, sys_name_to_handle_at, compat_sys_open_by_handle_at, compat_sys_clock_adjtime
 	.word sys_syncfs, compat_sys_sendmmsg, sys_setns, compat_sys_process_vm_readv, compat_sys_process_vm_writev
 
 #endif /* CONFIG_COMPAT */

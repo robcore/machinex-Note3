@@ -130,8 +130,10 @@ asmlinkage void do_softirq(void)
 #ifdef CONFIG_PROC_FS
 void init_irq_proc(void)
 {
-	if (proc_mkdir("irq", NULL))
-		create_prof_cpu_mask();
+	struct proc_dir_entry *root_irq_dir;
+
+	root_irq_dir = proc_mkdir("irq", NULL);
+	create_prof_cpu_mask(root_irq_dir);
 }
 #endif
 

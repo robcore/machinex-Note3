@@ -80,12 +80,6 @@ static u16 ocfs2_calc_new_backup_super(struct inode *inode,
 		if (lgd_cluster >= cluster)
 			continue;
 
-		/* check if already done backup super */
-		lgd_cluster = ocfs2_blocks_to_clusters(inode->i_sb, lgd_blkno);
-		lgd_cluster += old_bg_clusters;
-		if (lgd_cluster >= cluster)
-			continue;
-
 		if (set)
 			ocfs2_set_bit(cluster % cl_cpg,
 				      (unsigned long *)gd->bg_bitmap);

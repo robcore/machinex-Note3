@@ -52,11 +52,6 @@ static const int dec32table[] = {0, 3, 2, 3, 0, 0, 0, 0};
 static const int dec64table[] = {0, 0, 0, -1, 0, 1, 2, 3};
 #endif
 
-static const int dec32table[] = {0, 3, 2, 3, 0, 0, 0, 0};
-#if LZ4_ARCH64
-static const int dec64table[] = {0, 0, 0, -1, 0, 1, 2, 3};
-#endif
-
 static int lz4_uncompress(const char *source, char *dest, int osize)
 {
 	const BYTE *ip = (const BYTE *) source;
@@ -144,13 +139,6 @@ static int lz4_uncompress(const char *source, char *dest, int osize)
 
 			/* Error: request to write beyond destination buffer */
 			if (cpy > oend)
-				goto _output_error;
-#if LZ4_ARCH64
-			if ((ref + COPYLENGTH) > oend)
-#else
-			if ((ref + COPYLENGTH) > oend ||
-					(op + COPYLENGTH) > oend)
-#endif
 				goto _output_error;
 #if LZ4_ARCH64
 			if ((ref + COPYLENGTH) > oend)

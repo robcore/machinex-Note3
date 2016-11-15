@@ -36,11 +36,9 @@
 #include <linux/seq_file.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
-#include <linux/sunrpc/svc_xprt.h>
 #include <net/net_namespace.h>
 #include "idmap.h"
 #include "nfsd.h"
-#include "netns.h"
 
 /*
  * Turn off idmapping when using AUTH_SYS.
@@ -65,7 +63,7 @@ MODULE_PARM_DESC(nfs4_disable_idmapping,
 struct ent {
 	struct cache_head h;
 	int               type;		       /* User / Group */
-	u32               id;
+	uid_t             id;
 	char              name[IDMAP_NAMESZ];
 	char              authname[IDMAP_NAMESZ];
 };
@@ -109,6 +107,8 @@ ent_alloc(void)
  * ID -> Name cache
  */
 
+static struct cache_head *idtoname_table[ENT_HASHMAX];
+
 static uint32_t
 idtoname_hash(struct ent *ent)
 {
@@ -137,6 +137,12 @@ idtoname_request(struct cache_detail *cd, struct cache_head *ch, char **bpp,
 	qword_add(bpp, blen, idstr);
 
 	(*bpp)[-1] = '\n';
+}
+
+static int
+idtoname_upcall(struct cache_detail *cd, struct cache_head *ch)
+{
+	return sunrpc_cache_pipe_upcall(cd, ch, idtoname_request);
 }
 
 static int
@@ -177,16 +183,16 @@ warn_no_idmapd(struct cache_detail *detail, int has_died)
 
 
 static int         idtoname_parse(struct cache_detail *, char *, int);
-static struct ent *idtoname_lookup(struct cache_detail *, struct ent *);
-static struct ent *idtoname_update(struct cache_detail *, struct ent *,
-				   struct ent *);
+static struct ent *idtoname_lookup(struct ent *);
+static struct ent *idtoname_update(struct ent *, struct ent *);
 
-static struct cache_detail idtoname_cache_template = {
+static struct cache_detail idtoname_cache = {
 	.owner		= THIS_MODULE,
 	.hash_size	= ENT_HASHMAX,
+	.hash_table	= idtoname_table,
 	.name		= "nfs4.idtoname",
 	.cache_put	= ent_put,
-	.cache_request	= idtoname_request,
+	.cache_upcall	= idtoname_upcall,
 	.cache_parse	= idtoname_parse,
 	.cache_show	= idtoname_show,
 	.warn_no_listener = warn_no_idmapd,
@@ -238,7 +244,7 @@ idtoname_parse(struct cache_detail *cd, char *buf, int buflen)
 		goto out;
 
 	error = -ENOMEM;
-	res = idtoname_lookup(cd, &ent);
+	res = idtoname_lookup(&ent);
 	if (!res)
 		goto out;
 
@@ -254,11 +260,11 @@ idtoname_parse(struct cache_detail *cd, char *buf, int buflen)
 	else
 		memcpy(ent.name, buf1, sizeof(ent.name));
 	error = -ENOMEM;
-	res = idtoname_update(cd, &ent, res);
+	res = idtoname_update(&ent, res);
 	if (res == NULL)
 		goto out;
 
-	cache_put(&res->h, cd);
+	cache_put(&res->h, &idtoname_cache);
 
 	error = 0;
 out:
@@ -269,9 +275,10 @@ out:
 
 
 static struct ent *
-idtoname_lookup(struct cache_detail *cd, struct ent *item)
+idtoname_lookup(struct ent *item)
 {
-	struct cache_head *ch = sunrpc_cache_lookup(cd, &item->h,
+	struct cache_head *ch = sunrpc_cache_lookup(&idtoname_cache,
+						    &item->h,
 						    idtoname_hash(item));
 	if (ch)
 		return container_of(ch, struct ent, h);
@@ -280,9 +287,10 @@ idtoname_lookup(struct cache_detail *cd, struct ent *item)
 }
 
 static struct ent *
-idtoname_update(struct cache_detail *cd, struct ent *new, struct ent *old)
+idtoname_update(struct ent *new, struct ent *old)
 {
-	struct cache_head *ch = sunrpc_cache_update(cd, &new->h, &old->h,
+	struct cache_head *ch = sunrpc_cache_update(&idtoname_cache,
+						    &new->h, &old->h,
 						    idtoname_hash(new));
 	if (ch)
 		return container_of(ch, struct ent, h);
@@ -294,6 +302,8 @@ idtoname_update(struct cache_detail *cd, struct ent *new, struct ent *old)
 /*
  * Name -> ID cache
  */
+
+static struct cache_head *nametoid_table[ENT_HASHMAX];
 
 static inline int
 nametoid_hash(struct ent *ent)
@@ -312,6 +322,12 @@ nametoid_request(struct cache_detail *cd, struct cache_head *ch, char **bpp,
 	qword_add(bpp, blen, ent->name);
 
 	(*bpp)[-1] = '\n';
+}
+
+static int
+nametoid_upcall(struct cache_detail *cd, struct cache_head *ch)
+{
+	return sunrpc_cache_pipe_upcall(cd, ch, nametoid_request);
 }
 
 static int
@@ -343,17 +359,17 @@ nametoid_show(struct seq_file *m, struct cache_detail *cd, struct cache_head *h)
 	return 0;
 }
 
-static struct ent *nametoid_lookup(struct cache_detail *, struct ent *);
-static struct ent *nametoid_update(struct cache_detail *, struct ent *,
-				   struct ent *);
+static struct ent *nametoid_lookup(struct ent *);
+static struct ent *nametoid_update(struct ent *, struct ent *);
 static int         nametoid_parse(struct cache_detail *, char *, int);
 
-static struct cache_detail nametoid_cache_template = {
+static struct cache_detail nametoid_cache = {
 	.owner		= THIS_MODULE,
 	.hash_size	= ENT_HASHMAX,
+	.hash_table	= nametoid_table,
 	.name		= "nfs4.nametoid",
 	.cache_put	= ent_put,
-	.cache_request	= nametoid_request,
+	.cache_upcall	= nametoid_upcall,
 	.cache_parse	= nametoid_parse,
 	.cache_show	= nametoid_show,
 	.warn_no_listener = warn_no_idmapd,
@@ -410,14 +426,14 @@ nametoid_parse(struct cache_detail *cd, char *buf, int buflen)
 		set_bit(CACHE_NEGATIVE, &ent.h.flags);
 
 	error = -ENOMEM;
-	res = nametoid_lookup(cd, &ent);
+	res = nametoid_lookup(&ent);
 	if (res == NULL)
 		goto out;
-	res = nametoid_update(cd, &ent, res);
+	res = nametoid_update(&ent, res);
 	if (res == NULL)
 		goto out;
 
-	cache_put(&res->h, cd);
+	cache_put(&res->h, &nametoid_cache);
 	error = 0;
 out:
 	kfree(buf1);
@@ -427,9 +443,10 @@ out:
 
 
 static struct ent *
-nametoid_lookup(struct cache_detail *cd, struct ent *item)
+nametoid_lookup(struct ent *item)
 {
-	struct cache_head *ch = sunrpc_cache_lookup(cd, &item->h,
+	struct cache_head *ch = sunrpc_cache_lookup(&nametoid_cache,
+						    &item->h,
 						    nametoid_hash(item));
 	if (ch)
 		return container_of(ch, struct ent, h);
@@ -438,9 +455,10 @@ nametoid_lookup(struct cache_detail *cd, struct ent *item)
 }
 
 static struct ent *
-nametoid_update(struct cache_detail *cd, struct ent *new, struct ent *old)
+nametoid_update(struct ent *new, struct ent *old)
 {
-	struct cache_head *ch = sunrpc_cache_update(cd, &new->h, &old->h,
+	struct cache_head *ch = sunrpc_cache_update(&nametoid_cache,
+						    &new->h, &old->h,
 						    nametoid_hash(new));
 	if (ch)
 		return container_of(ch, struct ent, h);
@@ -453,55 +471,34 @@ nametoid_update(struct cache_detail *cd, struct ent *new, struct ent *old)
  */
 
 int
-nfsd_idmap_init(struct net *net)
+nfsd_idmap_init(void)
 {
 	int rv;
-	struct nfsd_net *nn = net_generic(net, nfsd_net_id);
 
-	nn->idtoname_cache = cache_create_net(&idtoname_cache_template, net);
-	if (IS_ERR(nn->idtoname_cache))
-		return PTR_ERR(nn->idtoname_cache);
-	rv = cache_register_net(nn->idtoname_cache, net);
+	rv = cache_register_net(&idtoname_cache, &init_net);
 	if (rv)
-		goto destroy_idtoname_cache;
-	nn->nametoid_cache = cache_create_net(&nametoid_cache_template, net);
-	if (IS_ERR(nn->nametoid_cache)) {
-		rv = PTR_ERR(nn->nametoid_cache);
-		goto unregister_idtoname_cache;
-	}
-	rv = cache_register_net(nn->nametoid_cache, net);
+		return rv;
+	rv = cache_register_net(&nametoid_cache, &init_net);
 	if (rv)
-		goto destroy_nametoid_cache;
-	return 0;
-
-destroy_nametoid_cache:
-	cache_destroy_net(nn->nametoid_cache, net);
-unregister_idtoname_cache:
-	cache_unregister_net(nn->idtoname_cache, net);
-destroy_idtoname_cache:
-	cache_destroy_net(nn->idtoname_cache, net);
+		cache_unregister_net(&idtoname_cache, &init_net);
 	return rv;
 }
 
 void
-nfsd_idmap_shutdown(struct net *net)
+nfsd_idmap_shutdown(void)
 {
-	struct nfsd_net *nn = net_generic(net, nfsd_net_id);
-
-	cache_unregister_net(nn->idtoname_cache, net);
-	cache_unregister_net(nn->nametoid_cache, net);
-	cache_destroy_net(nn->idtoname_cache, net);
-	cache_destroy_net(nn->nametoid_cache, net);
+	cache_unregister_net(&idtoname_cache, &init_net);
+	cache_unregister_net(&nametoid_cache, &init_net);
 }
 
 static int
 idmap_lookup(struct svc_rqst *rqstp,
-		struct ent *(*lookup_fn)(struct cache_detail *, struct ent *),
-		struct ent *key, struct cache_detail *detail, struct ent **item)
+		struct ent *(*lookup_fn)(struct ent *), struct ent *key,
+		struct cache_detail *detail, struct ent **item)
 {
 	int ret;
 
-	*item = lookup_fn(detail, key);
+	*item = lookup_fn(key);
 	if (!*item)
 		return -ENOMEM;
  retry:
@@ -509,7 +506,7 @@ idmap_lookup(struct svc_rqst *rqstp,
 
 	if (ret == -ETIMEDOUT) {
 		struct ent *prev_item = *item;
-		*item = lookup_fn(detail, key);
+		*item = lookup_fn(key);
 		if (*item != prev_item)
 			goto retry;
 		cache_put(&(*item)->h, detail);
@@ -528,41 +525,39 @@ rqst_authname(struct svc_rqst *rqstp)
 
 static __be32
 idmap_name_to_id(struct svc_rqst *rqstp, int type, const char *name, u32 namelen,
-		u32 *id)
+		uid_t *id)
 {
 	struct ent *item, key = {
 		.type = type,
 	};
 	int ret;
-	struct nfsd_net *nn = net_generic(SVC_NET(rqstp), nfsd_net_id);
 
 	if (namelen + 1 > sizeof(key.name))
 		return nfserr_badowner;
 	memcpy(key.name, name, namelen);
 	key.name[namelen] = '\0';
 	strlcpy(key.authname, rqst_authname(rqstp), sizeof(key.authname));
-	ret = idmap_lookup(rqstp, nametoid_lookup, &key, nn->nametoid_cache, &item);
+	ret = idmap_lookup(rqstp, nametoid_lookup, &key, &nametoid_cache, &item);
 	if (ret == -ENOENT)
 		return nfserr_badowner;
 	if (ret)
 		return nfserrno(ret);
 	*id = item->id;
-	cache_put(&item->h, nn->nametoid_cache);
+	cache_put(&item->h, &nametoid_cache);
 	return 0;
 }
 
 static int
-idmap_id_to_name(struct svc_rqst *rqstp, int type, u32 id, char *name)
+idmap_id_to_name(struct svc_rqst *rqstp, int type, uid_t id, char *name)
 {
 	struct ent *item, key = {
 		.id = id,
 		.type = type,
 	};
 	int ret;
-	struct nfsd_net *nn = net_generic(SVC_NET(rqstp), nfsd_net_id);
 
 	strlcpy(key.authname, rqst_authname(rqstp), sizeof(key.authname));
-	ret = idmap_lookup(rqstp, idtoname_lookup, &key, nn->idtoname_cache, &item);
+	ret = idmap_lookup(rqstp, idtoname_lookup, &key, &idtoname_cache, &item);
 	if (ret == -ENOENT)
 		return sprintf(name, "%u", id);
 	if (ret)
@@ -570,12 +565,12 @@ idmap_id_to_name(struct svc_rqst *rqstp, int type, u32 id, char *name)
 	ret = strlen(item->name);
 	BUG_ON(ret > IDMAP_NAMESZ);
 	memcpy(name, item->name, ret);
-	cache_put(&item->h, nn->idtoname_cache);
+	cache_put(&item->h, &idtoname_cache);
 	return ret;
 }
 
 static bool
-numeric_name_to_id(struct svc_rqst *rqstp, int type, const char *name, u32 namelen, u32 *id)
+numeric_name_to_id(struct svc_rqst *rqstp, int type, const char *name, u32 namelen, uid_t *id)
 {
 	int ret;
 	char buf[11];
@@ -591,9 +586,9 @@ numeric_name_to_id(struct svc_rqst *rqstp, int type, const char *name, u32 namel
 }
 
 static __be32
-do_name_to_id(struct svc_rqst *rqstp, int type, const char *name, u32 namelen, u32 *id)
+do_name_to_id(struct svc_rqst *rqstp, int type, const char *name, u32 namelen, uid_t *id)
 {
-	if (nfs4_disable_idmapping && rqstp->rq_cred.cr_flavor < RPC_AUTH_GSS)
+	if (nfs4_disable_idmapping && rqstp->rq_flavor < RPC_AUTH_GSS)
 		if (numeric_name_to_id(rqstp, type, name, namelen, id))
 			return 0;
 		/*
@@ -604,49 +599,35 @@ do_name_to_id(struct svc_rqst *rqstp, int type, const char *name, u32 namelen, u
 }
 
 static int
-do_id_to_name(struct svc_rqst *rqstp, int type, u32 id, char *name)
+do_id_to_name(struct svc_rqst *rqstp, int type, uid_t id, char *name)
 {
-	if (nfs4_disable_idmapping && rqstp->rq_cred.cr_flavor < RPC_AUTH_GSS)
+	if (nfs4_disable_idmapping && rqstp->rq_flavor < RPC_AUTH_GSS)
 		return sprintf(name, "%u", id);
 	return idmap_id_to_name(rqstp, type, id, name);
 }
 
 __be32
 nfsd_map_name_to_uid(struct svc_rqst *rqstp, const char *name, size_t namelen,
-		kuid_t *uid)
+		__u32 *id)
 {
-	__be32 status;
-	u32 id = -1;
-	status = do_name_to_id(rqstp, IDMAP_TYPE_USER, name, namelen, &id);
-	*uid = make_kuid(&init_user_ns, id);
-	if (!uid_valid(*uid))
-		status = nfserr_badowner;
-	return status;
+	return do_name_to_id(rqstp, IDMAP_TYPE_USER, name, namelen, id);
 }
 
 __be32
 nfsd_map_name_to_gid(struct svc_rqst *rqstp, const char *name, size_t namelen,
-		kgid_t *gid)
+		__u32 *id)
 {
-	__be32 status;
-	u32 id = -1;
-	status = do_name_to_id(rqstp, IDMAP_TYPE_GROUP, name, namelen, &id);
-	*gid = make_kgid(&init_user_ns, id);
-	if (!gid_valid(*gid))
-		status = nfserr_badowner;
-	return status;
+	return do_name_to_id(rqstp, IDMAP_TYPE_GROUP, name, namelen, id);
 }
 
 int
-nfsd_map_uid_to_name(struct svc_rqst *rqstp, kuid_t uid, char *name)
+nfsd_map_uid_to_name(struct svc_rqst *rqstp, __u32 id, char *name)
 {
-	u32 id = from_kuid(&init_user_ns, uid);
 	return do_id_to_name(rqstp, IDMAP_TYPE_USER, id, name);
 }
 
 int
-nfsd_map_gid_to_name(struct svc_rqst *rqstp, kgid_t gid, char *name)
+nfsd_map_gid_to_name(struct svc_rqst *rqstp, __u32 id, char *name)
 {
-	u32 id = from_kgid(&init_user_ns, gid);
 	return do_id_to_name(rqstp, IDMAP_TYPE_GROUP, id, name);
 }

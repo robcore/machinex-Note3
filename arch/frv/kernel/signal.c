@@ -20,6 +20,7 @@
 #include <linux/ptrace.h>
 #include <linux/unistd.h>
 #include <linux/personality.h>
+#include <linux/freezer.h>
 #include <linux/tracehook.h>
 #include <asm/ucontext.h>
 #include <asm/uaccess.h>
@@ -432,9 +433,8 @@ give_sigsegv:
  * OK, we're invoking a handler
  */
 static int handle_signal(unsigned long sig, siginfo_t *info,
-			 struct k_sigaction *ka)
+			 struct k_sigaction *ka, sigset_t *oldset)
 {
-	sigset_t *oldset = sigmask_to_save();
 	int ret;
 
 	/* Are we from a system call? */
@@ -505,9 +505,14 @@ static void do_signal(void)
 	if (try_to_freeze())
 		goto no_signal;
 
+	if (test_thread_flag(TIF_RESTORE_SIGMASK))
+		oldset = &current->saved_sigmask;
+	else
+		oldset = &current->blocked;
+
 	signr = get_signal_to_deliver(&info, &ka, __frame, NULL);
 	if (signr > 0) {
-		if (handle_signal(signr, &info, &ka) == 0) {
+		if (handle_signal(signr, &info, &ka, oldset) == 0) {
 			/* a signal was successfully delivered; the saved
 			 * sigmask will have been stored in the signal frame,
 			 * and will be restored by sigreturn, so we can simply
@@ -544,7 +549,11 @@ no_signal:
 
 	/* if there's no signal to deliver, we just put the saved sigmask
 	 * back */
-	restore_saved_sigmask();
+	if (test_thread_flag(TIF_RESTORE_SIGMASK)) {
+		clear_thread_flag(TIF_RESTORE_SIGMASK);
+		sigprocmask(SIG_SETMASK, &current->saved_sigmask, NULL);
+	}
+
 } /* end do_signal() */
 
 /*****************************************************************************/
@@ -566,6 +575,8 @@ asmlinkage void do_notify_resume(__u32 thread_info_flags)
 	if (thread_info_flags & _TIF_NOTIFY_RESUME) {
 		clear_thread_flag(TIF_NOTIFY_RESUME);
 		tracehook_notify_resume(__frame);
+		if (current->replacement_session_keyring)
+			key_replace_session_keyring();
 	}
 
 } /* end do_notify_resume() */

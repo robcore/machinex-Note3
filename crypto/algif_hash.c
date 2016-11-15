@@ -51,8 +51,7 @@ static int hash_sendmsg(struct kiocb *unused, struct socket *sock,
 
 	lock_sock(sk);
 	if (!ctx->more) {
-		err = af_alg_wait_for_completion(crypto_ahash_init(&ctx->req),
-						&ctx->completion);
+		err = crypto_ahash_init(&ctx->req);
 		if (err)
 			goto unlock;
 	}
@@ -132,7 +131,6 @@ static ssize_t hash_sendpage(struct socket *sock, struct page *page,
 	} else {
 		if (!ctx->more) {
 			err = crypto_ahash_init(&ctx->req);
-			err = af_alg_wait_for_completion(err, &ctx->completion);
 			if (err)
 				goto unlock;
 		}

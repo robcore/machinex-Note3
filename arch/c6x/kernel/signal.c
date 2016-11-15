@@ -20,6 +20,8 @@
 #include <asm/cacheflush.h>
 
 
+#define _BLOCKABLE (~(sigmask(SIGKILL) | sigmask(SIGSTOP)))
+
 /*
  * Do a signal return, undo the signal stack.
  */
@@ -82,6 +84,7 @@ asmlinkage int do_rt_sigreturn(struct pt_regs *regs)
 	if (__copy_from_user(&set, &frame->uc.uc_sigmask, sizeof(set)))
 		goto badframe;
 
+	sigdelsetmask(&set, ~_BLOCKABLE);
 	set_current_blocked(&set);
 
 	if (restore_sigcontext(regs, &frame->uc.uc_mcontext))
@@ -242,9 +245,10 @@ do_restart:
 /*
  * handle the actual delivery of a signal to userspace
  */
-static void handle_signal(int sig,
+static int handle_signal(int sig,
 			 siginfo_t *info, struct k_sigaction *ka,
-			 struct pt_regs *regs, int syscall)
+			 sigset_t *oldset, struct pt_regs *regs,
+			 int syscall)
 {
 	int ret;
 
@@ -271,9 +275,11 @@ static void handle_signal(int sig,
 	}
 
 	/* Set up the stack frame */
-	if (setup_rt_frame(sig, ka, info, sigmask_to_save(), regs) < 0)
-		return;
-	signal_delivered(sig, info, ka, regs, 0);
+	ret = setup_rt_frame(sig, ka, info, oldset, regs);
+	if (ret == 0)
+		block_sigmask(ka, sig);
+
+	return ret;
 }
 
 /*
@@ -283,6 +289,7 @@ static void do_signal(struct pt_regs *regs, int syscall)
 {
 	struct k_sigaction ka;
 	siginfo_t info;
+	sigset_t *oldset;
 	int signr;
 
 	/* we want the common case to go fast, which is why we may in certain
@@ -290,9 +297,25 @@ static void do_signal(struct pt_regs *regs, int syscall)
 	if (!user_mode(regs))
 		return;
 
+	if (test_thread_flag(TIF_RESTORE_SIGMASK))
+		oldset = &current->saved_sigmask;
+	else
+		oldset = &current->blocked;
+
 	signr = get_signal_to_deliver(&info, &ka, regs, NULL);
 	if (signr > 0) {
-		handle_signal(signr, &info, &ka, regs, syscall);
+		if (handle_signal(signr, &info, &ka, oldset,
+				  regs, syscall) == 0) {
+			/* a signal was successfully delivered; the saved
+			 * sigmask will have been stored in the signal frame,
+			 * and will be restored by sigreturn, so we can simply
+			 * clear the TIF_RESTORE_SIGMASK flag */
+			if (test_thread_flag(TIF_RESTORE_SIGMASK))
+				clear_thread_flag(TIF_RESTORE_SIGMASK);
+
+			tracehook_signal_handler(signr, &info, &ka, regs, 0);
+		}
+
 		return;
 	}
 
@@ -317,7 +340,10 @@ static void do_signal(struct pt_regs *regs, int syscall)
 
 	/* if there's no signal to deliver, we just put the saved sigmask
 	 * back */
-	restore_saved_sigmask();
+	if (test_thread_flag(TIF_RESTORE_SIGMASK)) {
+		clear_thread_flag(TIF_RESTORE_SIGMASK);
+		sigprocmask(SIG_SETMASK, &current->saved_sigmask, NULL);
+	}
 }
 
 /*
@@ -335,5 +361,7 @@ asmlinkage void do_notify_resume(struct pt_regs *regs, u32 thread_info_flags,
 	if (thread_info_flags & (1 << TIF_NOTIFY_RESUME)) {
 		clear_thread_flag(TIF_NOTIFY_RESUME);
 		tracehook_notify_resume(regs);
+		if (current->replacement_session_keyring)
+			key_replace_session_keyring();
 	}
 }

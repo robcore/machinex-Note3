@@ -216,7 +216,7 @@ static inline unsigned long fast_get_dcookie(struct path *path)
 }
 
 
-/* Look up the dcookie for the task's mm->exe_file,
+/* Look up the dcookie for the task's first VM_EXECUTABLE mapping,
  * which corresponds loosely to "application name". This is
  * not strictly necessary but allows oprofile to associate
  * shared-library samples with particular applications
@@ -224,10 +224,21 @@ static inline unsigned long fast_get_dcookie(struct path *path)
 static unsigned long get_exec_dcookie(struct mm_struct *mm)
 {
 	unsigned long cookie = NO_COOKIE;
+	struct vm_area_struct *vma;
 
-	if (mm && mm->exe_file)
-		cookie = fast_get_dcookie(&mm->exe_file->f_path);
+	if (!mm)
+		goto out;
 
+	for (vma = mm->mmap; vma; vma = vma->vm_next) {
+		if (!vma->vm_file)
+			continue;
+		if (!(vma->vm_flags & VM_EXECUTABLE))
+			continue;
+		cookie = fast_get_dcookie(&vma->vm_file->f_path);
+		break;
+	}
+
+out:
 	return cookie;
 }
 

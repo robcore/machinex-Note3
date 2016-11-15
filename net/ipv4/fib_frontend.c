@@ -93,6 +93,7 @@ struct fib_table *fib_new_table(struct net *net, u32 id)
 struct fib_table *fib_get_table(struct net *net, u32 id)
 {
 	struct fib_table *tb;
+	struct hlist_node *node;
 	struct hlist_head *head;
 	unsigned int h;
 
@@ -102,7 +103,7 @@ struct fib_table *fib_get_table(struct net *net, u32 id)
 
 	rcu_read_lock();
 	head = &net->ipv4.fib_table_hash[h];
-	hlist_for_each_entry_rcu(tb, head, tb_hlist) {
+	hlist_for_each_entry_rcu(tb, node, head, tb_hlist) {
 		if (tb->tb_id == id) {
 			rcu_read_unlock();
 			return tb;
@@ -117,12 +118,13 @@ static void fib_flush(struct net *net)
 {
 	int flushed = 0;
 	struct fib_table *tb;
+	struct hlist_node *node;
 	struct hlist_head *head;
 	unsigned int h;
 
 	for (h = 0; h < FIB_TABLE_HASHSZ; h++) {
 		head = &net->ipv4.fib_table_hash[h];
-		hlist_for_each_entry(tb, head, tb_hlist)
+		hlist_for_each_entry(tb, node, head, tb_hlist)
 			flushed += fib_table_flush(tb);
 	}
 
@@ -134,13 +136,13 @@ static void fib_flush(struct net *net)
  * Find address type as if only "dev" was present in the system. If
  * on_dev is NULL then all interfaces are taken into consideration.
  */
-static inline unsigned int __inet_dev_addr_type(struct net *net,
-						const struct net_device *dev,
-						__be32 addr)
+static inline unsigned __inet_dev_addr_type(struct net *net,
+					    const struct net_device *dev,
+					    __be32 addr)
 {
 	struct flowi4		fl4 = { .daddr = addr };
 	struct fib_result	res;
-	unsigned int ret = RTN_BROADCAST;
+	unsigned ret = RTN_BROADCAST;
 	struct fib_table *local_table;
 
 	if (ipv4_is_zeronet(addr) || ipv4_is_lbcast(addr))
@@ -199,7 +201,7 @@ int fib_validate_source(struct sk_buff *skb, __be32 src, __be32 dst, u8 tos,
 	struct net *net;
 
 	fl4.flowi4_oif = 0;
-	fl4.flowi4_iif = oif ? : LOOPBACK_IFINDEX;
+	fl4.flowi4_iif = oif;
 	fl4.daddr = src;
 	fl4.saddr = dst;
 	fl4.flowi4_tos = tos;
@@ -603,6 +605,7 @@ static int inet_dump_fib(struct sk_buff *skb, struct netlink_callback *cb)
 	unsigned int h, s_h;
 	unsigned int e = 0, s_e;
 	struct fib_table *tb;
+	struct hlist_node *node;
 	struct hlist_head *head;
 	int dumped = 0;
 
@@ -616,7 +619,7 @@ static int inet_dump_fib(struct sk_buff *skb, struct netlink_callback *cb)
 	for (h = s_h; h < FIB_TABLE_HASHSZ; h++, s_e = 0) {
 		e = 0;
 		head = &net->ipv4.fib_table_hash[h];
-		hlist_for_each_entry(tb, head, tb_hlist) {
+		hlist_for_each_entry(tb, node, head, tb_hlist) {
 			if (e < s_e)
 				goto next;
 			if (dumped)
@@ -738,7 +741,7 @@ void fib_del_ifaddr(struct in_ifaddr *ifa, struct in_ifaddr *iprim)
 #define BRD_OK		2
 #define BRD0_OK		4
 #define BRD1_OK		8
-	unsigned int ok = 0;
+	unsigned ok = 0;
 	int subnet = 0;		/* Primary network */
 	int gone = 1;		/* Address is missing */
 	int same_prefsrc = 0;	/* Another primary with same IP */
@@ -760,9 +763,6 @@ void fib_del_ifaddr(struct in_ifaddr *ifa, struct in_ifaddr *iprim)
 			  any, ifa->ifa_prefixlen, prim);
 		subnet = 1;
 	}
-
-	if (in_dev->dead)
-		goto no_promotions;
 
 	/* Deletion is more complicated than add.
 	 * We should take care of not to delete too much :-)
@@ -839,7 +839,6 @@ void fib_del_ifaddr(struct in_ifaddr *ifa, struct in_ifaddr *iprim)
 		}
 	}
 
-no_promotions:
 	if (!(ok & BRD_OK))
 		fib_magic(RTM_DELROUTE, RTN_BROADCAST, ifa->ifa_broadcast, 32, prim);
 	if (subnet && ifa->ifa_prefixlen < 31) {
@@ -937,11 +936,8 @@ static void nl_fib_input(struct sk_buff *skb)
 static int __net_init nl_fib_lookup_init(struct net *net)
 {
 	struct sock *sk;
-	struct netlink_kernel_cfg cfg = {
-		.input	= nl_fib_input,
-	};
-
-	sk = netlink_kernel_create(net, NETLINK_FIB_LOOKUP, &cfg);
+	sk = netlink_kernel_create(net, NETLINK_FIB_LOOKUP, 0,
+				   nl_fib_input, NULL, THIS_MODULE);
 	if (sk == NULL)
 		return -EAFNOSUPPORT;
 	net->ipv4.fibnl = sk;
@@ -1078,11 +1074,11 @@ static void ip_fib_net_exit(struct net *net)
 	for (i = 0; i < FIB_TABLE_HASHSZ; i++) {
 		struct fib_table *tb;
 		struct hlist_head *head;
-		struct hlist_node *tmp;
+		struct hlist_node *node, *tmp;
 
 		head = &net->ipv4.fib_table_hash[i];
-		hlist_for_each_entry_safe(tb, tmp, head, tb_hlist) {
-			hlist_del(&tb->tb_hlist);
+		hlist_for_each_entry_safe(tb, node, tmp, head, tb_hlist) {
+			hlist_del(node);
 			fib_table_flush(tb);
 			fib_free_table(tb);
 		}

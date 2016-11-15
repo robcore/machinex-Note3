@@ -40,8 +40,27 @@
 static ssize_t show_##name(struct device *dev,			\
 		struct device_attribute *attr, char *buf)	\
 {								\
-	return sprintf(buf, "%d\n", topology_##name(dev->id));	\
+	unsigned int cpu = dev->id;				\
+	return sprintf(buf, "%d\n", topology_##name(cpu));	\
 }
+
+#if defined(topology_thread_cpumask) || defined(topology_core_cpumask) || \
+    defined(topology_book_cpumask)
+static ssize_t show_cpumap(int type, const struct cpumask *mask, char *buf)
+{
+	ptrdiff_t len = PTR_ALIGN(buf + PAGE_SIZE - 1, PAGE_SIZE) - buf;
+	int n = 0;
+
+	if (len > 1) {
+		n = type?
+			cpulist_scnprintf(buf, len-2, mask) :
+			cpumask_scnprintf(buf, len-2, mask);
+		buf[n++] = '\n';
+		buf[n] = '\0';
+	}
+	return n;
+}
+#endif
 
 #ifdef arch_provides_topology_pointers
 #define define_siblings_show_map(name)					\
@@ -66,7 +85,7 @@ static ssize_t show_##name##_list(struct device *dev,			\
 static ssize_t show_##name(struct device *dev,				\
 			   struct device_attribute *attr, char *buf)	\
 {									\
-	return cpumap_print_to_pagebuf(false, buf, topology_##name(dev->id));\
+	return show_cpumap(0, topology_##name(dev->id), buf);		\
 }
 
 #define define_siblings_show_list(name)					\
@@ -74,7 +93,7 @@ static ssize_t show_##name##_list(struct device *dev,			\
 				  struct device_attribute *attr,	\
 				  char *buf)				\
 {									\
-	return cpumap_print_to_pagebuf(true, buf, topology_##name(dev->id));\
+	return show_cpumap(1, topology_##name(dev->id), buf);		\
 }
 #endif
 
@@ -138,7 +157,7 @@ static void __cpuinit topology_remove_dev(unsigned int cpu)
 	sysfs_remove_group(&dev->kobj, &topology_attr_group);
 }
 
-static int __ref topology_cpu_callback(struct notifier_block *nfb,
+static int __cpuinit topology_cpu_callback(struct notifier_block *nfb,
 					   unsigned long action, void *hcpu)
 {
 	unsigned int cpu = (unsigned long)hcpu;
@@ -162,20 +181,16 @@ static int __ref topology_cpu_callback(struct notifier_block *nfb,
 static int __cpuinit topology_sysfs_init(void)
 {
 	int cpu;
-	int rc = 0;
-
-	cpu_notifier_register_begin();
+	int rc;
 
 	for_each_online_cpu(cpu) {
 		rc = topology_add_dev(cpu);
 		if (rc)
-			goto out;
+			return rc;
 	}
-	__hotcpu_notifier(topology_cpu_callback, 0);
+	hotcpu_notifier(topology_cpu_callback, 0);
 
-out:
-	cpu_notifier_register_done();
-	return rc;
+	return 0;
 }
 
 device_initcall(topology_sysfs_init);

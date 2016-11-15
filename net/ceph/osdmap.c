@@ -38,7 +38,7 @@ done:
 
 /* maps */
 
-static int calc_bits_of(unsigned int t)
+static int calc_bits_of(unsigned t)
 {
 	int b = 0;
 	while (t) {
@@ -154,7 +154,7 @@ static struct crush_map *crush_decode(void *pbyval, void *end)
 	magic = ceph_decode_32(p);
 	if (magic != CRUSH_MAGIC) {
 		pr_err("crush_decode magic %x != current %x\n",
-		       (unsigned int)magic, (unsigned int)CRUSH_MAGIC);
+		       (unsigned)magic, (unsigned)CRUSH_MAGIC);
 		goto bad;
 	}
 	c->max_buckets = ceph_decode_32(p);
@@ -460,7 +460,7 @@ static void __remove_pg_pool(struct rb_root *root, struct ceph_pg_pool_info *pi)
 
 static int __decode_pool(void **p, void *end, struct ceph_pg_pool_info *pi)
 {
-	unsigned int n, m;
+	unsigned n, m;
 
 	ceph_decode_copy(p, &pi->v, sizeof(pi->v));
 	calc_pg_masks(pi);
@@ -997,7 +997,7 @@ int ceph_calc_file_object_mapping(struct ceph_file_layout *layout,
 	objsetno = stripeno / su_per_object;
 
 	*ono = objsetno * sc + stripepos;
-	dout("objset %u * sc %u = ono %u\n", objsetno, sc, (unsigned int)*ono);
+	dout("objset %u * sc %u = ono %u\n", objsetno, sc, (unsigned)*ono);
 
 	/* *oxoff = *off % layout->fl_stripe_unit;  # offset in su */
 	t = off;
@@ -1033,12 +1033,12 @@ int ceph_calc_object_layout(struct ceph_object_layout *ol,
 			    struct ceph_file_layout *fl,
 			    struct ceph_osdmap *osdmap)
 {
-	unsigned int num, num_mask;
+	unsigned num, num_mask;
 	struct ceph_pg pgid;
 	s32 preferred = (s32)le32_to_cpu(fl->fl_pg_preferred);
 	int poolid = le32_to_cpu(fl->fl_pg_pool);
 	struct ceph_pg_pool_info *pool;
-	unsigned int ps;
+	unsigned ps;
 
 	BUG_ON(!osdmap);
 
@@ -1080,7 +1080,7 @@ static int *calc_pg_raw(struct ceph_osdmap *osdmap, struct ceph_pg pgid,
 	struct ceph_pg_mapping *pg;
 	struct ceph_pg_pool_info *pool;
 	int ruleno;
-	unsigned int poolid, ps, pps, t;
+	unsigned poolid, ps, pps, t;
 	int preferred;
 
 	poolid = le32_to_cpu(pgid.pool);

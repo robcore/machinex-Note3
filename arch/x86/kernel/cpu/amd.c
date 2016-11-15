@@ -187,7 +187,8 @@ static void __cpuinit amd_k7_smp_check(struct cpuinfo_x86 *c)
 	 */
 	WARN_ONCE(1, "WARNING: This combination of AMD"
 		" processors is not suitable for SMP.\n");
-	add_taint(TAINT_UNSAFE_SMP, LOCKDEP_NOW_UNRELIABLE);
+	if (!test_taint(TAINT_UNSAFE_SMP))
+		add_taint(TAINT_UNSAFE_SMP);
 
 valid_k7:
 	;

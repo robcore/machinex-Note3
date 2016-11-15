@@ -98,12 +98,6 @@ void ___ieee80211_stop_rx_ba_session(struct sta_info *sta, u16 tid,
 	spin_unlock_bh(&tid_rx->reorder_lock);
 	del_timer_sync(&tid_rx->reorder_timer);
 
-	/* make sure ieee80211_sta_reorder_release() doesn't re-arm the timer */
-	spin_lock_bh(&tid_rx->reorder_lock);
-	tid_rx->removed = true;
-	spin_unlock_bh(&tid_rx->reorder_lock);
-	del_timer_sync(&tid_rx->reorder_timer);
-
 	call_rcu(&tid_rx->rcu_head, ieee80211_free_tid_rx);
 }
 
@@ -258,8 +252,11 @@ void ieee80211_process_addba_request(struct ieee80211_local *local,
 	    (buf_size > IEEE80211_MAX_AMPDU_BUF)) {
 		status = WLAN_STATUS_INVALID_QOS_PARAM;
 #ifdef CONFIG_MAC80211_HT_DEBUG
-		net_dbg_ratelimited("AddBA Req with bad params from %pM on tid %u. policy %d, buffer size %d\n",
-				    mgmt->sa, tid, ba_policy, buf_size);
+		if (net_ratelimit())
+			printk(KERN_DEBUG "AddBA Req with bad params from "
+				"%pM on tid %u. policy %d, buffer size %d\n",
+				mgmt->sa, tid, ba_policy,
+				buf_size);
 #endif /* CONFIG_MAC80211_HT_DEBUG */
 		goto end_no_lock;
 	}
@@ -276,8 +273,10 @@ void ieee80211_process_addba_request(struct ieee80211_local *local,
 
 	if (sta->ampdu_mlme.tid_rx[tid]) {
 #ifdef CONFIG_MAC80211_HT_DEBUG
-		net_dbg_ratelimited("unexpected AddBA Req from %pM on tid %u\n",
-				    mgmt->sa, tid);
+		if (net_ratelimit())
+			printk(KERN_DEBUG "unexpected AddBA Req from "
+				"%pM on tid %u\n",
+				mgmt->sa, tid);
 #endif /* CONFIG_MAC80211_HT_DEBUG */
 
 		/* delete existing Rx BA session on the same tid */
@@ -287,7 +286,7 @@ void ieee80211_process_addba_request(struct ieee80211_local *local,
 	}
 
 	/* prepare A-MPDU MLME for Rx aggregation */
-	tid_agg_rx = kzalloc(sizeof(*tid_agg_rx), GFP_KERNEL);
+	tid_agg_rx = kmalloc(sizeof(struct tid_ampdu_rx), GFP_KERNEL);
 	if (!tid_agg_rx)
 		goto end;
 

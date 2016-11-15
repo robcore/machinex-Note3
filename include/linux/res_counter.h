@@ -13,8 +13,7 @@
  * info about what this counter is.
  */
 
-#include <linux/spinlock.h>
-#include <linux/errno.h>
+#include <linux/cgroup.h>
 
 /*
  * The core object. the cgroup that wishes to account for some
@@ -75,8 +74,13 @@ ssize_t res_counter_read(struct res_counter *counter, int member,
 		const char __user *buf, size_t nbytes, loff_t *pos,
 		int (*read_strategy)(unsigned long long val, char *s));
 
+typedef int (*write_strategy_fn)(const char *buf, unsigned long long *val);
+
 int res_counter_memparse_write_strategy(const char *buf,
 					unsigned long long *res);
+
+int res_counter_write(struct res_counter *counter, int member,
+		      const char *buffer, write_strategy_fn write_strategy);
 
 /*
  * the field descriptors. one for each member of res_counter
@@ -112,10 +116,10 @@ void res_counter_init(struct res_counter *counter, struct res_counter *parent);
  */
 
 int __must_check res_counter_charge_locked(struct res_counter *counter,
-					   unsigned long val, bool force);
+		unsigned long val);
 int __must_check res_counter_charge(struct res_counter *counter,
 		unsigned long val, struct res_counter **limit_fail_at);
-int res_counter_charge_nofail(struct res_counter *counter,
+int __must_check res_counter_charge_nofail(struct res_counter *counter,
 		unsigned long val, struct res_counter **limit_fail_at);
 
 /*
@@ -126,16 +130,11 @@ int res_counter_charge_nofail(struct res_counter *counter,
  *
  * these calls check for usage underflow and show a warning on the console
  * _locked call expects the counter->lock to be taken
- *
- * returns the total charges still present in @counter.
  */
 
-u64 res_counter_uncharge_locked(struct res_counter *counter, unsigned long val);
-u64 res_counter_uncharge(struct res_counter *counter, unsigned long val);
+void res_counter_uncharge_locked(struct res_counter *counter, unsigned long val);
+void res_counter_uncharge(struct res_counter *counter, unsigned long val);
 
-u64 res_counter_uncharge_until(struct res_counter *counter,
-			       struct res_counter *top,
-			       unsigned long val);
 /**
  * res_counter_margin - calculate chargeable space of a counter
  * @cnt: the counter

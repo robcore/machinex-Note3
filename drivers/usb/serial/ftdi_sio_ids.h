@@ -41,9 +41,6 @@
 /* Cyber Cortex AV by Fabulous Silicon (http://fabuloussilicon.com) */
 #define CYBER_CORTEX_AV_PID	0x8698
 
-/* Cyber Cortex AV by Fabulous Silicon (http://fabuloussilicon.com) */
-#define CYBER_CORTEX_AV_PID	0x8698
-
 /*
  * Marvell OpenRD Base, Client
  * http://www.open-rd.org
@@ -579,20 +576,6 @@
 #define FTDI_CUSTOMWARE_MINIPLEX2WI_PID	0xfd4a	/* MiniPlex-2Wi */
 #define FTDI_CUSTOMWARE_MINIPLEX3_PID	0xfd4b	/* MiniPlex-3 series */
 
-/*
- * Synapse Wireless product ids (FTDI_VID)
- * http://www.synapse-wireless.com
- */
-#define FTDI_SYNAPSE_SS200_PID 0x9090 /* SS200 - SNAP Stick 200 */
-
-/*
- * CustomWare / ShipModul NMEA multiplexers product ids (FTDI_VID)
- */
-#define FTDI_CUSTOMWARE_MINIPLEX_PID	0xfd48	/* MiniPlex first generation NMEA Multiplexer */
-#define FTDI_CUSTOMWARE_MINIPLEX2_PID	0xfd49	/* MiniPlex-USB and MiniPlex-2 series */
-#define FTDI_CUSTOMWARE_MINIPLEX2WI_PID	0xfd4a	/* MiniPlex-2Wi */
-#define FTDI_CUSTOMWARE_MINIPLEX3_PID	0xfd4b	/* MiniPlex-3 series */
-
 
 /********************************/
 /** third-party VID/PID combos **/
@@ -632,7 +615,6 @@
  */
 #define RATOC_VENDOR_ID		0x0584
 #define RATOC_PRODUCT_ID_USB60F	0xb020
-#define RATOC_PRODUCT_ID_SCU18	0xb03a
 
 /*
  * Acton Research Corp.
@@ -823,14 +805,6 @@
 /* Larsen and Brusgaard AltiTrack/USBtrack */
 #define LARSENBRUSGAARD_VID		0x0FD8
 #define LB_ALTITRACK_PID		0x0001
-
-
-/*
- * Physik Instrumente
- * http://www.physikinstrumente.com/en/products/
- */
-#define PI_VID              0x1a72  /* Vendor ID */
-#define PI_E861_PID         0x1008  /* E-861 piezo controller USB connection */
 
 /*
  * TTi (Thurlby Thandar Instruments)

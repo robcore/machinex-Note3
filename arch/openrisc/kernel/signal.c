@@ -33,6 +33,8 @@
 
 #define DEBUG_SIG 0
 
+#define _BLOCKABLE (~(sigmask(SIGKILL) | sigmask(SIGSTOP)))
+
 asmlinkage long
 _sys_sigaltstack(const stack_t *uss, stack_t *uoss, struct pt_regs *regs)
 {
@@ -99,6 +101,7 @@ asmlinkage long _sys_rt_sigreturn(struct pt_regs *regs)
 	if (__copy_from_user(&set, &frame->uc.uc_sigmask, sizeof(set)))
 		goto badframe;
 
+	sigdelsetmask(&set, ~_BLOCKABLE);
 	set_current_blocked(&set);
 
 	if (restore_sigcontext(regs, &frame->uc.uc_mcontext))
@@ -251,11 +254,11 @@ give_sigsegv:
 static inline int
 handle_signal(unsigned long sig,
 	      siginfo_t *info, struct k_sigaction *ka,
-	      struct pt_regs *regs)
+	      sigset_t *oldset, struct pt_regs *regs)
 {
 	int ret;
 
-	ret = setup_rt_frame(sig, ka, info, sigmask_to_save(), regs);
+	ret = setup_rt_frame(sig, ka, info, oldset, regs);
 	if (ret)
 		return ret;
 
@@ -336,11 +339,21 @@ void do_signal(struct pt_regs *regs)
 	if (signr <= 0) {
 		/* no signal to deliver so we just put the saved sigmask
 		 * back */
-		restore_saved_sigmask();
+		if (test_thread_flag(TIF_RESTORE_SIGMASK)) {
+			clear_thread_flag(TIF_RESTORE_SIGMASK);
+			sigprocmask(SIG_SETMASK, &current->saved_sigmask, NULL);
+		}
+
 	} else {		/* signr > 0 */
+		sigset_t *oldset;
+
+		if (current_thread_info()->flags & _TIF_RESTORE_SIGMASK)
+			oldset = &current->saved_sigmask;
+		else
+			oldset = &current->blocked;
 
 		/* Whee!  Actually deliver the signal.  */
-		if (!handle_signal(signr, &info, &ka, regs)) {
+		if (!handle_signal(signr, &info, &ka, oldset, regs)) {
 			/* a signal was successfully delivered; the saved
 			 * sigmask will have been stored in the signal frame,
 			 * and will be restored by sigreturn, so we can simply
@@ -363,5 +376,7 @@ asmlinkage void do_notify_resume(struct pt_regs *regs)
 	if (current_thread_info()->flags & _TIF_NOTIFY_RESUME) {
 		clear_thread_flag(TIF_NOTIFY_RESUME);
 		tracehook_notify_resume(regs);
+		if (current->replacement_session_keyring)
+			key_replace_session_keyring();
 	}
 }

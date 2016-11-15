@@ -15,7 +15,6 @@
 #include <linux/vfs.h>
 #include <linux/parser.h>
 #include <linux/namei.h>
-#include <linux/sched.h>
 
 #include "befs.h"
 #include "btree.h"
@@ -35,7 +34,7 @@ static int befs_readdir(struct file *, void *, filldir_t);
 static int befs_get_block(struct inode *, sector_t, struct buffer_head *, int);
 static int befs_readpage(struct file *file, struct page *page);
 static sector_t befs_bmap(struct address_space *mapping, sector_t block);
-static struct dentry *befs_lookup(struct inode *, struct dentry *, unsigned int);
+static struct dentry *befs_lookup(struct inode *, struct dentry *, struct nameidata *);
 static struct inode *befs_iget(struct super_block *, unsigned long);
 static struct inode *befs_alloc_inode(struct super_block *sb);
 static void befs_destroy_inode(struct inode *inode);
@@ -160,7 +159,7 @@ befs_get_block(struct inode *inode, sector_t block,
 }
 
 static struct dentry *
-befs_lookup(struct inode *dir, struct dentry *dentry, unsigned int flags)
+befs_lookup(struct inode *dir, struct dentry *dentry, struct nameidata *nd)
 {
 	struct inode *inode = NULL;
 	struct super_block *sb = dir->i_sb;
@@ -213,7 +212,7 @@ befs_lookup(struct inode *dir, struct dentry *dentry, unsigned int flags)
 static int
 befs_readdir(struct file *filp, void *dirent, filldir_t filldir)
 {
-	struct inode *inode = file_inode(filp);
+	struct inode *inode = filp->f_path.dentry->d_inode;
 	struct super_block *sb = inode->i_sb;
 	befs_data_stream *ds = &BEFS_I(inode)->i_data.ds;
 	befs_off_t value;
@@ -265,8 +264,8 @@ befs_readdir(struct file *filp, void *dirent, filldir_t filldir)
 		result = filldir(dirent, keybuf, keysize, filp->f_pos,
 				 (ino_t) value, d_type);
 	}
-	if (!result)
-		filp->f_pos++;
+
+	filp->f_pos++;
 
 	befs_debug(sb, "<--- befs_readdir() filp->f_pos %Ld", filp->f_pos);
 
@@ -353,11 +352,9 @@ static struct inode *befs_iget(struct super_block *sb, unsigned long ino)
 	 */   
 
 	inode->i_uid = befs_sb->mount_opts.use_uid ?
-		befs_sb->mount_opts.uid :
-		make_kuid(&init_user_ns, fs32_to_cpu(sb, raw_inode->uid));
+	    befs_sb->mount_opts.uid : (uid_t) fs32_to_cpu(sb, raw_inode->uid);
 	inode->i_gid = befs_sb->mount_opts.use_gid ?
-		befs_sb->mount_opts.gid :
-		make_kgid(&init_user_ns, fs32_to_cpu(sb, raw_inode->gid));
+	    befs_sb->mount_opts.gid : (gid_t) fs32_to_cpu(sb, raw_inode->gid);
 
 	set_nlink(inode, 1);
 
@@ -677,12 +674,10 @@ parse_options(char *options, befs_mount_options * opts)
 	char *p;
 	substring_t args[MAX_OPT_ARGS];
 	int option;
-	kuid_t uid;
-	kgid_t gid;
 
 	/* Initialize options */
-	opts->uid = GLOBAL_ROOT_UID;
-	opts->gid = GLOBAL_ROOT_GID;
+	opts->uid = 0;
+	opts->gid = 0;
 	opts->use_uid = 0;
 	opts->use_gid = 0;
 	opts->iocharset = NULL;
@@ -701,29 +696,23 @@ parse_options(char *options, befs_mount_options * opts)
 		case Opt_uid:
 			if (match_int(&args[0], &option))
 				return 0;
-			uid = INVALID_UID;
-			if (option >= 0)
-				uid = make_kuid(current_user_ns(), option);
-			if (!uid_valid(uid)) {
+			if (option < 0) {
 				printk(KERN_ERR "BeFS: Invalid uid %d, "
 						"using default\n", option);
 				break;
 			}
-			opts->uid = uid;
+			opts->uid = option;
 			opts->use_uid = 1;
 			break;
 		case Opt_gid:
 			if (match_int(&args[0], &option))
 				return 0;
-			gid = INVALID_GID;
-			if (option >= 0)
-				gid = make_kgid(current_user_ns(), option);
-			if (!gid_valid(gid)) {
+			if (option < 0) {
 				printk(KERN_ERR "BeFS: Invalid gid %d, "
 						"using default\n", option);
 				break;
 			}
-			opts->gid = gid;
+			opts->gid = option;
 			opts->use_gid = 1;
 			break;
 		case Opt_charset:
@@ -903,7 +892,6 @@ befs_fill_super(struct super_block *sb, void *data, int silent)
 static int
 befs_remount(struct super_block *sb, int *flags, char *data)
 {
-	sync_filesystem(sb);
 	if (!(*flags & MS_RDONLY))
 		return -EINVAL;
 	return 0;
@@ -947,7 +935,6 @@ static struct file_system_type befs_fs_type = {
 	.kill_sb	= kill_block_super,
 	.fs_flags	= FS_REQUIRES_DEV,	
 };
-MODULE_ALIAS_FS("befs");
 
 static int __init
 init_befs_fs(void)

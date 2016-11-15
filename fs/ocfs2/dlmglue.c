@@ -456,7 +456,7 @@ static void ocfs2_update_lock_stats(struct ocfs2_lock_res *res, int level,
 	stats->ls_gets++;
 	stats->ls_total += ktime_to_ns(kt);
 	/* overflow */
-	if (unlikely(stats->ls_gets == 0)) {
+	if (unlikely(stats->ls_gets) == 0) {
 		stats->ls_gets++;
 		stats->ls_total = ktime_to_ns(kt);
 	}
@@ -2045,8 +2045,8 @@ static void __ocfs2_stuff_meta_lvb(struct inode *inode)
 	lvb->lvb_version   = OCFS2_LVB_VERSION;
 	lvb->lvb_isize	   = cpu_to_be64(i_size_read(inode));
 	lvb->lvb_iclusters = cpu_to_be32(oi->ip_clusters);
-	lvb->lvb_iuid      = cpu_to_be32(i_uid_read(inode));
-	lvb->lvb_igid      = cpu_to_be32(i_gid_read(inode));
+	lvb->lvb_iuid      = cpu_to_be32(inode->i_uid);
+	lvb->lvb_igid      = cpu_to_be32(inode->i_gid);
 	lvb->lvb_imode     = cpu_to_be16(inode->i_mode);
 	lvb->lvb_inlink    = cpu_to_be16(inode->i_nlink);
 	lvb->lvb_iatime_packed  =
@@ -2095,8 +2095,8 @@ static void ocfs2_refresh_inode_from_lvb(struct inode *inode)
 	else
 		inode->i_blocks = ocfs2_inode_sector_count(inode);
 
-	i_uid_write(inode, be32_to_cpu(lvb->lvb_iuid));
-	i_gid_write(inode, be32_to_cpu(lvb->lvb_igid));
+	inode->i_uid     = be32_to_cpu(lvb->lvb_iuid);
+	inode->i_gid     = be32_to_cpu(lvb->lvb_igid);
 	inode->i_mode    = be16_to_cpu(lvb->lvb_imode);
 	set_nlink(inode, be16_to_cpu(lvb->lvb_inlink));
 	ocfs2_unpack_timespec(&inode->i_atime,
@@ -2322,7 +2322,7 @@ int ocfs2_inode_lock_full_nested(struct inode *inode,
 	status = __ocfs2_cluster_lock(osb, lockres, level, dlm_flags,
 				      arg_flags, subclass, _RET_IP_);
 	if (status < 0) {
-		if (status != -EAGAIN)
+		if (status != -EAGAIN && status != -EIOCBRETRY)
 			mlog_errno(status);
 		goto bail;
 	}
@@ -3935,8 +3935,6 @@ unqueue:
 static void ocfs2_schedule_blocked_lock(struct ocfs2_super *osb,
 					struct ocfs2_lock_res *lockres)
 {
-	unsigned long flags;
-
 	assert_spin_locked(&lockres->l_lock);
 
 	if (lockres->l_flags & OCFS2_LOCK_FREEING) {
@@ -4042,12 +4040,10 @@ static int ocfs2_downconvert_thread(void *arg)
 
 void ocfs2_wake_downconvert_thread(struct ocfs2_super *osb)
 {
-	unsigned long flags;
-
-	spin_lock_irqsave(&osb->dc_task_lock, flags);
+	spin_lock(&osb->dc_task_lock);
 	/* make sure the voting thread gets a swipe at whatever changes
 	 * the caller may have made to the voting state */
 	osb->dc_wake_sequence++;
-	spin_unlock_irqrestore(&osb->dc_task_lock, flags);
+	spin_unlock(&osb->dc_task_lock);
 	wake_up(&osb->dc_event);
 }

@@ -54,10 +54,7 @@
 /* Number of return values needs to be checked for each
  * registration of Slimbus of I2C bus for each codec
  */
-#define NUM_WCD9XXX_REG_RET	9
-
-#define SLIM_USR_MC_REPEAT_CHANGE_VALUE 0x0
-#define SLIM_REPEAT_WRITE_MAX_SLICE 16
+#define NUM_WCD9XXX_REG_RET	8
 
 struct wcd9xxx_i2c {
 	struct i2c_client *client;
@@ -123,31 +120,6 @@ int wcd9xxx_reg_read(
 
 }
 EXPORT_SYMBOL(wcd9xxx_reg_read);
-
-#ifdef CONFIG_SOUND_CONTROL_HAX_3_GPL
-static int __wcd9xxx_reg_read_safe(struct wcd9xxx *wcd9xxx,
-				   unsigned short reg)
-{
-	u8 val;
-	int ret;
-
-	ret = wcd9xxx_read(wcd9xxx, reg, 1, &val, false);
-
-	if (ret < 0)
-		return ret;
-	else
-		return val;
-}
-
-int wcd9xxx_reg_read_safe(struct wcd9xxx_core_resource *core_res,
-			  unsigned short reg)
-{
-	struct wcd9xxx *wcd9xxx = (struct wcd9xxx *) core_res->parent;
-	return __wcd9xxx_reg_read_safe(wcd9xxx, reg);
-
-}
-EXPORT_SYMBOL(wcd9xxx_reg_read_safe);
-#endif
 
 static int wcd9xxx_write(struct wcd9xxx *wcd9xxx, unsigned short reg,
 			int bytes, void *src, bool interface_reg)
@@ -285,7 +257,7 @@ static int wcd9xxx_slim_read_device(struct wcd9xxx *wcd9xxx, unsigned short reg,
 		mutex_unlock(&wcd9xxx->xfer_lock);
 		if (likely(ret == 0) || (--slim_read_tries == 0))
 			break;
-		usleep_range(5000, 5100);
+		usleep_range(5000, 5000);
 	}
 
 	if (ret)
@@ -293,79 +265,6 @@ static int wcd9xxx_slim_read_device(struct wcd9xxx *wcd9xxx, unsigned short reg,
 
 	return ret;
 }
-
-static int wcd9xxx_slim_get_allowed_slice(struct wcd9xxx *wcd9xxx,
-					  int bytes)
-{
-	int allowed_sz = bytes;
-
-	if (likely(bytes == SLIM_REPEAT_WRITE_MAX_SLICE))
-		allowed_sz = 16;
-	else if (bytes >= 12)
-		allowed_sz = 12;
-	else if (bytes >= 8)
-		allowed_sz = 8;
-	else if (bytes >= 6)
-		allowed_sz = 6;
-	else if (bytes >= 4)
-		allowed_sz = 4;
-	else
-		allowed_sz = bytes;
-
-	return allowed_sz;
-}
-
-/*
- * wcd9xxx_slim_write_repeat: Write the same register with multiple values
- * @wcd9xxx: handle to wcd core
- * @reg: register to be written
- * @bytes: number of bytes to be written to reg
- * @src: buffer with data content to be written to reg
- * This API will write reg with bytes from src in a single slimbus
- * transaction. All values from 1 to 16 are supported by this API.
- */
-
-int wcd9xxx_slim_write_repeat(struct wcd9xxx *wcd9xxx, unsigned short reg,
-			      int bytes, void *src)
-{
-	int ret = 0, bytes_to_write = bytes, bytes_allowed;
-	struct slim_ele_access slim_msg;
-
-	slim_msg.start_offset = WCD9XXX_REGISTER_START_OFFSET + reg;
-	slim_msg.comp = NULL;
-
-	if (unlikely(bytes > SLIM_REPEAT_WRITE_MAX_SLICE)) {
-		dev_err(wcd9xxx->dev, "%s: size %d not supported\n",
-			__func__, bytes);
-		return -EINVAL;
-	}
-
-	while (bytes_to_write > 0) {
-		bytes_allowed = wcd9xxx_slim_get_allowed_slice(wcd9xxx,
-				       bytes_to_write);
-
-		slim_msg.num_bytes = bytes_allowed;
-		mutex_lock(&wcd9xxx->xfer_lock);
-		ret = slim_user_msg(wcd9xxx->slim, wcd9xxx->slim->laddr,
-				    SLIM_MSG_MT_DEST_REFERRED_USER,
-				    SLIM_USR_MC_REPEAT_CHANGE_VALUE,
-				    &slim_msg, src, bytes_allowed);
-		mutex_unlock(&wcd9xxx->xfer_lock);
-
-		if (ret) {
-			dev_err(wcd9xxx->dev, "%s: failed, ret = %d\n",
-				__func__, ret);
-			break;
-		}
-
-		bytes_to_write = bytes_to_write - bytes_allowed;
-		src = ((u8 *)src) + bytes_allowed;
-	};
-
-	return ret;
-}
-EXPORT_SYMBOL(wcd9xxx_slim_write_repeat);
-
 /* Interface specifies whether the write is to the interface or general
  * registers.
  */
@@ -387,7 +286,7 @@ static int wcd9xxx_slim_write_device(struct wcd9xxx *wcd9xxx,
 		mutex_unlock(&wcd9xxx->xfer_lock);
 		if (likely(ret == 0) || (--slim_write_tries == 0))
 			break;
-		usleep_range(5000, 5100);
+		usleep_range(5000, 5000);
 	}
 
 	if (ret)
@@ -423,12 +322,6 @@ static struct mfd_cell taiko_devs[] = {
 static struct mfd_cell tapan_devs[] = {
 	{
 		.name = "tapan_codec",
-	},
-};
-
-static struct mfd_cell tomtom_devs[] = {
-	{
-		.name = "tomtom_codec",
 	},
 };
 
@@ -479,59 +372,23 @@ static const struct wcd9xxx_codec_type wcd9xxx_codecs[] = {
 		ARRAY_SIZE(tapan_devs), TAPAN_NUM_IRQS, -1,
 		WCD9XXX_SLIM_SLAVE_ADDR_TYPE_TAIKO, 0x03
 	},
-	{
-		TOMTOM_MAJOR, cpu_to_le16(0x0), tomtom_devs,
-		ARRAY_SIZE(tomtom_devs), TOMTOM_NUM_IRQS, 1,
-		WCD9XXX_SLIM_SLAVE_ADDR_TYPE_TAIKO, 0x01
-	},
-	{
-		TOMTOM_MAJOR, cpu_to_le16(0x1), tomtom_devs,
-		ARRAY_SIZE(tomtom_devs), TOMTOM_NUM_IRQS, 2,
-		WCD9XXX_SLIM_SLAVE_ADDR_TYPE_TAIKO, 0x01
-	},
 };
 
 static void wcd9xxx_bring_up(struct wcd9xxx *wcd9xxx)
 {
-	struct wcd9xxx_pdata *pdata = wcd9xxx->dev->platform_data;
-	enum codec_variant cdc_var;
-
-	if (!pdata) {
-		dev_dbg(wcd9xxx->dev, "No platform data to get codec variant, falling back to default\n");
-		cdc_var = WCD9XXX;
-	} else
-		cdc_var = pdata->cdc_variant;
-
-	if (cdc_var == WCD9330) {
-		__wcd9xxx_reg_write(wcd9xxx, WCD9330_A_LEAKAGE_CTL, 0x4);
-		__wcd9xxx_reg_write(wcd9xxx, WCD9330_A_CDC_CTL, 0);
-		usleep_range(5000, 5100);
-		__wcd9xxx_reg_write(wcd9xxx, WCD9330_A_CDC_CTL, 0x1);
-		__wcd9xxx_reg_write(wcd9xxx, WCD9330_A_LEAKAGE_CTL, 0x3);
-		__wcd9xxx_reg_write(wcd9xxx, WCD9330_A_CDC_CTL, 0x3);
-	} else {
-		__wcd9xxx_reg_write(wcd9xxx, WCD9XXX_A_LEAKAGE_CTL, 0x4);
-		__wcd9xxx_reg_write(wcd9xxx, WCD9XXX_A_CDC_CTL, 0);
-		usleep_range(5000, 5100);
-		__wcd9xxx_reg_write(wcd9xxx, WCD9XXX_A_CDC_CTL, 3);
-		__wcd9xxx_reg_write(wcd9xxx, WCD9XXX_A_LEAKAGE_CTL, 3);
-	}
+	__wcd9xxx_reg_write(wcd9xxx, WCD9XXX_A_LEAKAGE_CTL, 0x4);
+	__wcd9xxx_reg_write(wcd9xxx, WCD9XXX_A_CDC_CTL, 0);
+	usleep_range(5000, 5000);
+	__wcd9xxx_reg_write(wcd9xxx, WCD9XXX_A_CDC_CTL, 3);
+	__wcd9xxx_reg_write(wcd9xxx, WCD9XXX_A_LEAKAGE_CTL, 3);
 }
 
 static void wcd9xxx_bring_down(struct wcd9xxx *wcd9xxx)
 {
-	struct wcd9xxx_pdata *pdata = wcd9xxx->dev->platform_data;
-	unsigned short reg;
-
-	if (pdata && pdata->cdc_variant == WCD9330)
-		reg = WCD9330_A_LEAKAGE_CTL;
-	else
-		reg = WCD9XXX_A_LEAKAGE_CTL;
-
-	__wcd9xxx_reg_write(wcd9xxx, reg, 0x7);
-	__wcd9xxx_reg_write(wcd9xxx, reg, 0x6);
-	__wcd9xxx_reg_write(wcd9xxx, reg, 0xe);
-	__wcd9xxx_reg_write(wcd9xxx, reg, 0x8);
+	__wcd9xxx_reg_write(wcd9xxx, WCD9XXX_A_LEAKAGE_CTL, 0x7);
+	__wcd9xxx_reg_write(wcd9xxx, WCD9XXX_A_LEAKAGE_CTL, 0x6);
+	__wcd9xxx_reg_write(wcd9xxx, WCD9XXX_A_LEAKAGE_CTL, 0xe);
+	__wcd9xxx_reg_write(wcd9xxx, WCD9XXX_A_LEAKAGE_CTL, 0x8);
 }
 
 static int wcd9xxx_reset(struct wcd9xxx *wcd9xxx)
@@ -656,10 +513,8 @@ static const struct intr_data intr_tbl_v1[] = {
 	{WCD9XXX_IRQ_PA2_STARTUP, false},
 	{WCD9XXX_IRQ_PA3_STARTUP, false},
 	{WCD9XXX_IRQ_PA4_STARTUP, false},
-	{WCD9306_IRQ_HPH_PA_OCPR_FAULT, false},
 	{WCD9XXX_IRQ_PA5_STARTUP, false},
 	{WCD9XXX_IRQ_MICBIAS1_PRECHARGE, false},
-	{WCD9306_IRQ_HPH_PA_OCPL_FAULT, false},
 	{WCD9XXX_IRQ_MICBIAS2_PRECHARGE, false},
 	{WCD9XXX_IRQ_MICBIAS3_PRECHARGE, false},
 	{WCD9XXX_IRQ_HPH_PA_OCPL_FAULT, false},
@@ -710,45 +565,7 @@ static const struct intr_data intr_tbl_v2[] = {
 	{WCD9XXX_IRQ_SPEAKER_CLIPPING, false},
 	{WCD9XXX_IRQ_VBAT_MONITOR_ATTACK, false},
 	{WCD9XXX_IRQ_VBAT_MONITOR_RELEASE, false},
-};
-
-/*
- * Interrupt table for v3 corresponds to newer version
- * codecs (wcd9330)
- */
-static const struct intr_data intr_tbl_v3[] = {
-	{WCD9XXX_IRQ_SLIMBUS, false},
-	{WCD9XXX_IRQ_MBHC_INSERTION, true},
-	{WCD9XXX_IRQ_MBHC_POTENTIAL, true},
-	{WCD9XXX_IRQ_MBHC_RELEASE, true},
-	{WCD9XXX_IRQ_MBHC_PRESS, true},
-	{WCD9XXX_IRQ_MBHC_SHORT_TERM, true},
-	{WCD9XXX_IRQ_MBHC_REMOVAL, true},
-	{WCD9330_IRQ_MBHC_JACK_SWITCH, true},
-	{WCD9XXX_IRQ_BG_PRECHARGE, false},
-	{WCD9XXX_IRQ_PA1_STARTUP, false},
-	{WCD9XXX_IRQ_PA2_STARTUP, false},
-	{WCD9XXX_IRQ_PA3_STARTUP, false},
-	{WCD9XXX_IRQ_PA4_STARTUP, false},
-	{WCD9XXX_IRQ_PA5_STARTUP, false},
-	{WCD9XXX_IRQ_MICBIAS1_PRECHARGE, false},
-	{WCD9XXX_IRQ_MICBIAS2_PRECHARGE, false},
-	{WCD9XXX_IRQ_MICBIAS3_PRECHARGE, false},
-	{WCD9XXX_IRQ_HPH_PA_OCPL_FAULT, false},
-	{WCD9XXX_IRQ_HPH_PA_OCPR_FAULT, false},
-	{WCD9XXX_IRQ_EAR_PA_OCPL_FAULT, false},
-	{WCD9XXX_IRQ_HPH_L_PA_STARTUP, false},
-	{WCD9XXX_IRQ_HPH_R_PA_STARTUP, false},
-	{WCD9320_IRQ_EAR_PA_STARTUP, false},
-	{WCD9330_IRQ_SVASS_ERR_EXCEPTION, false},
-	{WCD9330_IRQ_SVASS_ENGINE, true},
-	{WCD9330_IRQ_MAD_AUDIO, false},
-	{WCD9330_IRQ_MAD_BEACON, false},
-	{WCD9330_IRQ_MAD_ULTRASOUND, false},
-	{WCD9330_IRQ_SPEAKER1_CLIPPING, false},
-	{WCD9330_IRQ_SPEAKER2_CLIPPING, false},
-	{WCD9330_IRQ_VBAT_MONITOR_ATTACK, false},
-	{WCD9330_IRQ_VBAT_MONITOR_RELEASE, false},
+	{WCD9XXX_IRQ_RESERVED_2, false},
 };
 
 static int wcd9xxx_device_init(struct wcd9xxx *wcd9xxx)
@@ -780,9 +597,6 @@ static int wcd9xxx_device_init(struct wcd9xxx *wcd9xxx)
 		|| wcd9xxx->codec_type->id_major == SITAR_MAJOR) {
 		core_res->intr_table = intr_tbl_v1;
 		core_res->intr_table_size = ARRAY_SIZE(intr_tbl_v1);
-	} else if (wcd9xxx->codec_type->id_major == TOMTOM_MAJOR) {
-		core_res->intr_table = intr_tbl_v3;
-		core_res->intr_table_size = ARRAY_SIZE(intr_tbl_v3);
 	} else {
 		core_res->intr_table = intr_tbl_v2;
 		core_res->intr_table_size = ARRAY_SIZE(intr_tbl_v2);
@@ -798,7 +612,7 @@ static int wcd9xxx_device_init(struct wcd9xxx *wcd9xxx)
 		goto err;
 
 	ret = mfd_add_devices(wcd9xxx->dev, -1, found->dev, found->size,
-			      NULL, 0, NULL);
+			      NULL, 0);
 	if (ret != 0) {
 		dev_err(wcd9xxx->dev, "Failed to add children: %d\n", ret);
 		goto err_irq;
@@ -865,7 +679,7 @@ static int get_parameters(char *buf, long int *param1, int num_of_par)
 			else
 				base = 10;
 
-			if (kstrtoul(token, base, &param1[cnt]) != 0)
+			if (strict_strtoul(token, base, &param1[cnt]) != 0)
 				return -EINVAL;
 
 			token = strsep(&buf, " ");
@@ -981,8 +795,8 @@ static int wcd9xxx_init_supplies(struct wcd9xxx *wcd9xxx,
 					    pdata->regulator[i].min_uV,
 					    pdata->regulator[i].max_uV);
 		if (ret) {
-			pr_err("%s: Setting regulator voltage failed for regulator %s err = %d\n",
-				__func__,
+			pr_err("%s: Setting regulator voltage failed for "
+				"regulator %s err = %d\n", __func__,
 				wcd9xxx->supplies[i].supply, ret);
 			goto err_get;
 		}
@@ -1006,8 +820,8 @@ static int wcd9xxx_init_supplies(struct wcd9xxx *wcd9xxx,
 		ret = regulator_set_optimum_mode(wcd9xxx->supplies[i].consumer,
 						pdata->regulator[i].optimum_uA);
 		if (ret < 0) {
-			pr_err("%s: Setting regulator optimum mode failed for regulator %s err = %d\n",
-				__func__,
+			pr_err("%s: Setting regulator optimum mode failed for "
+				"regulator %s err = %d\n", __func__,
 				wcd9xxx->supplies[i].supply, ret);
 			goto err_get;
 		} else {
@@ -1046,9 +860,8 @@ static int wcd9xxx_enable_static_supplies(struct wcd9xxx *wcd9xxx,
 	}
 
 	while (ret && --i)
-		if (i < wcd9xxx->num_of_supplies)
-			if (!pdata->regulator[i].ondemand)
-				regulator_disable(wcd9xxx->supplies[i].consumer);
+		if (!pdata->regulator[i].ondemand)
+			regulator_disable(wcd9xxx->supplies[i].consumer);
 
 	return ret;
 }
@@ -1057,20 +870,9 @@ static void wcd9xxx_disable_supplies(struct wcd9xxx *wcd9xxx,
 				     struct wcd9xxx_pdata *pdata)
 {
 	int i;
-	int rc;
 
-	for (i = 0; i < wcd9xxx->num_of_supplies; i++) {
-		if (pdata->regulator[i].ondemand)
-			continue;
-		rc = regulator_disable(wcd9xxx->supplies[i].consumer);
-		if (rc) {
-			pr_err("%s: Failed to disable %s\n", __func__,
-			       wcd9xxx->supplies[i].supply);
-		} else {
-			pr_debug("%s: Disabled regulator %s\n", __func__,
-				 wcd9xxx->supplies[i].supply);
-		}
-	}
+	regulator_bulk_disable(wcd9xxx->num_of_supplies,
+				    wcd9xxx->supplies);
 	for (i = 0; i < wcd9xxx->num_of_supplies; i++) {
 		if (regulator_count_voltages(wcd9xxx->supplies[i].consumer) <=
 		    0)
@@ -1261,13 +1063,6 @@ static int __devinit wcd9xxx_i2c_probe(struct i2c_client *client,
 			dev_dbg(&client->dev, "%s:Platform data\n"
 				"from device tree\n", __func__);
 			pdata = wcd9xxx_populate_dt_pdata(&client->dev);
-			if (!pdata) {
-				dev_err(&client->dev,
-					"%s: Fail to obtain pdata from device tree\n",
-					 __func__);
-				ret = -EINVAL;
-				goto fail;
-			}
 			client->dev.platform_data = pdata;
 		} else {
 			dev_dbg(&client->dev, "%s:Platform data from\n"
@@ -1312,7 +1107,7 @@ static int __devinit wcd9xxx_i2c_probe(struct i2c_client *client,
 			       __func__);
 			goto err_codec;
 		}
-		usleep_range(5, 10);
+		usleep_range(5, 5);
 
 		ret = wcd9xxx_reset(wcd9xxx);
 		if (ret) {
@@ -1360,7 +1155,6 @@ err_supplies:
 	wcd9xxx_disable_supplies(wcd9xxx, pdata);
 err_codec:
 	kfree(wcd9xxx);
-	dev_set_drvdata(&client->dev, NULL);
 fail:
 	return ret;
 }
@@ -1373,7 +1167,6 @@ static int __devexit wcd9xxx_i2c_remove(struct i2c_client *client)
 	wcd9xxx = dev_get_drvdata(&client->dev);
 	wcd9xxx_disable_supplies(wcd9xxx, pdata);
 	wcd9xxx_device_exit(wcd9xxx);
-	dev_set_drvdata(&client->dev, NULL);
 	return 0;
 }
 
@@ -1585,73 +1378,15 @@ err:
 
 }
 
-/*
- * wcd9xxx_validate_dmic_sample_rate:
- *	Given the dmic_sample_rate and mclk rate, validate the
- *	dmic_sample_rate. If dmic rate is found to be invalid,
- *	assign the dmic rate as undefined, so individual codec
- *	drivers can use thier own defaults
- * @dev: the device for which the dmic is to be configured
- * @dmic_sample_rate: The input dmic_sample_rate
- * @mclk_rate: The input codec mclk rate
- * @dmic_rate_type: String to indicate the type of dmic sample
- *		    rate, used for debug/error logging.
- */
-static u32 wcd9xxx_validate_dmic_sample_rate(struct device *dev,
-		u32 dmic_sample_rate, u32 mclk_rate,
-		const char *dmic_rate_type)
-{
-	u32 div_factor;
-
-	if (dmic_sample_rate == WCD9XXX_DMIC_SAMPLE_RATE_UNDEFINED ||
-	    mclk_rate % dmic_sample_rate != 0)
-		goto undefined_rate;
-
-	div_factor = mclk_rate / dmic_sample_rate;
-
-	switch (div_factor) {
-	case 2:
-	case 3:
-	case 4:
-	case 16:
-		/* Valid dmic DIV factors */
-		dev_dbg(dev,
-			"%s: DMIC_DIV = %u, mclk_rate = %u\n",
-			__func__, div_factor, mclk_rate);
-		break;
-	case 6:
-		/* DIV 6 is valid only for 12.288 MCLK */
-		if (mclk_rate != WCD9XXX_MCLK_CLK_12P288MHZ)
-			goto undefined_rate;
-		break;
-	default:
-		/* Any other DIV factor is invalid */
-		goto undefined_rate;
-	}
-
-	return dmic_sample_rate;
-
-undefined_rate:
-	dev_info(dev,
-		 "%s: Invalid %s = %d, for mclk %d\n",
-		 __func__,
-		 dmic_rate_type,
-		 dmic_sample_rate, mclk_rate);
-	dmic_sample_rate = WCD9XXX_DMIC_SAMPLE_RATE_UNDEFINED;
-	return dmic_sample_rate;
-}
-
 static struct wcd9xxx_pdata *wcd9xxx_populate_dt_pdata(struct device *dev)
 {
 	struct wcd9xxx_pdata *pdata;
 	int ret, static_cnt, ond_cnt, cp_supplies_cnt;
 	u32 mclk_rate = 0;
 	u32 dmic_sample_rate = 0;
-	u32 mad_dmic_sample_rate = 0;
 	const char *static_prop_name = "qcom,cdc-static-supplies";
 	const char *ond_prop_name = "qcom,cdc-on-demand-supplies";
 	const char *cp_supplies_name = "qcom,cdc-cp-supplies";
-	const char *cdc_name;
 
 	pdata = devm_kzalloc(dev, sizeof(*pdata), GFP_KERNEL);
 	if (!pdata) {
@@ -1680,7 +1415,7 @@ static struct wcd9xxx_pdata *wcd9xxx_populate_dt_pdata(struct device *dev)
 	BUG_ON(static_cnt <= 0 || ond_cnt < 0 || cp_supplies_cnt < 0);
 	if ((static_cnt + ond_cnt + cp_supplies_cnt)
 			> ARRAY_SIZE(pdata->regulator)) {
-		dev_err(dev, "%s: Num of supplies %u > max supported %zu\n",
+		dev_err(dev, "%s: Num of supplies %u > max supported %u\n",
 			__func__, static_cnt, ARRAY_SIZE(pdata->regulator));
 		goto err;
 	}
@@ -1728,15 +1463,6 @@ static struct wcd9xxx_pdata *wcd9xxx_populate_dt_pdata(struct device *dev)
 	}
 	pdata->mclk_rate = mclk_rate;
 
-	if (pdata->mclk_rate != WCD9XXX_MCLK_CLK_9P6HZ &&
-	    pdata->mclk_rate != WCD9XXX_MCLK_CLK_12P288MHZ) {
-		dev_err(dev,
-			"%s: Invalid mclk_rate = %u\n",
-			__func__, pdata->mclk_rate);
-		ret = -EINVAL;
-		goto err;
-	}
-
 	ret = of_property_read_u32(dev->of_node,
 				"qcom,cdc-dmic-sample-rate",
 				&dmic_sample_rate);
@@ -1746,42 +1472,28 @@ static struct wcd9xxx_pdata *wcd9xxx_populate_dt_pdata(struct device *dev)
 			dev->of_node->full_name);
 		dmic_sample_rate = WCD9XXX_DMIC_SAMPLE_RATE_UNDEFINED;
 	}
-	pdata->dmic_sample_rate =
-		wcd9xxx_validate_dmic_sample_rate(dev,
-						  dmic_sample_rate,
-						  pdata->mclk_rate,
-						  "audio_dmic_rate");
-
-	ret = of_property_read_u32(dev->of_node,
-				"qcom,cdc-mad-dmic-rate",
-				&mad_dmic_sample_rate);
-	if (ret) {
-		dev_err(dev, "Looking up %s property in node %s failed, err = %d",
-			"qcom,cdc-mad-dmic-rate",
-			dev->of_node->full_name, ret);
-		mad_dmic_sample_rate = WCD9XXX_DMIC_SAMPLE_RATE_UNDEFINED;
+	if (pdata->mclk_rate == WCD9XXX_MCLK_CLK_9P6HZ) {
+		if ((dmic_sample_rate != WCD9XXX_DMIC_SAMPLE_RATE_2P4MHZ) &&
+		    (dmic_sample_rate != WCD9XXX_DMIC_SAMPLE_RATE_3P2MHZ) &&
+		    (dmic_sample_rate != WCD9XXX_DMIC_SAMPLE_RATE_4P8MHZ) &&
+		    (dmic_sample_rate != WCD9XXX_DMIC_SAMPLE_RATE_UNDEFINED)) {
+			dev_err(dev, "Invalid dmic rate %d for mclk %d\n",
+				dmic_sample_rate, pdata->mclk_rate);
+			ret = -EINVAL;
+			goto err;
+		}
+	} else if (pdata->mclk_rate == WCD9XXX_MCLK_CLK_12P288MHZ) {
+		if ((dmic_sample_rate != WCD9XXX_DMIC_SAMPLE_RATE_3P072MHZ) &&
+		    (dmic_sample_rate != WCD9XXX_DMIC_SAMPLE_RATE_4P096MHZ) &&
+		    (dmic_sample_rate != WCD9XXX_DMIC_SAMPLE_RATE_6P144MHZ) &&
+		    (dmic_sample_rate != WCD9XXX_DMIC_SAMPLE_RATE_UNDEFINED)) {
+			dev_err(dev, "Invalid dmic rate %d for mclk %d\n",
+				dmic_sample_rate, pdata->mclk_rate);
+			ret = -EINVAL;
+			goto err;
+		}
 	}
-	pdata->mad_dmic_sample_rate =
-		wcd9xxx_validate_dmic_sample_rate(dev,
-						  mad_dmic_sample_rate,
-						  pdata->mclk_rate,
-						  "mad_dmic_rate");
-
-	ret = of_property_read_string(dev->of_node,
-				"qcom,cdc-variant",
-				&cdc_name);
-	if (ret) {
-		dev_dbg(dev, "Property %s not found in node %s\n",
-				"qcom,cdc-variant",
-				dev->of_node->full_name);
-		pdata->cdc_variant = WCD9XXX;
-	} else {
-		if (!strcmp(cdc_name, "WCD9330"))
-			pdata->cdc_variant = WCD9330;
-		else
-			pdata->cdc_variant = WCD9XXX;
-	}
-
+	pdata->dmic_sample_rate = dmic_sample_rate;
 	return pdata;
 err:
 	devm_kfree(dev, pdata);
@@ -1800,7 +1512,7 @@ static int wcd9xxx_slim_get_laddr(struct slim_device *sb,
 		if (!ret)
 			break;
 		/* Give SLIMBUS time to report present and be ready. */
-		usleep_range(1000, 1100);
+		usleep_range(1000, 1000);
 		pr_debug_ratelimited("%s: retyring get logical addr\n",
 				     __func__);
 	} while time_before(jiffies, timeout);
@@ -1825,14 +1537,6 @@ static int wcd9xxx_slim_probe(struct slim_device *slim)
 	if (slim->dev.of_node) {
 		dev_info(&slim->dev, "Platform data from device tree\n");
 		pdata = wcd9xxx_populate_dt_pdata(&slim->dev);
-		if (!pdata) {
-			dev_err(&slim->dev,
-				"%s: Fail to obtain pdata from device tree\n",
-				__func__);
-			ret = -EINVAL;
-			goto err;
-		}
-
 		ret = wcd9xxx_dt_parse_slim_interface_dev_info(&slim->dev,
 				&pdata->slimbus_slave_device);
 		if (ret) {
@@ -1883,7 +1587,7 @@ static int wcd9xxx_slim_probe(struct slim_device *slim)
 		       __func__);
 		goto err_codec;
 	}
-	usleep_range(5, 10);
+	usleep_range(5, 5);
 
 	ret = wcd9xxx_reset(wcd9xxx);
 	if (ret) {
@@ -1957,7 +1661,6 @@ err_supplies:
 	wcd9xxx_disable_supplies(wcd9xxx, pdata);
 err_codec:
 	kfree(wcd9xxx);
-	slim_set_clientdata(slim, NULL);
 err:
 	return ret;
 }
@@ -1976,7 +1679,6 @@ static int wcd9xxx_slim_remove(struct slim_device *pdev)
 	slim_remove_device(wcd9xxx->slim_slave);
 	wcd9xxx_disable_supplies(wcd9xxx, pdata);
 	wcd9xxx_device_exit(wcd9xxx);
-	slim_set_clientdata(pdev, NULL);
 	return 0;
 }
 
@@ -2036,7 +1738,6 @@ static int wcd9xxx_slim_device_down(struct slim_device *sldev)
 {
 	struct wcd9xxx *wcd9xxx = slim_get_devicedata(sldev);
 
-	dev_info(wcd9xxx->dev, "%s: device down\n", __func__);
 	if (!wcd9xxx) {
 		pr_err("%s: wcd9xxx is NULL\n", __func__);
 		return -EINVAL;
@@ -2184,26 +1885,6 @@ static struct slim_driver tapan_slim_driver = {
 	.device_down = wcd9xxx_slim_device_down,
 };
 
-static const struct slim_device_id tomtom_slimtest_id[] = {
-	{"tomtom-slim-pgd", 0},
-	{}
-};
-
-static struct slim_driver tomtom_slim_driver = {
-	.driver = {
-		.name = "tomtom-slim",
-		.owner = THIS_MODULE,
-	},
-	.probe = wcd9xxx_slim_probe,
-	.remove = wcd9xxx_slim_remove,
-	.id_table = tomtom_slimtest_id,
-	.resume = wcd9xxx_slim_resume,
-	.suspend = wcd9xxx_slim_suspend,
-	.device_up = wcd9xxx_slim_device_up,
-	.reset_device = wcd9xxx_slim_device_reset,
-	.device_down = wcd9xxx_slim_device_down,
-};
-
 static struct i2c_device_id wcd9xxx_id_table[] = {
 	{"wcd9xxx-i2c", WCD9XXX_I2C_TOP_LEVEL},
 	{"wcd9xxx-i2c", WCD9XXX_I2C_ANALOG},
@@ -2284,10 +1965,6 @@ static int __init wcd9xxx_init(void)
 	ret[7] = slim_driver_register(&tapan_slim_driver);
 	if (ret[7])
 		pr_err("Failed to register tapan SB driver: %d\n", ret[7]);
-
-	ret[8] = slim_driver_register(&tomtom_slim_driver);
-	if (ret[8])
-		pr_err("Failed to register tomtom SB driver: %d\n", ret[8]);
 
 	for (i = 0; i < NUM_WCD9XXX_REG_RET; i++) {
 		if (ret[i])

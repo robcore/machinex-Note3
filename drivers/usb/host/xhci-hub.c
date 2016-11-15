@@ -390,10 +390,6 @@ static void xhci_clear_port_change_bit(struct xhci_hcd *xhci, u16 wValue,
 		status = PORT_CEC;
 		port_change_bit = "config error";
 		break;
-	case USB_PORT_FEAT_C_PORT_CONFIG_ERROR:
-		status = PORT_CEC;
-		port_change_bit = "config error";
-		break;
 	default:
 		/* Should never happen */
 		return;
@@ -893,7 +889,7 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 			}
 			/* In spec software should not attempt to suspend
 			 * a port unless the port reports that it is in the
-			 * enabled (PED = .1.,PLS < .3.) state.
+			 * enabled (PED = ‘1’,PLS < ‘3’) state.
 			 */
 			temp = xhci_readl(xhci, port_array[wIndex]);
 			if ((temp & PORT_PE) == 0 || (temp & PORT_RESET)

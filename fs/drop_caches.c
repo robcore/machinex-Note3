@@ -8,7 +8,6 @@
 #include <linux/writeback.h>
 #include <linux/sysctl.h>
 #include <linux/gfp.h>
-#include <linux/syscalls.h>
 #include "internal.h"
 
 /* A global variable is a bit ugly, but it keeps the code simple */
@@ -40,20 +39,15 @@ void drop_pagecache_sb(struct super_block *sb, void *unused)
 
 void drop_slab(void)
 {
-#if 0 /* for now do not allow to use drop_caches = 3, FS stuck for some users possible bug in F2FS */
 	int nr_objects;
 	struct shrink_control shrink = {
 		.gfp_mask = GFP_KERNEL,
 	};
 
-	nodes_setall(shrink.nodes_to_scan);
 	do {
 		shrink.priority = DEF_PRIORITY;
 		nr_objects = shrink_slab(&shrink, 1000, 1000);
 	} while (nr_objects > 10);
-#else
-	pr_info("drop_caches = 3 is not allowed by kernel dev. dorimanx\n");
-#endif
 }
 
 int drop_caches_sysctl_handler(struct ctl_table *table, int write,
@@ -65,25 +59,10 @@ int drop_caches_sysctl_handler(struct ctl_table *table, int write,
 	if (ret)
 		return ret;
 	if (write) {
-		static int stfu;
-
-		/* sync file system before cache clean. Dorimanx. */
-		sys_sync();
-
-		if (sysctl_drop_caches & 1) {
+		if (sysctl_drop_caches & 1)
 			iterate_supers(drop_pagecache_sb, NULL);
-			count_vm_event(DROP_PAGECACHE);
-		}
-		if (sysctl_drop_caches & 2) {
+		if (sysctl_drop_caches & 2)
 			drop_slab();
-			count_vm_event(DROP_SLAB);
-		}
-		if (!stfu) {
-			pr_info("%s (%d): drop_caches: %d\n",
-				current->comm, task_pid_nr(current),
-				sysctl_drop_caches);
-		}
-		stfu |= sysctl_drop_caches & 4;
 	}
 	return 0;
 }

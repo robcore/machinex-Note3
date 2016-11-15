@@ -686,7 +686,8 @@ static netdev_tx_t ipip6_tunnel_xmit(struct sk_buff *skb,
 			neigh = dst_neigh_lookup(skb_dst(skb), &iph6->daddr);
 
 		if (neigh == NULL) {
-			net_dbg_ratelimited("sit: nexthop == NULL\n");
+			if (net_ratelimit())
+				printk(KERN_DEBUG "sit: nexthop == NULL\n");
 			goto tx_error;
 		}
 
@@ -715,7 +716,8 @@ static netdev_tx_t ipip6_tunnel_xmit(struct sk_buff *skb,
 			neigh = dst_neigh_lookup(skb_dst(skb), &iph6->daddr);
 
 		if (neigh == NULL) {
-			net_dbg_ratelimited("sit: nexthop == NULL\n");
+			if (net_ratelimit())
+				printk(KERN_DEBUG "sit: nexthop == NULL\n");
 			goto tx_error;
 		}
 

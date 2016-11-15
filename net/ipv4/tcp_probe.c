@@ -91,7 +91,7 @@ static inline int tcp_probe_avail(void)
  * Note: arguments must match tcp_rcv_established()!
  */
 static int jtcp_rcv_established(struct sock *sk, struct sk_buff *skb,
-			       struct tcphdr *th, unsigned int len)
+			       struct tcphdr *th, unsigned len)
 {
 	const struct tcp_sock *tp = tcp_sk(sk);
 	const struct inet_sock *inet = inet_sk(sk);
@@ -244,7 +244,7 @@ static __init int tcpprobe_init(void)
 	pr_info("probe registered (port=%d) bufsize=%u\n", port, bufsize);
 	return 0;
  err1:
-	remove_proc_entry(procname, init_net.proc_net);
+	proc_net_remove(&init_net, procname);
  err0:
 	kfree(tcp_probe.log);
 	return ret;
@@ -253,7 +253,7 @@ module_init(tcpprobe_init);
 
 static __exit void tcpprobe_exit(void)
 {
-	remove_proc_entry(procname, init_net.proc_net);
+	proc_net_remove(&init_net, procname);
 	unregister_jprobe(&tcp_jprobe);
 	kfree(tcp_probe.log);
 }

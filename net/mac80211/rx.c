@@ -1771,9 +1771,9 @@ ieee80211_deliver_skb(struct ieee80211_rx_data *rx)
 			 * local net stack and back to the wireless medium
 			 */
 			xmit_skb = skb_copy(skb, GFP_ATOMIC);
-			if (!xmit_skb)
-				net_dbg_ratelimited("%s: failed to clone multicast frame\n",
-						    dev->name);
+			if (!xmit_skb && net_ratelimit())
+				printk(KERN_DEBUG "%s: failed to clone "
+				       "multicast frame\n", dev->name);
 		} else {
 			dsta = sta_info_get(sdata, skb->data);
 			if (dsta) {
@@ -1930,9 +1930,6 @@ ieee80211_rx_h_mesh_fwding(struct ieee80211_rx_data *rx)
 	if (ieee80211_drop_unencrypted(rx, hdr->frame_control))
 		return RX_DROP_MONITOR;
 
-	if (ieee80211_drop_unencrypted(rx, hdr->frame_control))
-		return RX_DROP_MONITOR;
-
 	/* frame is in RMC, don't forward */
 	if (ieee80211_is_data(hdr->frame_control) &&
 	    is_multicast_ether_addr(hdr->addr1) &&
@@ -1997,8 +1994,9 @@ ieee80211_rx_h_mesh_fwding(struct ieee80211_rx_data *rx)
 
 	fwd_skb = skb_copy(skb, GFP_ATOMIC);
 	if (!fwd_skb) {
-		net_dbg_ratelimited("%s: failed to clone mesh frame\n",
-				    sdata->name);
+		if (net_ratelimit())
+			printk(KERN_DEBUG "%s: failed to clone mesh frame\n",
+					sdata->name);
 		goto out;
 	}
 

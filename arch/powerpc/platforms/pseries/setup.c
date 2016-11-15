@@ -40,7 +40,6 @@
 #include <linux/seq_file.h>
 #include <linux/root_dev.h>
 #include <linux/cpuidle.h>
-#include <linux/of.h>
 
 #include <asm/mmu.h>
 #include <asm/processor.h>
@@ -64,6 +63,7 @@
 #include <asm/smp.h>
 #include <asm/firmware.h>
 #include <asm/eeh.h>
+#include <asm/pSeries_reconfig.h>
 
 #include "plpar_wrappers.h"
 #include "pseries.h"
@@ -258,7 +258,7 @@ static int pci_dn_reconfig_notifier(struct notifier_block *nb, unsigned long act
 	int err = NOTIFY_OK;
 
 	switch (action) {
-	case OF_RECONFIG_ATTACH_NODE:
+	case PSERIES_RECONFIG_ADD:
 		pci = np->parent->data;
 		if (pci) {
 			update_dn_pci_info(np, pci->phb);
@@ -280,7 +280,7 @@ static struct notifier_block pci_dn_reconfig_nb = {
 
 struct kmem_cache *dtl_cache;
 
-#ifdef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
+#ifdef CONFIG_VIRT_CPU_ACCOUNTING
 /*
  * Allocate space for the dispatch trace log for all possible cpus
  * and register the buffers with the hypervisor.  This is used for
@@ -331,12 +331,12 @@ static int alloc_dispatch_logs(void)
 
 	return 0;
 }
-#else /* !CONFIG_VIRT_CPU_ACCOUNTING_NATIVE */
+#else /* !CONFIG_VIRT_CPU_ACCOUNTING */
 static inline int alloc_dispatch_logs(void)
 {
 	return 0;
 }
-#endif /* CONFIG_VIRT_CPU_ACCOUNTING_NATIVE */
+#endif /* CONFIG_VIRT_CPU_ACCOUNTING */
 
 static int alloc_dispatch_log_kmem_cache(void)
 {
@@ -390,7 +390,8 @@ static void __init pSeries_setup_arch(void)
 	init_pci_config_tokens();
 	eeh_pseries_init();
 	find_and_init_phbs();
-	of_reconfig_notifier_register(&pci_dn_reconfig_nb);
+	pSeries_reconfig_notifier_register(&pci_dn_reconfig_nb);
+	eeh_init();
 
 	pSeries_nvram_init();
 
@@ -547,10 +548,8 @@ static int __init pSeries_probe_hypertas(unsigned long node,
 					 const char *uname, int depth,
 					 void *data)
 {
-	const char *prop;
-	int len;
-	static int hypertas_found;
-	static int vec5_found;
+	const char *hypertas;
+	unsigned long len;
 
 	if (depth != 1 ||
 	    (strcmp(uname, "rtas") != 0 && strcmp(uname, "rtas@0") != 0))
@@ -569,7 +568,7 @@ static int __init pSeries_probe_hypertas(unsigned long node,
 static int __init pSeries_probe(void)
 {
 	unsigned long root = of_get_flat_dt_root();
-	const char *dtype = of_get_flat_dt_prop(root, "device_type", NULL);
+ 	char *dtype = of_get_flat_dt_prop(root, "device_type", NULL);
 
  	if (dtype == NULL)
  		return 0;

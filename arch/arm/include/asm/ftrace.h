@@ -42,11 +42,14 @@ extern void ftrace_call_old(void);
  */
 
 void *return_address(unsigned int);
+
 #else
-static inline void *return_address(unsigned int level)
+
+extern inline void *return_address(unsigned int level)
 {
 	return NULL;
 }
+
 #endif
 
 #define HAVE_ARCH_CALLER_ADDR

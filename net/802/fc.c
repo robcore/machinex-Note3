@@ -35,7 +35,7 @@
 
 static int fc_header(struct sk_buff *skb, struct net_device *dev,
 		     unsigned short type,
-		     const void *daddr, const void *saddr, unsigned int len)
+		     const void *daddr, const void *saddr, unsigned len)
 {
 	struct fch_hdr *fch;
 	int hdr_len;

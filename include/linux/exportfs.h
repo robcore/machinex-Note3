@@ -83,22 +83,6 @@ enum fid_type {
 	 * 64 bit parent inode number.
 	 */
 	FILEID_NILFS_WITH_PARENT = 0x62,
-
-	/*
-	 * 32 bit generation number, 40 bit i_pos.
-	 */
-	FILEID_FAT_WITHOUT_PARENT = 0x71,
-
-	/*
-	 * 32 bit generation number, 40 bit i_pos,
-	 * 32 bit parent generation number, 40 bit parent i_pos
-	 */
-	FILEID_FAT_WITH_PARENT = 0x72,
-
-	/*
-	 * Filesystems must not use 0xff file ID.
-	 */
-	FILEID_INVALID = 0xff,
 };
 
 struct fid {
@@ -181,8 +165,8 @@ struct fid {
  */
 
 struct export_operations {
-	int (*encode_fh)(struct inode *inode, __u32 *fh, int *max_len,
-			struct inode *parent);
+	int (*encode_fh)(struct dentry *de, __u32 *fh, int *max_len,
+			int connectable);
 	struct dentry * (*fh_to_dentry)(struct super_block *sb, struct fid *fid,
 			int fh_len, int fh_type);
 	struct dentry * (*fh_to_parent)(struct super_block *sb, struct fid *fid,

@@ -47,6 +47,8 @@
 #define DBG(LEVEL, ...)
 #endif
 
+#define _BLOCKABLE (~(sigmask(SIGKILL) | sigmask(SIGSTOP)))
+
 inline void
 sigset_32to64(sigset_t *s64, compat_sigset_t *s32)
 {

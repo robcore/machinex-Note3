@@ -296,7 +296,8 @@ static int build_snap_context(struct ceph_snap_realm *realm)
 	struct ceph_snap_realm *parent = realm->parent;
 	struct ceph_snap_context *snapc;
 	int err = 0;
-	u32 num = realm->num_prior_parent_snaps + realm->num_snaps;
+	int i;
+	int num = realm->num_prior_parent_snaps + realm->num_snaps;
 
 	/*
 	 * build parent context, if it hasn't been built.
@@ -320,11 +321,11 @@ static int build_snap_context(struct ceph_snap_realm *realm)
 	    realm->cached_context->seq == realm->seq &&
 	    (!parent ||
 	     realm->cached_context->seq >= parent->cached_context->seq)) {
-		dout("build_snap_context %llx %p: %p seq %lld (%u snaps)"
+		dout("build_snap_context %llx %p: %p seq %lld (%d snaps)"
 		     " (unchanged)\n",
 		     realm->ino, realm, realm->cached_context,
 		     realm->cached_context->seq,
-		     (unsigned int) realm->cached_context->num_snaps);
+		     realm->cached_context->num_snaps);
 		return 0;
 	}
 
@@ -332,16 +333,15 @@ static int build_snap_context(struct ceph_snap_realm *realm)
 	err = -ENOMEM;
 	if (num > (SIZE_MAX - sizeof(*snapc)) / sizeof(u64))
 		goto fail;
-	snapc = ceph_create_snap_context(num, GFP_NOFS);
+	snapc = kzalloc(sizeof(*snapc) + num*sizeof(u64), GFP_NOFS);
 	if (!snapc)
 		goto fail;
+	atomic_set(&snapc->nref, 1);
 
 	/* build (reverse sorted) snap vector */
 	num = 0;
 	snapc->seq = realm->seq;
 	if (parent) {
-		u32 i;
-
 		/* include any of parent's snaps occurring _after_ my
 		   parent became my parent */
 		for (i = 0; i < parent->cached_context->num_snaps; i++)
@@ -361,9 +361,8 @@ static int build_snap_context(struct ceph_snap_realm *realm)
 
 	sort(snapc->snaps, num, sizeof(u64), cmpu64_rev, NULL);
 	snapc->num_snaps = num;
-	dout("build_snap_context %llx %p: %p seq %lld (%u snaps)\n",
-	     realm->ino, realm, snapc, snapc->seq,
-	     (unsigned int) snapc->num_snaps);
+	dout("build_snap_context %llx %p: %p seq %lld (%d snaps)\n",
+	     realm->ino, realm, snapc, snapc->seq, snapc->num_snaps);
 
 	if (realm->cached_context)
 		ceph_put_snap_context(realm->cached_context);
@@ -403,9 +402,9 @@ static void rebuild_snap_realms(struct ceph_snap_realm *realm)
  * helper to allocate and decode an array of snapids.  free prior
  * instance, if any.
  */
-static int dup_array(u64 **dst, __le64 *src, u32 num)
+static int dup_array(u64 **dst, __le64 *src, int num)
 {
-	u32 i;
+	int i;
 
 	kfree(*dst);
 	if (num) {

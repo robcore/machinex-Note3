@@ -305,8 +305,9 @@ ieee80211_ibss_add_sta(struct ieee80211_sub_if_data *sdata,
 	 * 	allow new one to be added.
 	 */
 	if (local->num_sta >= IEEE80211_IBSS_MAX_STA_ENTRIES) {
-		net_dbg_ratelimited("%s: No room for a new IBSS STA entry %pM\n",
-				    sdata->name, addr);
+		if (net_ratelimit())
+			printk(KERN_DEBUG "%s: No room for a new IBSS STA entry %pM\n",
+			       sdata->name, addr);
 		rcu_read_lock();
 		return NULL;
 	}
@@ -583,8 +584,9 @@ void ieee80211_ibss_rx_no_sta(struct ieee80211_sub_if_data *sdata,
 	 * 	allow new one to be added.
 	 */
 	if (local->num_sta >= IEEE80211_IBSS_MAX_STA_ENTRIES) {
-		net_dbg_ratelimited("%s: No room for a new IBSS STA entry %pM\n",
-				    sdata->name, addr);
+		if (net_ratelimit())
+			printk(KERN_DEBUG "%s: No room for a new IBSS STA entry %pM\n",
+			       sdata->name, addr);
 		return;
 	}
 

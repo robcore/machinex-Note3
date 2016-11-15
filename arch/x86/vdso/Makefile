@@ -2,8 +2,6 @@
 # Building vDSO images for x86.
 #
 
-KASAN_SANITIZE := n
-
 VDSO64-$(CONFIG_X86_64)		:= y
 VDSOX32-$(CONFIG_X86_X32_ABI)	:= y
 VDSO32-$(CONFIG_X86_32)		:= y

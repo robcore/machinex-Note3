@@ -874,7 +874,7 @@ static void prepare_write_banner(struct ceph_connection *con)
 
 static int prepare_write_connect(struct ceph_connection *con)
 {
-	unsigned int global_seq = get_global_seq(con->msgr, 0);
+	unsigned global_seq = get_global_seq(con->msgr, 0);
 	int proto;
 	int auth_proto;
 	struct ceph_auth_handshake *auth;
@@ -1006,7 +1006,7 @@ static void out_msg_pos_next(struct ceph_connection *con, struct page *page,
 static int write_partial_msg_pages(struct ceph_connection *con)
 {
 	struct ceph_msg *msg = con->out_msg;
-	unsigned int data_len = le32_to_cpu(msg->hdr.data_len);
+	unsigned data_len = le32_to_cpu(msg->hdr.data_len);
 	size_t len;
 	bool do_datacrc = !con->msgr->nocrc;
 	int ret;
@@ -1730,7 +1730,7 @@ static int ceph_con_in_msg_alloc(struct ceph_connection *con, int *skip);
 
 static int read_partial_message_pages(struct ceph_connection *con,
 				      struct page **pages,
-				      unsigned int data_len, bool do_datacrc)
+				      unsigned data_len, bool do_datacrc)
 {
 	void *p;
 	int ret;
@@ -1763,7 +1763,7 @@ static int read_partial_message_pages(struct ceph_connection *con,
 #ifdef CONFIG_BLOCK
 static int read_partial_message_bio(struct ceph_connection *con,
 				    struct bio **bio_iter, int *bio_seg,
-				    unsigned int data_len, bool do_datacrc)
+				    unsigned data_len, bool do_datacrc)
 {
 	struct bio_vec *bv = bio_iovec_idx(*bio_iter, *bio_seg);
 	void *p;
@@ -1803,7 +1803,7 @@ static int read_partial_message(struct ceph_connection *con)
 	int size;
 	int end;
 	int ret;
-	unsigned int front_len, middle_len, data_len;
+	unsigned front_len, middle_len, data_len;
 	bool do_datacrc = !con->msgr->nocrc;
 	u64 seq;
 	u32 crc;
@@ -1845,7 +1845,7 @@ static int read_partial_message(struct ceph_connection *con)
 		con->in_base_pos = -front_len - middle_len - data_len -
 			sizeof(m->footer);
 		con->in_tag = CEPH_MSGR_TAG_READY;
-		return 1;
+		return 0;
 	} else if ((s64)seq - (s64)con->in_seq > 1) {
 		pr_err("read_partial_message bad seq %lld expected %lld\n",
 		       seq, con->in_seq + 1);
@@ -1870,7 +1870,7 @@ static int read_partial_message(struct ceph_connection *con)
 				sizeof(m->footer);
 			con->in_tag = CEPH_MSGR_TAG_READY;
 			con->in_seq++;
-			return 1;
+			return 0;
 		}
 
 		BUG_ON(!con->in_msg);
@@ -2571,9 +2571,9 @@ void ceph_msg_revoke_incoming(struct ceph_msg *msg)
 	con = msg->con;
 	mutex_lock(&con->mutex);
 	if (con->in_msg == msg) {
-		unsigned int front_len = le32_to_cpu(con->in_hdr.front_len);
-		unsigned int middle_len = le32_to_cpu(con->in_hdr.middle_len);
-		unsigned int data_len = le32_to_cpu(con->in_hdr.data_len);
+		unsigned front_len = le32_to_cpu(con->in_hdr.front_len);
+		unsigned middle_len = le32_to_cpu(con->in_hdr.middle_len);
+		unsigned data_len = le32_to_cpu(con->in_hdr.data_len);
 
 		/* skip rest of message */
 		dout("%s %p msg %p revoked\n", __func__, con, msg);

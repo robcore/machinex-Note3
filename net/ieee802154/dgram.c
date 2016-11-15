@@ -44,8 +44,8 @@ struct dgram_sock {
 	struct ieee802154_addr src_addr;
 	struct ieee802154_addr dst_addr;
 
-	unsigned int bound:1;
-	unsigned int want_ack:1;
+	unsigned bound:1;
+	unsigned want_ack:1;
 };
 
 static inline struct dgram_sock *dgram_sk(const struct sock *sk)
@@ -206,7 +206,7 @@ static int dgram_sendmsg(struct kiocb *iocb, struct sock *sk,
 		struct msghdr *msg, size_t size)
 {
 	struct net_device *dev;
-	unsigned int mtu;
+	unsigned mtu;
 	struct sk_buff *skb;
 	struct dgram_sock *ro = dgram_sk(sk);
 	int hlen, tlen;
@@ -356,6 +356,7 @@ static inline int ieee802154_match_sock(u8 *hw_addr, u16 pan_id,
 int ieee802154_dgram_deliver(struct net_device *dev, struct sk_buff *skb)
 {
 	struct sock *sk, *prev = NULL;
+	struct hlist_node *node;
 	int ret = NET_RX_SUCCESS;
 	u16 pan_id, short_addr;
 
@@ -366,7 +367,7 @@ int ieee802154_dgram_deliver(struct net_device *dev, struct sk_buff *skb)
 	short_addr = ieee802154_mlme_ops(dev)->get_short_addr(dev);
 
 	read_lock(&dgram_lock);
-	sk_for_each(sk, &dgram_head) {
+	sk_for_each(sk, node, &dgram_head) {
 		if (ieee802154_match_sock(dev->dev_addr, pan_id, short_addr,
 					dgram_sk(sk))) {
 			if (prev) {

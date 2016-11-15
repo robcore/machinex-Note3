@@ -67,6 +67,7 @@ static int update_dt_property(struct device_node *dn, struct property **prop,
 			      const char *name, u32 vd, char *value)
 {
 	struct property *new_prop = *prop;
+	struct property *old_prop;
 	int more = 0;
 
 	/* A negative 'vd' value indicates that only part of the new property
@@ -116,7 +117,12 @@ static int update_dt_property(struct device_node *dn, struct property **prop,
 	}
 
 	if (!more) {
-		of_update_property(dn, new_prop);
+		old_prop = of_find_property(dn, new_prop->name, NULL);
+		if (old_prop)
+			prom_update_property(dn, new_prop, old_prop);
+		else
+			prom_add_property(dn, new_prop);
+
 		new_prop = NULL;
 	}
 
@@ -172,7 +178,7 @@ static int update_dt_node(u32 phandle)
 
 			case 0x80000000:
 				prop = of_find_property(dn, prop_name, NULL);
-				of_remove_property(dn, prop);
+				prom_remove_property(dn, prop);
 				prop = NULL;
 				break;
 

@@ -6,7 +6,6 @@
 #include <linux/types.h>
 #include <linux/workqueue.h>
 #include <linux/mutex.h>
-#include <linux/seq_file.h>
 #include <scsi/scsi.h>
 
 struct request_queue;
@@ -341,8 +340,7 @@ struct scsi_host_template {
 	 *
 	 * Status: OBSOLETE
 	 */
-	int (*show_info)(struct seq_file *, struct Scsi_Host *);
-	int (*write_info)(struct Scsi_Host *, char *, int);
+	int (*proc_info)(struct Scsi_Host *, char *, char **, off_t, int, int);
 
 	/*
 	 * This is an optional routine that allows the transport to become
@@ -377,7 +375,7 @@ struct scsi_host_template {
 
 	/*
 	 * Used to store the procfs directory if a driver implements the
-	 * show_info method.
+	 * proc_info method.
 	 */
 	struct proc_dir_entry *proc_dir;
 
@@ -474,9 +472,6 @@ struct scsi_host_template {
 	 * True if we are using ordered write support.
 	 */
 	unsigned ordered_tag:1;
-
-	/* True if the controller does not support WRITE SAME */
-	unsigned no_write_same:1;
 
 	/*
 	 * Countdown for host blocking with no commands outstanding.
@@ -677,14 +672,6 @@ struct Scsi_Host {
 	/* Don't resume host in EH */
 	unsigned eh_noresume:1;
 
-	/* The controller does not support WRITE SAME */
-	unsigned no_write_same:1;
-
-	/*
-	 * Set "SELECT REPORT" field to allow detection of well known logical
-	 * units along with standard LUs.
-	 */
-	unsigned report_wlus:1;
 	/*
 	 * Optional work queue to be utilized by the transport
 	 */
@@ -889,9 +876,6 @@ static inline unsigned int scsi_host_dif_capable(struct Scsi_Host *shost, unsign
 				       SHOST_DIF_TYPE2_PROTECTION,
 				       SHOST_DIF_TYPE3_PROTECTION };
 
-	if (target_type > SHOST_DIF_TYPE3_PROTECTION)
-		return 0;
-
 	return shost->prot_capabilities & cap[target_type] ? target_type : 0;
 }
 
@@ -902,9 +886,6 @@ static inline unsigned int scsi_host_dix_capable(struct Scsi_Host *shost, unsign
 				       SHOST_DIX_TYPE1_PROTECTION,
 				       SHOST_DIX_TYPE2_PROTECTION,
 				       SHOST_DIX_TYPE3_PROTECTION };
-
-	if (target_type > SHOST_DIX_TYPE3_PROTECTION)
-		return 0;
 
 	return shost->prot_capabilities & cap[target_type];
 #endif

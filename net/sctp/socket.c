@@ -71,7 +71,6 @@
 #include <linux/crypto.h>
 #include <linux/slab.h>
 #include <linux/compat.h>
-#include <linux/file.h>
 
 #include <net/ip.h>
 #include <net/icmp.h>
@@ -2950,7 +2949,6 @@ static int sctp_setsockopt_associnfo(struct sock *sk, char __user *optval, unsig
 			sp->assocparams.sasoc_cookie_life =
 						assocparams.sasoc_cookie_life;
 	}
-	spin_unlock_bh(&sctp_globals.addr_wq_lock);
 	return 0;
 }
 
@@ -4271,7 +4269,6 @@ static int sctp_getsockopt_peeloff(struct sock *sk, int len, char __user *optval
 {
 	sctp_peeloff_arg_t peeloff;
 	struct socket *newsock;
-	struct file *newfile;
 	int retval = 0;
 
 	if (len < sizeof(sctp_peeloff_arg_t))
@@ -4285,35 +4282,22 @@ static int sctp_getsockopt_peeloff(struct sock *sk, int len, char __user *optval
 		goto out;
 
 	/* Map the socket to an unused fd that can be returned to the user.  */
-	retval = get_unused_fd();
+	retval = sock_map_fd(newsock, 0);
 	if (retval < 0) {
 		sock_release(newsock);
 		goto out;
-	}
-
-	newfile = sock_alloc_file(newsock, 0);
-	if (unlikely(IS_ERR(newfile))) {
-		put_unused_fd(retval);
-		sock_release(newsock);
-		return PTR_ERR(newfile);
 	}
 
 	SCTP_DEBUG_PRINTK("%s: sk: %p newsk: %p sd: %d\n",
 			  __func__, sk, newsock->sk, retval);
 
 	/* Return the fd mapped to the new socket.  */
-	if (put_user(len, optlen)) {
-		fput(newfile);
-		put_unused_fd(retval);
-		return -EFAULT;
-	}
 	peeloff.sd = retval;
-	if (copy_to_user(optval, &peeloff, len)) {
-		fput(newfile);
-		put_unused_fd(retval);
+	if (put_user(len, optlen))
 		return -EFAULT;
-	}
-	fd_install(retval, newfile);
+	if (copy_to_user(optval, &peeloff, len))
+		retval = -EFAULT;
+
 out:
 	return retval;
 }
@@ -5735,7 +5719,8 @@ static struct sctp_bind_bucket *sctp_bucket_create(
 static long sctp_get_port_local(struct sock *sk, union sctp_addr *addr)
 {
 	struct sctp_bind_hashbucket *head; /* hash list */
-	struct sctp_bind_bucket *pp;
+	struct sctp_bind_bucket *pp; /* hash list port iterator */
+	struct hlist_node *node;
 	unsigned short snum;
 	int ret;
 
@@ -5762,7 +5747,7 @@ static long sctp_get_port_local(struct sock *sk, union sctp_addr *addr)
 			index = sctp_phashfn(rover);
 			head = &sctp_port_hashtable[index];
 			sctp_spin_lock(&head->lock);
-			sctp_for_each_hentry(pp, &head->chain)
+			sctp_for_each_hentry(pp, node, &head->chain)
 				if (pp->port == rover)
 					goto next;
 			break;
@@ -5789,7 +5774,7 @@ static long sctp_get_port_local(struct sock *sk, union sctp_addr *addr)
 		 */
 		head = &sctp_port_hashtable[sctp_phashfn(snum)];
 		sctp_spin_lock(&head->lock);
-		sctp_for_each_hentry(pp, &head->chain) {
+		sctp_for_each_hentry(pp, node, &head->chain) {
 			if (pp->port == snum)
 				goto pp_found;
 		}
@@ -5821,7 +5806,7 @@ pp_found:
 		 * that this port/socket (sk) combination are already
 		 * in an endpoint.
 		 */
-		sk_for_each_bound(sk2, &pp->owner) {
+		sk_for_each_bound(sk2, node, &pp->owner) {
 			struct sctp_endpoint *ep2;
 			ep2 = sctp_sk(sk2)->ep;
 
@@ -5909,8 +5894,10 @@ SCTP_STATIC int sctp_listen_start(struct sock *sk, int backlog)
 	if (!sctp_sk(sk)->hmac && sctp_hmac_alg) {
 		tfm = crypto_alloc_hash(sctp_hmac_alg, 0, CRYPTO_ALG_ASYNC);
 		if (IS_ERR(tfm)) {
-			net_info_ratelimited("failed to load transform for %s: %ld\n",
-					     sctp_hmac_alg, PTR_ERR(tfm));
+			if (net_ratelimit()) {
+				pr_info("failed to load transform for %s: %ld\n",
+					sctp_hmac_alg, PTR_ERR(tfm));
+			}
 			return -ENOSYS;
 		}
 		sctp_sk(sk)->hmac = tfm;
@@ -6771,19 +6758,6 @@ void sctp_copy_sock(struct sock *newsk, struct sock *sk,
 	newinet->mc_ttl = 1;
 	newinet->mc_index = 0;
 	newinet->mc_list = NULL;
-}
-
-static inline void sctp_copy_descendant(struct sock *sk_to,
-					const struct sock *sk_from)
-{
-	int ancestor_size = sizeof(struct inet_sock) +
-			    sizeof(struct sctp_sock) -
-			    offsetof(struct sctp_sock, auto_asconf_list);
-
-	if (sk_from->sk_family == PF_INET6)
-		ancestor_size += sizeof(struct ipv6_pinfo);
-
-	__inet_sk_copy_descendant(sk_to, sk_from, ancestor_size);
 }
 
 static inline void sctp_copy_descendant(struct sock *sk_to,

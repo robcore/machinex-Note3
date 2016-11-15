@@ -15,8 +15,8 @@
 #include "lock.h"
 #include "user.h"
 
-static uint64_t dlm_cb_seq;
-static DEFINE_SPINLOCK(dlm_cb_seq_spin);
+static uint64_t			dlm_cb_seq;
+static spinlock_t		dlm_cb_seq_spin;
 
 static void dlm_dump_lkb_callbacks(struct dlm_lkb *lkb)
 {
@@ -310,7 +310,6 @@ void dlm_callback_resume(struct dlm_ls *ls)
 	}
 	mutex_unlock(&ls->ls_cb_mutex);
 
-	if (count)
-		log_debug(ls, "dlm_callback_resume %d", count);
+	log_debug(ls, "dlm_callback_resume %d", count);
 }
 

@@ -65,9 +65,6 @@ static uint32_t oom_count = 0;
 #define OOM_DEPTH 7
 #endif
 
-#define CREATE_TRACE_POINTS
-#include "trace/lowmemorykiller.h"
-
 static uint32_t lowmem_debug_level = 1;
 static int lowmem_adj[6] = {
 	0,
@@ -140,10 +137,8 @@ static int test_task_flag(struct task_struct *p, int flag)
 
 	return 0;
 }
-#endif
 
 static DEFINE_MUTEX(scan_mutex);
-static DEFINE_MUTEX(auto_oom_mutex);
 
 #if defined(CONFIG_CMA_PAGE_COUNTING)
 #define SSWAP_LMK_THRESHOLD	(30720 * 2)
@@ -185,8 +180,10 @@ static int lowmem_shrink(struct shrinker *s, struct shrink_control *sc)
 	bool flag = 0;
 #endif
 
-	if (mutex_lock_interruptible(&scan_mutex) < 0)
-		return 0;
+	if (nr_to_scan > 0) {
+		if (mutex_lock_interruptible(&scan_mutex) < 0)
+			return 0;
+	}
 
 	other_free = global_page_state(NR_FREE_PAGES);
 
@@ -228,34 +225,24 @@ static int lowmem_shrink(struct shrinker *s, struct shrink_control *sc)
 			min_score_adj = lowmem_adj[i];
 			break;
 		}
-	} else if (atomic_read(&shift_adj)) {
-		/*
-		 * shift_adj would have been set by a previous invocation
-		 * of notifier, which is not followed by a lowmem_shrink yet.
-		 * Since vmpressure has improved, reset shift_adj to avoid
-		 * false adaptive LMK trigger.
-		 */
-		trace_almk_vmpressure(pressure, other_free, other_file);
-		atomic_set(&shift_adj, 0);
 	}
-	ret = adjust_minadj(&min_score_adj);
+	if (nr_to_scan > 0)
+		lowmem_print(3, "lowmem_shrink %lu, %x, ofree %d %d, ma %d\n",
+				nr_to_scan, sc->gfp_mask, other_free,
+				other_file, min_score_adj);
+	rem = global_page_state(NR_ACTIVE_ANON) +
+		global_page_state(NR_ACTIVE_FILE) +
+		global_page_state(NR_INACTIVE_ANON) +
+		global_page_state(NR_INACTIVE_FILE);
+	if (nr_to_scan <= 0 || min_score_adj == OOM_SCORE_ADJ_MAX + 1) {
+		lowmem_print(5, "lowmem_shrink %lu, %x, return %d\n",
+			     nr_to_scan, sc->gfp_mask, rem);
 
-	lowmem_print(3, "lowmem_scan %lu, %x, ofree %d %d, ma %hd\n",
-			nr_to_scan, sc->gfp_mask, other_free,
-			other_file, min_score_adj);
+		if (nr_to_scan > 0)
+			mutex_unlock(&scan_mutex);
 
-	if (min_score_adj == OOM_SCORE_ADJ_MAX + 1) {
-		lowmem_print(5, "lowmem_scan %lu, %x, return 0\n",
-			     nr_to_scan, sc->gfp_mask);
-
-		mutex_unlock(&scan_mutex);
-
-		if (min_score_adj == OOM_SCORE_ADJ_MAX + 1)
-			trace_almk_shrink(0, ret, other_free, other_file, 0);
-
-		return 0;
+		return rem;
 	}
-
 	selected_oom_score_adj = min_score_adj;
 
 	rcu_read_lock();
@@ -275,15 +262,9 @@ static int lowmem_shrink(struct shrinker *s, struct shrink_control *sc)
 
 		if (time_before_eq(jiffies, lowmem_deathpending_timeout)) {
 			if (test_task_flag(tsk, TIF_MEMDIE)) {
-				int same_tgid = same_thread_group(current, tsk);
-
 				rcu_read_unlock();
 				/* give the system time to free up the memory */
-				if (!same_tgid)
-					msleep_interruptible(20);
-				else
-					set_tsk_thread_flag(current,
-								TIF_MEMDIE);
+				msleep_interruptible(20);
 				mutex_unlock(&scan_mutex);
 				return 0;
 			}
@@ -648,7 +629,7 @@ static void __exit lowmem_exit(void)
 }
 
 #ifdef CONFIG_ANDROID_LOW_MEMORY_KILLER_AUTODETECT_OOM_ADJ_VALUES
-static short lowmem_oom_adj_to_oom_score_adj(short oom_adj)
+static int lowmem_oom_adj_to_oom_score_adj(int oom_adj)
 {
 	if (oom_adj == OOM_ADJUST_MAX)
 		return OOM_SCORE_ADJ_MAX;
@@ -659,8 +640,8 @@ static short lowmem_oom_adj_to_oom_score_adj(short oom_adj)
 static void lowmem_autodetect_oom_adj_values(void)
 {
 	int i;
-	short oom_adj;
-	short oom_score_adj;
+	int oom_adj;
+	int oom_score_adj;
 	int array_size = ARRAY_SIZE(lowmem_adj);
 
 	if (lowmem_adj_size < array_size)
@@ -682,7 +663,7 @@ static void lowmem_autodetect_oom_adj_values(void)
 		oom_adj = lowmem_adj[i];
 		oom_score_adj = lowmem_oom_adj_to_oom_score_adj(oom_adj);
 		lowmem_adj[i] = oom_score_adj;
-		lowmem_print(1, "oom_adj %hd => oom_score_adj %hd\n",
+		lowmem_print(1, "oom_adj %d => oom_score_adj %d\n",
 			     oom_adj, oom_score_adj);
 	}
 }
@@ -718,7 +699,7 @@ static struct kernel_param_ops lowmem_adj_array_ops = {
 static const struct kparam_array __param_arr_adj = {
 	.max = ARRAY_SIZE(lowmem_adj),
 	.num = &lowmem_adj_size,
-	.ops = &param_ops_short,
+	.ops = &param_ops_int,
 	.elemsize = sizeof(lowmem_adj[0]),
 	.elem = lowmem_adj,
 };

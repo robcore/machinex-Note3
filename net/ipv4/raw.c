@@ -111,7 +111,9 @@ EXPORT_SYMBOL_GPL(raw_unhash_sk);
 static struct sock *__raw_v4_lookup(struct net *net, struct sock *sk,
 		unsigned short num, __be32 raddr, __be32 laddr, int dif)
 {
-	sk_for_each_from(sk) {
+	struct hlist_node *node;
+
+	sk_for_each_from(sk, node) {
 		struct inet_sock *inet = inet_sk(sk);
 
 		if (net_eq(sock_net(sk), net) && inet->inet_num == num	&&
@@ -905,7 +907,9 @@ static struct sock *raw_get_first(struct seq_file *seq)
 
 	for (state->bucket = 0; state->bucket < RAW_HTABLE_SIZE;
 			++state->bucket) {
-		sk_for_each(sk, &state->h->ht[state->bucket])
+		struct hlist_node *node;
+
+		sk_for_each(sk, node, &state->h->ht[state->bucket])
 			if (sock_net(sk) == seq_file_net(seq))
 				goto found;
 	}
@@ -1045,7 +1049,7 @@ static __net_init int raw_init_net(struct net *net)
 
 static __net_exit void raw_exit_net(struct net *net)
 {
-	remove_proc_entry("raw", net->proc_net);
+	proc_net_remove(net, "raw");
 }
 
 static __net_initdata struct pernet_operations raw_net_ops = {

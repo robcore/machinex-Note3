@@ -634,9 +634,6 @@ static void sil_dev_config(struct ata_device *dev)
 	/* This controller doesn't support trim */
 	dev->horkage |= ATA_HORKAGE_NOTRIM;
 
-	/* This controller doesn't support trim */
-	dev->horkage |= ATA_HORKAGE_NOTRIM;
-
 	ata_id_c_string(dev->id, model_num, ATA_ID_PROD, sizeof(model_num));
 
 	for (n = 0; sil_blacklist[n].product; n++)

@@ -39,15 +39,6 @@ static char __initdata nfversion[] = "0.30";
 static const struct nfnetlink_subsystem __rcu *subsys_table[NFNL_SUBSYS_COUNT];
 static DEFINE_MUTEX(nfnl_mutex);
 
-static const int nfnl_group2type[NFNLGRP_MAX+1] = {
-	[NFNLGRP_CONNTRACK_NEW]		= NFNL_SUBSYS_CTNETLINK,
-	[NFNLGRP_CONNTRACK_UPDATE]	= NFNL_SUBSYS_CTNETLINK,
-	[NFNLGRP_CONNTRACK_DESTROY]	= NFNL_SUBSYS_CTNETLINK,
-	[NFNLGRP_CONNTRACK_EXP_NEW]	= NFNL_SUBSYS_CTNETLINK_EXP,
-	[NFNLGRP_CONNTRACK_EXP_UPDATE]	= NFNL_SUBSYS_CTNETLINK_EXP,
-	[NFNLGRP_CONNTRACK_EXP_DESTROY] = NFNL_SUBSYS_CTNETLINK_EXP,
-};
-
 void nfnl_lock(void)
 {
 	mutex_lock(&nfnl_mutex);
@@ -112,7 +103,7 @@ int nfnetlink_has_listeners(struct net *net, unsigned int group)
 EXPORT_SYMBOL_GPL(nfnetlink_has_listeners);
 
 int nfnetlink_send(struct sk_buff *skb, struct net *net, u32 pid,
-		   unsigned int group, int echo, gfp_t flags)
+		   unsigned group, int echo, gfp_t flags)
 {
 	return nlmsg_notify(net->nfnl, skb, pid, group, echo, flags);
 }
@@ -209,35 +200,12 @@ static void nfnetlink_rcv(struct sk_buff *skb)
 	netlink_rcv_skb(skb, &nfnetlink_rcv_msg);
 }
 
-#ifdef CONFIG_MODULES
-static void nfnetlink_bind(int group)
-{
-	const struct nfnetlink_subsystem *ss;
-	int type = nfnl_group2type[group];
-
-	rcu_read_lock();
-	ss = nfnetlink_get_subsys(type);
-	if (!ss) {
-		rcu_read_unlock();
-		request_module("nfnetlink-subsys-%d", type);
-		return;
-	}
-	rcu_read_unlock();
-}
-#endif
-
 static int __net_init nfnetlink_net_init(struct net *net)
 {
 	struct sock *nfnl;
-	struct netlink_kernel_cfg cfg = {
-		.groups	= NFNLGRP_MAX,
-		.input	= nfnetlink_rcv,
-#ifdef CONFIG_MODULES
-		.bind	= nfnetlink_bind,
-#endif
-	};
 
-	nfnl = netlink_kernel_create(net, NETLINK_NETFILTER, &cfg);
+	nfnl = netlink_kernel_create(net, NETLINK_NETFILTER, NFNLGRP_MAX,
+				     nfnetlink_rcv, NULL, THIS_MODULE);
 	if (!nfnl)
 		return -ENOMEM;
 	net->nfnl_stash = nfnl;

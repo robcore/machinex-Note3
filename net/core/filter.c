@@ -38,7 +38,6 @@
 #include <linux/filter.h>
 #include <linux/reciprocal_div.h>
 #include <linux/ratelimit.h>
-#include <linux/seccomp.h>
 
 /* No hurry in this branch
  *
@@ -82,14 +81,6 @@ int sk_filter(struct sock *sk, struct sk_buff *skb)
 {
 	int err;
 	struct sk_filter *filter;
-
-	/*
-	 * If the skb was allocated from pfmemalloc reserves, only
-	 * allow SOCK_MEMALLOC sockets to use it as this socket is
-	 * helping free memory
-	 */
-	if (skb_pfmemalloc(skb) && !sock_flag(sk, SOCK_MEMALLOC))
-		return -ENOMEM;
 
 	err = security_sock_rcv_skb(sk, skb);
 	if (err)
@@ -365,11 +356,6 @@ load_b:
 				A = 0;
 			continue;
 		}
-#ifdef CONFIG_SECCOMP_FILTER
-		case BPF_S_ANC_SECCOMP_LD_W:
-			A = seccomp_bpf_load(fentry->k);
-			continue;
-#endif
 		default:
 			WARN_RATELIMIT(1, "Unknown code:%u jt:%u tf:%u k:%u\n",
 				       fentry->code, fentry->jt,
@@ -546,7 +532,7 @@ int sk_chk_filter(struct sock_filter *filter, unsigned int flen)
 			 * Compare this with conditional jumps below,
 			 * where offsets are limited. --ANK (981016)
 			 */
-			if (ftest->k >= (unsigned int)(flen-pc-1))
+			if (ftest->k >= (unsigned)(flen-pc-1))
 				return -EINVAL;
 			break;
 		case BPF_S_JMP_JEQ_K:

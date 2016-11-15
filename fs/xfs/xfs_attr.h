@@ -140,6 +140,7 @@ typedef struct xfs_attr_list_context {
  * Overall external interface routines.
  */
 int xfs_attr_inactive(struct xfs_inode *dp);
+int xfs_attr_rmtval_get(struct xfs_da_args *args);
 int xfs_attr_list_int(struct xfs_attr_list_context *);
 
 #endif	/* __XFS_ATTR_H__ */

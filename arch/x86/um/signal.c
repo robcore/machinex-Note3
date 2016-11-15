@@ -339,7 +339,9 @@ static int copy_ucontext_to_user(struct ucontext __user *uc,
 {
 	int err = 0;
 
-	err |= __save_altstack(&uc->uc_stack, sp);
+	err |= put_user(current->sas_ss_sp, &uc->uc_stack.ss_sp);
+	err |= put_user(sas_ss_flags(sp), &uc->uc_stack.ss_flags);
+	err |= put_user(current->sas_ss_size, &uc->uc_stack.ss_size);
 	err |= copy_sc_to_user(&uc->uc_mcontext, fp, &current->thread.regs, 0);
 	err |= copy_to_user(&uc->uc_sigmask, set, sizeof(*set));
 	return err;
@@ -481,6 +483,7 @@ long sys_sigreturn(struct pt_regs *regs)
 	    copy_from_user(&set.sig[1], extramask, sig_size))
 		goto segfault;
 
+	sigdelsetmask(&set, ~_BLOCKABLE);
 	set_current_blocked(&set);
 
 	if (copy_sc_from_user(&current->thread.regs, sc))
@@ -530,7 +533,10 @@ int setup_signal_stack_si(unsigned long stack_top, int sig,
 	/* Create the ucontext.  */
 	err |= __put_user(0, &frame->uc.uc_flags);
 	err |= __put_user(0, &frame->uc.uc_link);
-	err |= __save_altstack(&frame->uc.uc_stack, PT_REGS_SP(regs));
+	err |= __put_user(me->sas_ss_sp, &frame->uc.uc_stack.ss_sp);
+	err |= __put_user(sas_ss_flags(PT_REGS_SP(regs)),
+			  &frame->uc.uc_stack.ss_flags);
+	err |= __put_user(me->sas_ss_size, &frame->uc.uc_stack.ss_size);
 	err |= copy_sc_to_user(&frame->uc.uc_mcontext, &frame->fpstate, regs,
 			       set->sig[0]);
 	err |= __put_user(&frame->fpstate, &frame->uc.uc_mcontext.fpstate);
@@ -591,6 +597,7 @@ long sys_rt_sigreturn(struct pt_regs *regs)
 	if (copy_from_user(&set, &uc->uc_sigmask, sizeof(set)))
 		goto segfault;
 
+	sigdelsetmask(&set, ~_BLOCKABLE);
 	set_current_blocked(&set);
 
 	if (copy_sc_from_user(&current->thread.regs, &uc->uc_mcontext))

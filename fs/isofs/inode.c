@@ -21,7 +21,6 @@
 #include <linux/cdrom.h>
 #include <linux/parser.h>
 #include <linux/mpage.h>
-#include <linux/user_namespace.h>
 
 #include "isofs.h"
 #include "zisofs.h"
@@ -172,8 +171,8 @@ struct iso9660_options{
 	unsigned int blocksize;
 	umode_t fmode;
 	umode_t dmode;
-	kgid_t gid;
-	kuid_t uid;
+	gid_t gid;
+	uid_t uid;
 	char *iocharset;
 	/* LVE */
 	s32 session;
@@ -384,8 +383,8 @@ static int parse_options(char *options, struct iso9660_options *popt)
 	popt->fmode = popt->dmode = ISOFS_INVALID_MODE;
 	popt->uid_set = 0;
 	popt->gid_set = 0;
-	popt->gid = GLOBAL_ROOT_GID;
-	popt->uid = GLOBAL_ROOT_UID;
+	popt->gid = 0;
+	popt->uid = 0;
 	popt->iocharset = NULL;
 	popt->utf8 = 0;
 	popt->overriderockperm = 0;
@@ -461,17 +460,13 @@ static int parse_options(char *options, struct iso9660_options *popt)
 		case Opt_uid:
 			if (match_int(&args[0], &option))
 				return 0;
-			popt->uid = make_kuid(current_user_ns(), option);
-			if (!uid_valid(popt->uid))
-				return 0;
+			popt->uid = option;
 			popt->uid_set = 1;
 			break;
 		case Opt_gid:
 			if (match_int(&args[0], &option))
 				return 0;
-			popt->gid = make_kgid(current_user_ns(), option);
-			if (!gid_valid(popt->gid))
-				return 0;
+			popt->gid = option;
 			popt->gid_set = 1;
 			break;
 		case Opt_mode:
@@ -1546,8 +1541,6 @@ static struct file_system_type iso9660_fs_type = {
 	.kill_sb	= kill_block_super,
 	.fs_flags	= FS_REQUIRES_DEV,
 };
-MODULE_ALIAS_FS("iso9660");
-MODULE_ALIAS("iso9660");
 
 static int __init init_iso9660_fs(void)
 {
@@ -1585,3 +1578,5 @@ static void __exit exit_iso9660_fs(void)
 module_init(init_iso9660_fs)
 module_exit(exit_iso9660_fs)
 MODULE_LICENSE("GPL");
+/* Actual filesystem name is iso9660, as requested in filesystems.c */
+MODULE_ALIAS("iso9660");

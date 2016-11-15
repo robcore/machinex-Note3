@@ -2,7 +2,6 @@
  *
  * (C) 1999-2001 Paul `Rusty' Russell
  * (C) 2002-2006 Netfilter Core Team <coreteam@netfilter.org>
- * (C) 2006-2010 Patrick McHardy <kaber@trash.net>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -434,9 +433,9 @@ static int __net_init ip_conntrack_net_init(struct net *net)
 	return 0;
 
 err3:
-	remove_proc_entry("ip_conntrack_expect", net->proc_net);
+	proc_net_remove(net, "ip_conntrack_expect");
 err2:
-	remove_proc_entry("ip_conntrack", net->proc_net);
+	proc_net_remove(net, "ip_conntrack");
 err1:
 	return -ENOMEM;
 }
@@ -444,8 +443,8 @@ err1:
 static void __net_exit ip_conntrack_net_exit(struct net *net)
 {
 	remove_proc_entry("ip_conntrack", net->proc_net_stat);
-	remove_proc_entry("ip_conntrack_expect", net->proc_net);
-	remove_proc_entry("ip_conntrack", net->proc_net);
+	proc_net_remove(net, "ip_conntrack_expect");
+	proc_net_remove(net, "ip_conntrack");
 }
 
 static struct pernet_operations ip_conntrack_net_ops = {

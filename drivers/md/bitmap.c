@@ -177,7 +177,7 @@ static struct md_rdev *next_active_rdev(struct md_rdev *rdev, struct mddev *mdde
 	 * As devices are only added or removed when raid_disk is < 0 and
 	 * nr_pending is 0 and In_sync is clear, the entries we return will
 	 * still be in the same position on the list when we re-enter
-	 * list_for_each_entry_continue_rcu.
+	 * list_for_each_continue_rcu.
 	 */
 	struct list_head *pos;
 	rcu_read_lock();
@@ -189,7 +189,7 @@ static struct md_rdev *next_active_rdev(struct md_rdev *rdev, struct mddev *mdde
 		rdev_dec_pending(rdev, mddev);
 		pos = &rdev->same_set;
 	}
-	list_for_each_entry_continue_rcu(pos, &mddev->disks) {
+	list_for_each_continue_rcu(pos, &mddev->disks) {
 		rdev = list_entry(pos, struct md_rdev, same_set);
 		if (rdev->raid_disk >= 0 &&
 		    !test_bit(Faulty, &rdev->flags)) {
@@ -348,7 +348,7 @@ static struct page *read_page(struct file *file, unsigned long index,
 			      unsigned long count)
 {
 	struct page *page = NULL;
-	struct inode *inode = file_inode(file);
+	struct inode *inode = file->f_path.dentry->d_inode;
 	struct buffer_head *bh;
 	sector_t block;
 
@@ -758,7 +758,7 @@ static void bitmap_file_put(struct bitmap *bitmap)
 	bitmap_file_unmap(bitmap);
 
 	if (file) {
-		struct inode *inode = file_inode(file);
+		struct inode *inode = file->f_path.dentry->d_inode;
 		invalidate_mapping_pages(inode->i_mapping, 0, -1);
 		fput(file);
 	}

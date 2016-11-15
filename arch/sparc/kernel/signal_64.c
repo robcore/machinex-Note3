@@ -38,6 +38,8 @@
 #include "systbls.h"
 #include "sigutil.h"
 
+#define _BLOCKABLE (~(sigmask(SIGKILL) | sigmask(SIGSTOP)))
+
 /* {set, get}context() needed for 64-bit SparcLinux userland. */
 asmlinkage void sparc64_set_context(struct pt_regs *regs)
 {
@@ -69,6 +71,7 @@ asmlinkage void sparc64_set_context(struct pt_regs *regs)
 			if (__copy_from_user(&set, &ucp->uc_sigmask, sizeof(sigset_t)))
 				goto do_sigsegv;
 		}
+		sigdelsetmask(&set, ~_BLOCKABLE);
 		set_current_blocked(&set);
 	}
 	if (test_thread_flag(TIF_32BIT)) {
@@ -310,6 +313,7 @@ void do_rt_sigreturn(struct pt_regs *regs)
 	/* Prevent syscall restart.  */
 	pt_regs_clear_syscall(regs);
 
+	sigdelsetmask(&set, ~_BLOCKABLE);
 	set_current_blocked(&set);
 	return;
 segv:
@@ -460,7 +464,7 @@ sigsegv:
 	return -EFAULT;
 }
 
-static inline void handle_signal(unsigned long signr, struct k_sigaction *ka,
+static inline int handle_signal(unsigned long signr, struct k_sigaction *ka,
 				siginfo_t *info,
 				sigset_t *oldset, struct pt_regs *regs)
 {
@@ -469,9 +473,12 @@ static inline void handle_signal(unsigned long signr, struct k_sigaction *ka,
 	err = setup_rt_frame(ka, regs, signr, oldset,
 			     (ka->sa.sa_flags & SA_SIGINFO) ? info : NULL);
 	if (err)
-		return;
+		return err;
 
-	signal_delivered(signr, info, ka, regs, 0);
+	block_sigmask(ka, signr);
+	tracehook_signal_handler(signr, info, ka, regs, 0);
+
+	return 0;
 }
 
 static inline void syscall_restart(unsigned long orig_i0, struct pt_regs *regs,
@@ -503,7 +510,7 @@ static void do_signal(struct pt_regs *regs, unsigned long orig_i0)
 {
 	struct k_sigaction ka;
 	int restart_syscall;
-	sigset_t *oldset = sigmask_to_save();
+	sigset_t *oldset;
 	siginfo_t info;
 	int signr;
 	
@@ -529,6 +536,11 @@ static void do_signal(struct pt_regs *regs, unsigned long orig_i0)
 	    (regs->tstate & (TSTATE_XCARRY | TSTATE_ICARRY)))
 		regs->u_regs[UREG_G6] = orig_i0;
 
+	if (current_thread_info()->status & TS_RESTORE_SIGMASK)
+		oldset = &current->saved_sigmask;
+	else
+		oldset = &current->blocked;
+
 #ifdef CONFIG_COMPAT
 	if (test_thread_flag(TIF_32BIT)) {
 		extern void do_signal32(sigset_t *, struct pt_regs *);
@@ -549,7 +561,14 @@ static void do_signal(struct pt_regs *regs, unsigned long orig_i0)
 	if (signr > 0) {
 		if (restart_syscall)
 			syscall_restart(orig_i0, regs, &ka.sa);
-		handle_signal(signr, &ka, &info, oldset, regs);
+		if (handle_signal(signr, &ka, &info, oldset, regs) == 0) {
+			/* A signal was successfully delivered; the saved
+			 * sigmask will have been stored in the signal frame,
+			 * and will be restored by sigreturn, so we can simply
+			 * clear the TS_RESTORE_SIGMASK flag.
+			 */
+			current_thread_info()->status &= ~TS_RESTORE_SIGMASK;
+		}
 		return;
 	}
 	if (restart_syscall &&
@@ -573,7 +592,10 @@ static void do_signal(struct pt_regs *regs, unsigned long orig_i0)
 	/* If there's no signal to deliver, we just put the saved sigmask
 	 * back
 	 */
-	restore_saved_sigmask();
+	if (current_thread_info()->status & TS_RESTORE_SIGMASK) {
+		current_thread_info()->status &= ~TS_RESTORE_SIGMASK;
+		set_current_blocked(&current->saved_sigmask);
+	}
 }
 
 void do_notify_resume(struct pt_regs *regs, unsigned long orig_i0, unsigned long thread_info_flags)
@@ -583,6 +605,8 @@ void do_notify_resume(struct pt_regs *regs, unsigned long orig_i0, unsigned long
 	if (thread_info_flags & _TIF_NOTIFY_RESUME) {
 		clear_thread_flag(TIF_NOTIFY_RESUME);
 		tracehook_notify_resume(regs);
+		if (current->replacement_session_keyring)
+			key_replace_session_keyring();
 	}
 }
 

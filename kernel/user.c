@@ -16,7 +16,6 @@
 #include <linux/interrupt.h>
 #include <linux/export.h>
 #include <linux/user_namespace.h>
-#include <linux/proc_ns.h>
 
 /*
  * userns count is 1 for root user, 1 for init_uts_ns,
@@ -27,7 +26,6 @@ struct user_namespace init_user_ns = {
 		.refcount	= ATOMIC_INIT(3),
 	},
 	.creator = &root_user,
-	.proc_inum = PROC_USER_INIT_INO,
 };
 EXPORT_SYMBOL_GPL(init_user_ns);
 
@@ -80,8 +78,9 @@ static void uid_hash_remove(struct user_struct *up)
 static struct user_struct *uid_hash_find(uid_t uid, struct hlist_head *hashent)
 {
 	struct user_struct *user;
+	struct hlist_node *h;
 
-	hlist_for_each_entry(user, hashent, uidhash_node) {
+	hlist_for_each_entry(user, h, hashent, uidhash_node) {
 		if (user->uid == uid) {
 			atomic_inc(&user->__count);
 			return user;

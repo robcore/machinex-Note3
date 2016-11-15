@@ -24,7 +24,7 @@
  * user_time and system_time fields in the paca.
  */
 
-#ifndef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
+#ifndef CONFIG_VIRT_CPU_ACCOUNTING
 #define ACCOUNT_CPU_USER_ENTRY(ra, rb)
 #define ACCOUNT_CPU_USER_EXIT(ra, rb)
 #define ACCOUNT_STOLEN_TIME
@@ -70,7 +70,7 @@ END_FW_FTR_SECTION_IFSET(FW_FEATURE_SPLPAR)
 
 #endif /* CONFIG_PPC_SPLPAR */
 
-#endif /* CONFIG_VIRT_CPU_ACCOUNTING_NATIVE */
+#endif /* CONFIG_VIRT_CPU_ACCOUNTING */
 
 /*
  * Macros for storing registers into and loading registers from

@@ -120,13 +120,22 @@ static void linkwatch_schedule_work(int urgent)
 		delay = 0;
 
 	/*
-	 * If urgent, schedule immediate execution; otherwise, don't
-	 * override the existing timer.
+	 * This is true if we've scheduled it immeditately or if we don't
+	 * need an immediate execution and it's already pending.
 	 */
-	if (test_bit(LW_URGENT, &linkwatch_flags))
-		mod_delayed_work(system_wq, &linkwatch_work, 0);
-	else
-		schedule_delayed_work(&linkwatch_work, delay);
+	if (schedule_delayed_work(&linkwatch_work, delay) == !delay)
+		return;
+
+	/* Don't bother if there is nothing urgent. */
+	if (!test_bit(LW_URGENT, &linkwatch_flags))
+		return;
+
+	/* It's already running which is good enough. */
+	if (!__cancel_delayed_work(&linkwatch_work))
+		return;
+
+	/* Otherwise we reschedule it again for immediate execution. */
+	schedule_delayed_work(&linkwatch_work, 0);
 }
 
 
@@ -136,7 +145,7 @@ static void linkwatch_do_dev(struct net_device *dev)
 	 * Make sure the above read is complete since it can be
 	 * rewritten as soon as we clear the bit below.
 	 */
-	smp_mb__before_atomic();
+	smp_mb__before_clear_bit();
 
 	/* We are about to handle this device,
 	 * so new events can be accepted

@@ -57,6 +57,7 @@ void __user * get_sigframe(struct k_sigaction *ka, struct pt_regs *regs,
  */
 void restore_sigmask(sigset_t *set)
 {
+	sigdelsetmask(set, ~_BLOCKABLE);
 	set_current_blocked(set);
 }
 
@@ -113,12 +114,17 @@ static void check_syscall_restart(struct pt_regs *regs, struct k_sigaction *ka,
 
 static int do_signal(struct pt_regs *regs)
 {
-	sigset_t *oldset = sigmask_to_save();
+	sigset_t *oldset;
 	siginfo_t info;
 	int signr;
 	struct k_sigaction ka;
 	int ret;
 	int is32 = is_32bit_task();
+
+	if (current_thread_info()->local_flags & _TLF_RESTORE_SIGMASK)
+		oldset = &current->saved_sigmask;
+	else
+		oldset = &current->blocked;
 
 	signr = get_signal_to_deliver(&info, &ka, regs, NULL);
 
@@ -126,8 +132,12 @@ static int do_signal(struct pt_regs *regs)
 	check_syscall_restart(regs, &ka, signr > 0);
 
 	if (signr <= 0) {
+		struct thread_info *ti = current_thread_info();
 		/* No signal to deliver -- put the saved sigmask back */
-		restore_saved_sigmask();
+		if (ti->local_flags & _TLF_RESTORE_SIGMASK) {
+			ti->local_flags &= ~_TLF_RESTORE_SIGMASK;
+			sigprocmask(SIG_SETMASK, &current->saved_sigmask, NULL);
+		}
 		regs->trap = 0;
 		return 0;               /* no signals delivered */
 	}
@@ -157,7 +167,18 @@ static int do_signal(struct pt_regs *regs)
 
 	regs->trap = 0;
 	if (ret) {
-		signal_delivered(signr, &info, &ka, regs,
+		block_sigmask(&ka, signr);
+
+		/*
+		 * A signal was successfully delivered; the saved sigmask is in
+		 * its frame, and we can clear the TLF_RESTORE_SIGMASK flag.
+		 */
+		current_thread_info()->local_flags &= ~_TLF_RESTORE_SIGMASK;
+
+		/*
+		 * Let tracing know that we've done the handler setup.
+		 */
+		tracehook_signal_handler(signr, &info, &ka, regs,
 					 test_thread_flag(TIF_SINGLESTEP));
 	}
 
@@ -172,6 +193,8 @@ void do_notify_resume(struct pt_regs *regs, unsigned long thread_info_flags)
 	if (thread_info_flags & _TIF_NOTIFY_RESUME) {
 		clear_thread_flag(TIF_NOTIFY_RESUME);
 		tracehook_notify_resume(regs);
+		if (current->replacement_session_keyring)
+			key_replace_session_keyring();
 	}
 }
 

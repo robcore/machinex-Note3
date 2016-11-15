@@ -388,31 +388,31 @@ int xhci_cancel_cmd(struct xhci_hcd *xhci, struct xhci_command *command,
 	if (xhci->xhc_state & XHCI_STATE_DYING) {
 		xhci_warn(xhci, "Abort the command ring,"
 				" but the xHCI is dead.\n");
-		spin_unlock_irqrestore(&xhci->lock, flags);
-		return -ESHUTDOWN;
+		retval = -ESHUTDOWN;
+		goto fail;
 	}
 
 	/* queue the cmd desriptor to cancel_cmd_list */
 	retval = xhci_queue_cd(xhci, command, cmd_trb);
 	if (retval) {
 		xhci_warn(xhci, "Queuing command descriptor failed.\n");
-		spin_unlock_irqrestore(&xhci->lock, flags);
-		return retval;
+		goto fail;
 	}
-
-	spin_unlock_irqrestore(&xhci->lock, flags);
 
 	/* abort command ring */
 	retval = xhci_abort_cmd_ring(xhci);
 	if (retval) {
 		xhci_err(xhci, "Abort command ring failed\n");
 		if (unlikely(retval == -ESHUTDOWN)) {
+			spin_unlock_irqrestore(&xhci->lock, flags);
 			usb_hc_died(xhci_to_hcd(xhci)->primary_hcd);
 			xhci_dbg(xhci, "xHCI host controller is dead.\n");
 			return retval;
 		}
 	}
 
+fail:
+	spin_unlock_irqrestore(&xhci->lock, flags);
 	return retval;
 }
 
@@ -1685,9 +1685,6 @@ static void handle_port_status(struct xhci_hcd *xhci,
 	if (hcd->speed == HCD_USB3 && (temp & PORT_PLS_MASK) == XDEV_INACTIVE)
 		bus_state->port_remote_wakeup &= ~(1 << faked_port_index);
 
-	if (hcd->speed == HCD_USB3 && (temp & PORT_PLS_MASK) == XDEV_INACTIVE)
-		bus_state->port_remote_wakeup &= ~(1 << faked_port_index);
-
 	if ((temp & PORT_PLC) && (temp & PORT_PLS_MASK) == XDEV_RESUME) {
 		xhci_dbg(xhci, "port resume event for port %d\n", port_id);
 
@@ -2159,12 +2156,6 @@ static int process_isoc_td(struct xhci_hcd *xhci, struct xhci_td *td,
 			return 0;
 		skip_td = true;
 		break;
-	case COMP_TX_ERR:
-		frame->status = -EPROTO;
-		if (event_trb != td->last_trb)
-			return 0;
-		skip_td = true;
-		break;
 	case COMP_STOP:
 	case COMP_STOP_INVAL:
 		break;
@@ -2488,10 +2479,6 @@ static int handle_tx_event(struct xhci_hcd *xhci,
 		 */
 		ep->skip = true;
 		xhci_dbg(xhci, "Miss service interval error, set skip flag\n");
-		goto cleanup;
-	case COMP_PING_ERR:
-		ep->skip = true;
-		xhci_dbg(xhci, "No Ping response error, Skip one Isoc TD\n");
 		goto cleanup;
 	case COMP_PING_ERR:
 		ep->skip = true;

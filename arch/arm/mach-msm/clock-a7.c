@@ -315,11 +315,9 @@ static int clock_a7_probe(struct platform_device *pdev)
 		return PTR_ERR(vdd_cpu.regulator[0]);
 	}
 
-	rc = of_get_clk_src(pdev, a7ssmux.parents);
-	if (IS_ERR_VALUE(rc))
-		return rc;
-
-	a7ssmux.num_parents = rc;
+	a7ssmux.num_parents = of_get_clk_src(pdev, a7ssmux.parents);
+	if (IS_ERR_VALUE(a7ssmux.num_parents))
+		return a7ssmux.num_parents;
 
 	get_speed_bin(pdev, &speed_bin, &version);
 
@@ -374,7 +372,6 @@ static struct of_device_id clock_a7_match_table[] = {
 };
 
 static struct platform_driver clock_a7_driver = {
-	.probe = clock_a7_probe,
 	.driver = {
 		.name = "clock-a7",
 		.of_match_table = clock_a7_match_table,
@@ -384,6 +381,6 @@ static struct platform_driver clock_a7_driver = {
 
 static int __init clock_a7_init(void)
 {
-	return platform_driver_register(&clock_a7_driver);
+	return platform_driver_probe(&clock_a7_driver, clock_a7_probe);
 }
-arch_initcall(clock_a7_init);
+device_initcall(clock_a7_init);

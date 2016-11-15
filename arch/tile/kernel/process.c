@@ -588,6 +588,8 @@ int do_work_pending(struct pt_regs *regs, u32 thread_info_flags)
 	if (thread_info_flags & _TIF_NOTIFY_RESUME) {
 		clear_thread_flag(TIF_NOTIFY_RESUME);
 		tracehook_notify_resume(regs);
+		if (current->replacement_session_keyring)
+			key_replace_session_keyring();
 		return 1;
 	}
 	if (thread_info_flags & _TIF_SINGLESTEP) {
@@ -617,13 +619,13 @@ SYSCALL_DEFINE4(execve, const char __user *, path,
 		struct pt_regs *, regs)
 {
 	long error;
-	struct filename *filename;
+	char *filename;
 
 	filename = getname(path);
 	error = PTR_ERR(filename);
 	if (IS_ERR(filename))
 		goto out;
-	error = do_execve(filename->name, argv, envp, regs);
+	error = do_execve(filename, argv, envp, regs);
 	putname(filename);
 	if (error == 0)
 		single_step_execve();
@@ -638,13 +640,13 @@ long compat_sys_execve(const char __user *path,
 		       struct pt_regs *regs)
 {
 	long error;
-	struct filename *filename;
+	char *filename;
 
 	filename = getname(path);
 	error = PTR_ERR(filename);
 	if (IS_ERR(filename))
 		goto out;
-	error = compat_do_execve(filename->name, argv, envp, regs);
+	error = compat_do_execve(filename, argv, envp, regs);
 	putname(filename);
 	if (error == 0)
 		single_step_execve();
@@ -721,7 +723,8 @@ void show_regs(struct pt_regs *regs)
 	int i;
 
 	pr_err("\n");
-	show_regs_print_info(KERN_ERR);
+	pr_err(" Pid: %d, comm: %20s, CPU: %d\n",
+	       tsk->pid, tsk->comm, smp_processor_id());
 #ifdef __tilegx__
 	for (i = 0; i < 51; i += 3)
 		pr_err(" r%-2d: "REGFMT" r%-2d: "REGFMT" r%-2d: "REGFMT"\n",

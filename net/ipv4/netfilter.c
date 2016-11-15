@@ -1,9 +1,4 @@
-/*
- * IPv4 specific functions of netfilter core
- *
- * Rusty Russell (C) 2000 -- This code is GPL.
- * Patrick McHardy (C) 2006-2012
- */
+/* IPv4 specific functions of netfilter core */
 #include <linux/kernel.h>
 #include <linux/netfilter.h>
 #include <linux/netfilter_ipv4.h>
@@ -17,7 +12,7 @@
 #include <net/netfilter/nf_queue.h>
 
 /* route_me_harder function, used by iptable_nat, iptable_mangle + ip_queue */
-int ip_route_me_harder(struct sk_buff *skb, unsigned int addr_type)
+int ip_route_me_harder(struct sk_buff *skb, unsigned addr_type)
 {
 	struct net *net = dev_net(skb_dst(skb)->dev);
 	const struct iphdr *iph = ip_hdr(skb);

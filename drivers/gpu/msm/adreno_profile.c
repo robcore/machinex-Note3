@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -214,7 +214,7 @@ static inline void shared_buf_inc(unsigned int max_size,
 	*offset = (*offset + inc) % max_size;
 }
 
-static inline void log_buf_wrapcnt(unsigned int cnt, uintptr_t *off)
+static inline void log_buf_wrapcnt(unsigned int cnt, unsigned int *off)
 {
 	*off = (*off + cnt) % ADRENO_PROFILE_LOG_BUF_SIZE_DWORDS;
 }
@@ -231,16 +231,16 @@ static inline void log_buf_wrapinc(unsigned int *profile_log_buffer,
 static inline unsigned int log_buf_available(struct adreno_profile *profile,
 		unsigned int *head_ptr)
 {
-	uintptr_t tail, head;
+	unsigned int tail, head;
 
-	tail = (uintptr_t) profile->log_tail -
-		(uintptr_t) profile->log_buffer;
-	head = (uintptr_t)head_ptr - (uintptr_t) profile->log_buffer;
+	tail = (unsigned int) profile->log_tail -
+		(unsigned int) profile->log_buffer;
+	head = (unsigned int) head_ptr - (unsigned int) profile->log_buffer;
 	if (tail > head)
-		return (tail - head) / sizeof(uintptr_t);
+		return (tail - head) / sizeof(unsigned int);
 	else
 		return ADRENO_PROFILE_LOG_BUF_SIZE_DWORDS - ((head - tail) /
-				sizeof(uintptr_t));
+				sizeof(unsigned int));
 }
 
 static inline unsigned int shared_buf_available(struct adreno_profile *profile)
@@ -306,7 +306,7 @@ static bool _add_to_assignments_list(struct adreno_profile *profile,
 
 static void check_close_profile(struct adreno_profile *profile)
 {
-	if (profile == NULL || profile->log_buffer == NULL)
+	if (profile->log_buffer == NULL)
 		return;
 
 	if (!adreno_profile_enabled(profile) && shared_buf_empty(profile)) {
@@ -401,12 +401,11 @@ static void transfer_results(struct kgsl_device *device,
 		 */
 		while (log_buf_available(profile, log_ptr) <=
 				SIZE_LOG_ENTRY(cnt)) {
-			unsigned int size_tail;
-			uintptr_t boff;
+			unsigned int size_tail, boff;
 			size_tail = SIZE_LOG_ENTRY(0xffff &
 					*(profile->log_tail));
-			boff = ((uintptr_t) profile->log_tail -
-				(uintptr_t) log_base) / sizeof(uintptr_t);
+			boff = ((unsigned int) profile->log_tail -
+				(unsigned int) log_base) / sizeof(unsigned int);
 			log_buf_wrapcnt(size_tail, &boff);
 			profile->log_tail = log_base + boff;
 		}
@@ -729,10 +728,10 @@ static ssize_t profile_assignments_write(struct file *filep,
 	buf[len] = '\0';
 
 	/* parse file buf and add(remove) to(from) appropriate lists */
-	while (pbuf) {
+	while (1) {
 		pbuf = _parse_next_assignment(adreno_dev, pbuf, &groupid,
 				&countable, &remove_assignment);
-		if (groupid < 0 || countable < 0)
+		if (pbuf == NULL)
 			break;
 
 		if (remove_assignment)
@@ -865,7 +864,7 @@ err:
 	return status;
 }
 
-static ssize_t profile_pipe_print(struct file *filep, char __user *ubuf,
+static int profile_pipe_print(struct file *filep, char __user *ubuf,
 		size_t max, loff_t *ppos)
 {
 	struct kgsl_device *device = (struct kgsl_device *) filep->private_data;
@@ -910,7 +909,7 @@ static ssize_t profile_pipe_print(struct file *filep, char __user *ubuf,
 
 		kgsl_mutex_unlock(&device->mutex, &device->mutex_owner);
 		set_current_state(TASK_INTERRUPTIBLE);
-		schedule_timeout(msecs_to_jiffies(100));
+		schedule_timeout(HZ / 10);
 		kgsl_mutex_lock(&device->mutex, &device->mutex_owner);
 
 		if (signal_pending(current)) {
@@ -1001,7 +1000,7 @@ void adreno_profile_init(struct kgsl_device *device)
 
 	/* allocate shared_buffer, which includes pre_ib and post_ib */
 	profile->shared_size = ADRENO_PROFILE_SHARED_BUF_SIZE_DWORDS;
-	ret = kgsl_allocate_contiguous(device, &profile->shared_buffer,
+	ret = kgsl_allocate_contiguous(&profile->shared_buffer,
 			profile->shared_size * sizeof(unsigned int));
 	if (ret) {
 		profile->shared_buffer.hostptr = NULL;

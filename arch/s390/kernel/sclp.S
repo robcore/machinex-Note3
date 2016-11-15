@@ -251,8 +251,6 @@ _sclp_print:
 .LendS4:
 	lm	%r6,%r15,120(%r15)		# restore registers
 	br	%r14
-.Lzeroes:
-	.fill	64,4,0
 
 #
 # Function which prints a given text to the SCLP console.

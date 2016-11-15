@@ -49,7 +49,6 @@ void machine_crash_nonpanic_core(void *unused)
 	crash_save_cpu(&regs, smp_processor_id());
 	flush_cache_all();
 
-	set_cpu_online(smp_processor_id(), false);
 	atomic_dec(&waiting_for_crash_ipi);
 	while (1)
 		cpu_relax();
@@ -109,14 +108,9 @@ void machine_kexec(struct kimage *image)
 {
 	unsigned long page_list;
 	unsigned long reboot_code_buffer_phys;
-	unsigned long reboot_entry = (unsigned long)relocate_new_kernel;
-	unsigned long reboot_entry_phys;
 	void *reboot_code_buffer;
 
-	if (num_online_cpus() > 1) {
-		pr_err("kexec: error: multiple CPUs still online\n");
-		return;
-	}
+	arch_kexec();
 
 	page_list = image->head & PAGE_MASK;
 
@@ -132,18 +126,18 @@ void machine_kexec(struct kimage *image)
 	kexec_boot_atags = image->start - KEXEC_ARM_ZIMAGE_OFFSET + KEXEC_ARM_ATAGS_OFFSET;
 
 	/* copy our kernel relocation code to the control code page */
-	reboot_entry = fncpy(reboot_code_buffer,
-			     reboot_entry,
-			     relocate_new_kernel_size);
-	reboot_entry_phys = (unsigned long)reboot_entry +
-		(reboot_code_buffer_phys - (unsigned long)reboot_code_buffer);
+	memcpy(reboot_code_buffer,
+	       relocate_new_kernel, relocate_new_kernel_size);
 
+
+	flush_icache_range((unsigned long) reboot_code_buffer,
+			   (unsigned long) reboot_code_buffer + KEXEC_CONTROL_PAGE_SIZE);
 	printk(KERN_INFO "Bye!\n");
 
 	if (kexec_reinit)
 		kexec_reinit();
 
-	soft_restart(reboot_entry_phys);
+	soft_restart(reboot_code_buffer_phys);
 }
 
 void arch_crash_save_vmcoreinfo(void)

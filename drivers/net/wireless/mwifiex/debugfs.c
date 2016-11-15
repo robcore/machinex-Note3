@@ -529,7 +529,7 @@ mwifiex_regrdwr_read(struct file *file, char __user *ubuf,
 
 	if (!saved_reg_type) {
 		/* No command has been given */
-		pos = snprintf(buf, PAGE_SIZE, "0");
+		pos += snprintf(buf, PAGE_SIZE, "0");
 		goto done;
 	}
 	/* Set command has been given */

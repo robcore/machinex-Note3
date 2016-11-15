@@ -104,7 +104,7 @@ static Node *check_file(struct linux_binprm *bprm)
 /*
  * the loader itself
  */
-static int load_misc_binary(struct linux_binprm *bprm)
+static int load_misc_binary(struct linux_binprm *bprm, struct pt_regs *regs)
 {
 	Node *fmt;
 	struct file * interp_file = NULL;
@@ -196,7 +196,7 @@ static int load_misc_binary(struct linux_binprm *bprm)
 	if (retval < 0)
 		goto _error;
 
-	retval = search_binary_handler(bprm);
+	retval = search_binary_handler (bprm, regs);
 	if (retval < 0)
 		goto _error;
 
@@ -519,7 +519,7 @@ static void kill_node(Node *e)
 	write_unlock(&entries_lock);
 
 	if (dentry) {
-		drop_nlink(d_inode(dentry));
+		drop_nlink(dentry->d_inode);
 		d_drop(dentry);
 		dput(dentry);
 		simple_release_fs(&bm_mnt, &entry_count);
@@ -531,7 +531,7 @@ static void kill_node(Node *e)
 static ssize_t
 bm_entry_read(struct file * file, char __user * buf, size_t nbytes, loff_t *ppos)
 {
-	Node *e = file_inode(file)->i_private;
+	Node *e = file->f_path.dentry->d_inode->i_private;
 	ssize_t res;
 	char *page;
 
@@ -550,7 +550,7 @@ static ssize_t bm_entry_write(struct file *file, const char __user *buffer,
 				size_t count, loff_t *ppos)
 {
 	struct dentry *root;
-	Node *e = file_inode(file)->i_private;
+	Node *e = file->f_path.dentry->d_inode->i_private;
 	int res = parse_command(buffer, count);
 
 	switch (res) {
@@ -559,11 +559,11 @@ static ssize_t bm_entry_write(struct file *file, const char __user *buffer,
 		case 2: set_bit(Enabled, &e->flags);
 			break;
 		case 3: root = dget(file->f_path.dentry->d_sb->s_root);
-			mutex_lock(&d_inode(root)->i_mutex);
+			mutex_lock(&root->d_inode->i_mutex);
 
 			kill_node(e);
 
-			mutex_unlock(&d_inode(root)->i_mutex);
+			mutex_unlock(&root->d_inode->i_mutex);
 			dput(root);
 			break;
 		default: return res;
@@ -594,14 +594,14 @@ static ssize_t bm_register_write(struct file *file, const char __user *buffer,
 		return PTR_ERR(e);
 
 	root = dget(sb->s_root);
-	mutex_lock(&d_inode(root)->i_mutex);
+	mutex_lock(&root->d_inode->i_mutex);
 	dentry = lookup_one_len(e->name, root, strlen(e->name));
 	err = PTR_ERR(dentry);
 	if (IS_ERR(dentry))
 		goto out;
 
 	err = -EEXIST;
-	if (d_really_is_positive(dentry))
+	if (dentry->d_inode)
 		goto out2;
 
 	inode = bm_get_inode(sb, S_IFREG | 0644);
@@ -630,7 +630,7 @@ static ssize_t bm_register_write(struct file *file, const char __user *buffer,
 out2:
 	dput(dentry);
 out:
-	mutex_unlock(&d_inode(root)->i_mutex);
+	mutex_unlock(&root->d_inode->i_mutex);
 	dput(root);
 
 	if (err) {
@@ -665,12 +665,12 @@ static ssize_t bm_status_write(struct file * file, const char __user * buffer,
 		case 1: enabled = 0; break;
 		case 2: enabled = 1; break;
 		case 3: root = dget(file->f_path.dentry->d_sb->s_root);
-			mutex_lock(&d_inode(root)->i_mutex);
+			mutex_lock(&root->d_inode->i_mutex);
 
 			while (!list_empty(&entries))
 				kill_node(list_entry(entries.next, Node, list));
 
-			mutex_unlock(&d_inode(root)->i_mutex);
+			mutex_unlock(&root->d_inode->i_mutex);
 			dput(root);
 		default: return res;
 	}
@@ -720,7 +720,6 @@ static struct file_system_type bm_fs_type = {
 	.mount		= bm_mount,
 	.kill_sb	= kill_litter_super,
 };
-MODULE_ALIAS_FS("binfmt_misc");
 
 static int __init init_misc_binfmt(void)
 {

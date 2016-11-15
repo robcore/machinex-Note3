@@ -3,7 +3,7 @@
  *
  * Copyright (C) Linaro 2012
  * Author: <benjamin.gaignard@linaro.org> for ST-Ericsson.
- * Copyright (c) 2013,2016 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013, The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -136,6 +136,7 @@ static int ion_secure_cma_add_to_pool(
 	}
 
 	dma_set_attr(DMA_ATTR_NO_KERNEL_MAPPING, &attrs);
+	dma_set_attr(DMA_ATTR_SKIP_ZEROING, &attrs);
 
 	cpu_addr = dma_alloc_attrs(sheap->dev, len, &handle, GFP_KERNEL,
 								&attrs);
@@ -313,14 +314,11 @@ out:
 static void ion_secure_cma_free_chunk(struct ion_cma_secure_heap *sheap,
 					struct ion_cma_alloc_chunk *chunk)
 {
-	DEFINE_DMA_ATTRS(attrs);
-
-	dma_set_attr(DMA_ATTR_NO_KERNEL_MAPPING, &attrs);
 	/* This region is 'allocated' and not available to allocate from */
 	bitmap_set(sheap->bitmap, (chunk->handle - sheap->base) >> PAGE_SHIFT,
 			chunk->chunk_size >> PAGE_SHIFT);
-	dma_free_attrs(sheap->dev, chunk->chunk_size, chunk->cpu_addr,
-				chunk->handle, &attrs);
+	dma_free_coherent(sheap->dev, chunk->chunk_size, chunk->cpu_addr,
+				chunk->handle);
 	atomic_sub(chunk->chunk_size, &sheap->total_pool_size);
 	list_del(&chunk->entry);
 	kfree(chunk);
@@ -346,13 +344,23 @@ int ion_secure_cma_drain_pool(struct ion_heap *heap, void *unused)
 	return 0;
 }
 
-static unsigned long ion_secure_cma_shrinker(struct shrinker *shrinker,
+static int ion_secure_cma_shrinker(struct shrinker *shrinker,
 					struct shrink_control *sc)
 {
 	struct ion_cma_secure_heap *sheap = container_of(shrinker,
 					struct ion_cma_secure_heap, shrinker);
 	int nr_to_scan = sc->nr_to_scan;
 	struct list_head *entry, *_n;
+
+	if (nr_to_scan == 0)
+		return atomic_read(&sheap->total_pool_size);
+
+	/*
+	 * CMA pages can only be used for movable allocation so don't free if
+	 * the allocation isn't movable
+	 */
+	if (!(sc->gfp_mask & __GFP_MOVABLE))
+		return atomic_read(&sheap->total_pool_size);
 
 	/*
 	 * Allocation path may recursively call the shrinker. Don't shrink if
@@ -375,14 +383,6 @@ static unsigned long ion_secure_cma_shrinker(struct shrinker *shrinker,
 	}
 	mutex_unlock(&sheap->chunk_lock);
 
-	return atomic_read(&sheap->total_pool_size);
-}
-
-static unsigned long ion_secure_cma_shrinker_count(struct shrinker *shrinker,
-					struct shrink_control *sc)
-{
-	struct ion_cma_secure_heap *sheap = container_of(shrinker,
-					struct ion_cma_secure_heap, shrinker);
 	return atomic_read(&sheap->total_pool_size);
 }
 
@@ -476,7 +476,7 @@ retry:
 
 	/* keep this for memory release */
 	buffer->priv_virt = info;
-	dev_dbg(sheap->dev, "Allocate buffer %pK\n", buffer);
+	dev_dbg(sheap->dev, "Allocate buffer %p\n", buffer);
 	return info;
 
 err:
@@ -500,12 +500,6 @@ static int ion_secure_cma_allocate(struct ion_heap *heap,
 
 	if (ION_IS_CACHED(flags)) {
 		pr_err("%s: cannot allocate cached memory from secure heap %s\n",
-			__func__, heap->name);
-		return -ENOMEM;
-	}
-
-	if (!IS_ALIGNED(len, SZ_1M)) {
-		pr_err("%s: length of allocation from %s must be a multiple of 1MB\n",
 			__func__, heap->name);
 		return -ENOMEM;
 	}
@@ -549,7 +543,7 @@ static void ion_secure_cma_free(struct ion_buffer *buffer)
 		container_of(buffer->heap, struct ion_cma_secure_heap, heap);
 	struct ion_secure_cma_buffer_info *info = buffer->priv_virt;
 
-	dev_dbg(sheap->dev, "Release buffer %pK\n", buffer);
+	dev_dbg(sheap->dev, "Release buffer %p\n", buffer);
 	ion_cp_unsecure_buffer(buffer, 1);
 	atomic_sub(buffer->size, &sheap->total_allocated);
 	BUG_ON(atomic_read(&sheap->total_allocated) < 0);
@@ -568,7 +562,7 @@ static int ion_secure_cma_phys(struct ion_heap *heap, struct ion_buffer *buffer,
 		container_of(heap, struct ion_cma_secure_heap, heap);
 	struct ion_secure_cma_buffer_info *info = buffer->priv_virt;
 
-	dev_dbg(sheap->dev, "Return buffer %pK physical address 0x%pa\n", buffer,
+	dev_dbg(sheap->dev, "Return buffer %p physical address 0x%pa\n", buffer,
 		&info->phys);
 
 	*addr = info->phys;
@@ -605,7 +599,7 @@ static void *ion_secure_cma_map_kernel(struct ion_heap *heap,
 {
 	pr_info("%s: kernel mapping from secure heap %s disallowed\n",
 		__func__, heap->name);
-	return ERR_PTR(-EINVAL);
+	return NULL;
 }
 
 static void ion_secure_cma_unmap_kernel(struct ion_heap *heap,
@@ -626,7 +620,7 @@ static int ion_secure_cma_print_debug(struct ion_heap *heap, struct seq_file *s,
 		seq_printf(s, "\nMemory Map\n");
 		seq_printf(s, "%16.s %14.s %14.s %14.s\n",
 			   "client", "start address", "end address",
-			   "size");
+			   "size (hex)");
 
 		list_for_each_entry(data, mem_map, node) {
 			const char *client_name = "(null)";
@@ -635,15 +629,15 @@ static int ion_secure_cma_print_debug(struct ion_heap *heap, struct seq_file *s,
 			if (data->client_name)
 				client_name = data->client_name;
 
-			seq_printf(s, "%16.s 0x%14pa 0x%14pa %14lu (0x%lx)\n",
+			seq_printf(s, "%16.s %14pa %14pa %14lu (%lx)\n",
 				   client_name, &data->addr,
 				   &data->addr_end,
 				   data->size, data->size);
 		}
 	}
-	seq_printf(s, "Total allocated: 0x%x\n",
+	seq_printf(s, "Total allocated: %x\n",
 				atomic_read(&sheap->total_allocated));
-	seq_printf(s, "Total pool size: 0x%x\n",
+	seq_printf(s, "Total pool size: %x\n",
 				atomic_read(&sheap->total_pool_size));
 	return 0;
 }
@@ -684,8 +678,7 @@ struct ion_heap *ion_secure_cma_heap_create(struct ion_platform_heap *data)
 	INIT_WORK(&sheap->work, ion_secure_pool_pages);
 	sheap->shrinker.seeks = DEFAULT_SEEKS;
 	sheap->shrinker.batch = 0;
-	sheap->shrinker.scan_objects = ion_secure_cma_shrinker;
-	sheap->shrinker.count_objects = ion_secure_cma_shrinker_count;
+	sheap->shrinker.shrink = ion_secure_cma_shrinker;
 	sheap->default_prefetch_size = sheap->heap_size;
 	register_shrinker(&sheap->shrinker);
 

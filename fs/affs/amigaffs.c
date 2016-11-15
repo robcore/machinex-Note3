@@ -122,15 +122,22 @@ affs_remove_hash(struct inode *dir, struct buffer_head *rem_bh)
 }
 
 static void
-affs_fix_dcache(struct inode *inode, u32 entry_ino)
+affs_fix_dcache(struct dentry *dentry, u32 entry_ino)
 {
-	struct dentry *dentry;
+	struct inode *inode = dentry->d_inode;
+	void *data = dentry->d_fsdata;
+	struct list_head *head, *next;
+
 	spin_lock(&inode->i_lock);
-	hlist_for_each_entry(dentry, &inode->i_dentry, d_u.d_alias) {
+	head = &inode->i_dentry;
+	next = head->next;
+	while (next != head) {
+		dentry = list_entry(next, struct dentry, d_u.d_alias);
 		if (entry_ino == (u32)(long)dentry->d_fsdata) {
-			dentry->d_fsdata = (void *)inode->i_ino;
+			dentry->d_fsdata = data;
 			break;
 		}
+		next = next->next;
 	}
 	spin_unlock(&inode->i_lock);
 }
@@ -170,11 +177,7 @@ affs_remove_link(struct dentry *dentry)
 		}
 
 		affs_lock_dir(dir);
-		/*
-		 * if there's a dentry for that block, make it
-		 * refer to inode itself.
-		 */
-		affs_fix_dcache(inode, link_ino);
+		affs_fix_dcache(dentry, link_ino);
 		retval = affs_remove_hash(dir, link_bh);
 		if (retval) {
 			affs_unlock_dir(dir);

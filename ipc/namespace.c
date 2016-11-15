@@ -12,7 +12,7 @@
 #include <linux/fs.h>
 #include <linux/mount.h>
 #include <linux/user_namespace.h>
-#include <linux/proc_ns.h>
+#include <linux/proc_fs.h>
 
 #include "util.h"
 
@@ -26,16 +26,9 @@ static struct ipc_namespace *create_ipc_ns(struct task_struct *tsk,
 	if (ns == NULL)
 		return ERR_PTR(-ENOMEM);
 
-	err = proc_alloc_inum(&ns->proc_inum);
-	if (err) {
-		kfree(ns);
-		return ERR_PTR(err);
-	}
-
 	atomic_set(&ns->count, 1);
 	err = mq_init_ns(ns);
 	if (err) {
-		proc_free_inum(ns->proc_inum);
 		kfree(ns);
 		return ERR_PTR(err);
 	}
@@ -53,7 +46,7 @@ static struct ipc_namespace *create_ipc_ns(struct task_struct *tsk,
 	ipcns_notify(IPCNS_CREATED);
 	register_ipcns_notifier(ns);
 
-	ns->user_ns = get_user_ns(task_cred_xxx(tsk, user_ns));
+	ns->user_ns = get_user_ns(task_cred_xxx(tsk, user)->user_ns);
 
 	return ns;
 }
@@ -83,7 +76,7 @@ void free_ipcs(struct ipc_namespace *ns, struct ipc_ids *ids,
 	int next_id;
 	int total, in_use;
 
-	down_write(&ids->rwsem);
+	down_write(&ids->rw_mutex);
 
 	in_use = ids->in_use;
 
@@ -91,12 +84,11 @@ void free_ipcs(struct ipc_namespace *ns, struct ipc_ids *ids,
 		perm = idr_find(&ids->ipcs_idr, next_id);
 		if (perm == NULL)
 			continue;
-		rcu_read_lock();
-		ipc_lock_object(perm);
+		ipc_lock_by_ptr(perm);
 		free(ns, perm);
 		total++;
 	}
-	up_write(&ids->rwsem);
+	up_write(&ids->rw_mutex);
 }
 
 static void free_ipc_ns(struct ipc_namespace *ns)
@@ -121,7 +113,6 @@ static void free_ipc_ns(struct ipc_namespace *ns)
 	 */
 	ipcns_notify(IPCNS_REMOVED);
 	put_user_ns(ns->user_ns);
-	proc_free_inum(ns->proc_inum);
 	kfree(ns);
 }
 
@@ -156,11 +147,11 @@ static void *ipcns_get(struct task_struct *task)
 	struct ipc_namespace *ns = NULL;
 	struct nsproxy *nsproxy;
 
-	task_lock(task);
-	nsproxy = task->nsproxy;
+	rcu_read_lock();
+	nsproxy = task_nsproxy(task);
 	if (nsproxy)
 		ns = get_ipc_ns(nsproxy->ipc_ns);
-	task_unlock(task);
+	rcu_read_unlock();
 
 	return ns;
 }
@@ -179,18 +170,10 @@ static int ipcns_install(struct nsproxy *nsproxy, void *ns)
 	return 0;
 }
 
-static unsigned int ipcns_inum(void *vp)
-{
-	struct ipc_namespace *ns = vp;
-
-	return ns->proc_inum;
-}
-
 const struct proc_ns_operations ipcns_operations = {
 	.name		= "ipc",
 	.type		= CLONE_NEWIPC,
 	.get		= ipcns_get,
 	.put		= ipcns_put,
 	.install	= ipcns_install,
-	.inum		= ipcns_inum,
 };

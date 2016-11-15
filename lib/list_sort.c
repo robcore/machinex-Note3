@@ -47,7 +47,6 @@ static void merge_and_restore_back_links(void *priv,
 				struct list_head *a, struct list_head *b)
 {
 	struct list_head *tail = head;
-	u8 count = 0;
 
 	while (a && b) {
 		/* if equal, take 'a' -- important for sort stability */
@@ -71,8 +70,7 @@ static void merge_and_restore_back_links(void *priv,
 		 * element comparison is needed, so the client's cmp()
 		 * routine can invoke cond_resched() periodically.
 		 */
-		if (unlikely(!(++count)))
-			(*cmp)(priv, tail->next, tail->next);
+		(*cmp)(priv, tail->next, tail->next);
 
 		tail->next->prev = tail;
 		tail = tail->next;
@@ -231,7 +229,7 @@ static int __init list_sort_test(void)
 			goto exit;
 		}
 		 /* force some equivalencies */
-		el->value = prandom_u32() % (TEST_LIST_LEN / 3);
+		el->value = random32() % (TEST_LIST_LEN/3);
 		el->serial = i;
 		el->poison1 = TEST_POISON1;
 		el->poison2 = TEST_POISON2;

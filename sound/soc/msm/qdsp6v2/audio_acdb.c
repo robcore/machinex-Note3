@@ -52,12 +52,6 @@ struct acdb_data {
 	/* LSM Cal */
 	struct acdb_cal_block		lsm_cal;
 
-	/* ULP Listen AFE cal */
-	struct acdb_cal_block		ulp_lsm_cal;
-
-	/* ULP Listen LSM cal */
-	struct acdb_cal_block		ulp_afe_cal;
-
 	/* AudProc Cal */
 	uint32_t			asm_topology;
 	uint32_t			adm_topology[MAX_AUDPROC_TYPES];
@@ -105,7 +99,6 @@ struct acdb_data {
 	/* Av sync delay info */
 	struct hw_delay hw_delay_rx;
 	struct hw_delay hw_delay_tx;
-	struct meta_info_t metainfo;
 };
 
 static struct acdb_data		acdb_data;
@@ -115,7 +108,7 @@ uint32_t get_voice_rx_topology(void)
 	return acdb_data.voice_rx_topology;
 }
 
-static void store_voice_rx_topology(uint32_t topology)
+void store_voice_rx_topology(uint32_t topology)
 {
 	acdb_data.voice_rx_topology = topology;
 }
@@ -125,7 +118,7 @@ uint32_t get_voice_tx_topology(void)
 	return acdb_data.voice_tx_topology;
 }
 
-static void store_voice_tx_topology(uint32_t topology)
+void store_voice_tx_topology(uint32_t topology)
 {
 	acdb_data.voice_tx_topology = topology;
 }
@@ -135,7 +128,7 @@ uint32_t get_adm_rx_topology(void)
 	return acdb_data.adm_topology[RX_CAL];
 }
 
-static void store_adm_rx_topology(uint32_t topology)
+void store_adm_rx_topology(uint32_t topology)
 {
 	acdb_data.adm_topology[RX_CAL] = topology;
 }
@@ -145,7 +138,7 @@ uint32_t get_adm_tx_topology(void)
 	return acdb_data.adm_topology[TX_CAL];
 }
 
-static void store_adm_tx_topology(uint32_t topology)
+void store_adm_tx_topology(uint32_t topology)
 {
 	acdb_data.adm_topology[TX_CAL] = topology;
 }
@@ -155,7 +148,7 @@ uint32_t get_asm_topology(void)
 	return acdb_data.asm_topology;
 }
 
-static void store_asm_topology(uint32_t topology)
+void store_asm_topology(uint32_t topology)
 {
 	acdb_data.asm_topology = topology;
 }
@@ -196,7 +189,7 @@ done:
 	return result;
 }
 
-static int store_adm_custom_topology(struct cal_block *cal_block)
+int store_adm_custom_topology(struct cal_block *cal_block)
 {
 	int result = 0;
 	pr_debug("%s,\n", __func__);
@@ -245,7 +238,7 @@ done:
 	return result;
 }
 
-static int store_asm_custom_topology(struct cal_block *cal_block)
+int store_asm_custom_topology(struct cal_block *cal_block)
 {
 	int result = 0;
 	pr_debug("%s,\n", __func__);
@@ -302,7 +295,7 @@ done:
 	return result;
 }
 
-static int store_aanc_cal(struct cal_block *cal_block)
+int store_aanc_cal(struct cal_block *cal_block)
 {
 	int result = 0;
 	pr_debug("%s,\n", __func__);
@@ -323,97 +316,6 @@ done:
 	return result;
 }
 
-static int store_ulp_afe_cal(struct cal_block *cal_block)
-{
-	int rc = 0;
-
-	if (cal_block->cal_offset > acdb_data.mem_len) {
-		pr_err("%s: offset %d is > mem_len %llu\n",
-			__func__, cal_block->cal_offset,
-			acdb_data.mem_len);
-		rc = -EINVAL;
-		goto done;
-	}
-
-	pr_debug("%s: cal_size = %u, cal_offset = %u\n",
-		__func__, cal_block->cal_size,
-		cal_block->cal_offset);
-
-	acdb_data.ulp_afe_cal.cal_size = cal_block->cal_size;
-	acdb_data.ulp_afe_cal.cal_paddr =
-		cal_block->cal_offset + acdb_data.paddr;
-	acdb_data.ulp_afe_cal.cal_kvaddr =
-		cal_block->cal_offset + acdb_data.kvaddr;
-
-done:
-	return rc;
-}
-
-int get_ulp_afe_cal(struct acdb_cal_block *cal_block)
-{
-	int rc = 0;
-
-	if (cal_block == NULL) {
-		pr_err("ACDB=> NULL pointer sent to %s\n", __func__);
-		rc = -EINVAL;
-		goto done;
-	}
-
-	cal_block->cal_size = acdb_data.ulp_afe_cal.cal_size;
-	cal_block->cal_paddr = acdb_data.ulp_afe_cal.cal_paddr;
-	cal_block->cal_kvaddr = acdb_data.ulp_afe_cal.cal_kvaddr;
-
-done:
-	return rc;
-}
-EXPORT_SYMBOL(get_ulp_afe_cal);
-
-
-static int store_ulp_lsm_cal(struct cal_block *cal_block)
-{
-	int rc = 0;
-
-	if (cal_block->cal_offset > acdb_data.mem_len) {
-		pr_err("%s: offset %d is > mem_len %llu\n",
-			__func__, cal_block->cal_offset,
-			acdb_data.mem_len);
-		rc = -EINVAL;
-		goto done;
-	}
-
-	pr_debug("%s: cal_size = %u, cal_offset = %u\n",
-		__func__, cal_block->cal_size,
-		cal_block->cal_offset);
-
-	acdb_data.ulp_lsm_cal.cal_size = cal_block->cal_size;
-	acdb_data.ulp_lsm_cal.cal_paddr =
-		cal_block->cal_offset + acdb_data.paddr;
-	acdb_data.ulp_lsm_cal.cal_kvaddr =
-		cal_block->cal_offset + acdb_data.kvaddr;
-
-done:
-	return rc;
-}
-
-int get_ulp_lsm_cal(struct acdb_cal_block *cal_block)
-{
-	int rc = 0;
-
-	if (cal_block == NULL) {
-		pr_err("ACDB=> NULL pointer sent to %s\n", __func__);
-		rc = -EINVAL;
-		goto done;
-	}
-
-	cal_block->cal_size = acdb_data.ulp_lsm_cal.cal_size;
-	cal_block->cal_paddr = acdb_data.ulp_lsm_cal.cal_paddr;
-	cal_block->cal_kvaddr = acdb_data.ulp_lsm_cal.cal_kvaddr;
-
-done:
-	return rc;
-}
-EXPORT_SYMBOL(get_ulp_lsm_cal);
-
 int get_lsm_cal(struct acdb_cal_block *cal_block)
 {
 	int result = 0;
@@ -432,7 +334,7 @@ done:
 	return result;
 }
 
-static int store_lsm_cal(struct cal_block *cal_block)
+int store_lsm_cal(struct cal_block *cal_block)
 {
 	int result = 0;
 	pr_debug("%s,\n", __func__);
@@ -509,7 +411,7 @@ ret:
 	return result;
 }
 
-static int store_hw_delay(int32_t path, void *arg)
+int store_hw_delay(int32_t path, void *arg)
 {
 	int result = 0;
 	struct hw_delay delay;
@@ -585,7 +487,7 @@ done:
 	return result;
 }
 
-static int store_anc_cal(struct cal_block *cal_block)
+int store_anc_cal(struct cal_block *cal_block)
 {
 	int result = 0;
 	pr_debug("%s,\n", __func__);
@@ -606,7 +508,7 @@ done:
 	return result;
 }
 
-static int store_afe_cal(int32_t path, struct cal_block *cal_block)
+int store_afe_cal(int32_t path, struct cal_block *cal_block)
 {
 	int result = 0;
 	pr_debug("%s, path = %d\n", __func__, path);
@@ -657,7 +559,7 @@ done:
 	return result;
 }
 
-static int store_audproc_cal(int32_t path, struct cal_block *cal_block)
+int store_audproc_cal(int32_t path, struct cal_block *cal_block)
 {
 	int result = 0;
 	pr_debug("%s, path = %d\n", __func__, path);
@@ -708,7 +610,7 @@ done:
 	return result;
 }
 
-static int store_audstrm_cal(int32_t path, struct cal_block *cal_block)
+int store_audstrm_cal(int32_t path, struct cal_block *cal_block)
 {
 	int result = 0;
 	pr_debug("%s, path = %d\n", __func__, path);
@@ -759,7 +661,7 @@ done:
 	return result;
 }
 
-static int store_audvol_cal(int32_t path, struct cal_block *cal_block)
+int store_audvol_cal(int32_t path, struct cal_block *cal_block)
 {
 	int result = 0;
 	pr_debug("%s, path = %d\n", __func__, path);
@@ -810,7 +712,7 @@ done:
 	return result;
 }
 
-static int store_voice_col_data(uint32_t vocproc_type, uint32_t cal_size,
+int store_voice_col_data(uint32_t vocproc_type, uint32_t cal_size,
 			  uint32_t *cal_block)
 {
 	int result = 0;
@@ -872,7 +774,7 @@ done:
 	return result;
 }
 
-static int store_vocproc_dev_cfg_cal(struct cal_block *cal_block)
+int store_vocproc_dev_cfg_cal(struct cal_block *cal_block)
 {
 	int result = 0;
 	pr_debug("%s,\n", __func__);
@@ -916,7 +818,7 @@ done:
 
 
 
-static int store_vocproc_cal(struct cal_block *cal_block)
+int store_vocproc_cal(struct cal_block *cal_block)
 {
 	int result = 0;
 	pr_debug("%s,\n", __func__);
@@ -957,7 +859,7 @@ done:
 	return result;
 }
 
-static int store_vocstrm_cal(struct cal_block *cal_block)
+int store_vocstrm_cal(struct cal_block *cal_block)
 {
 	int result = 0;
 	pr_debug("%s,\n", __func__);
@@ -998,7 +900,7 @@ done:
 	return result;
 }
 
-static int store_vocvol_cal(struct cal_block *cal_block)
+int store_vocvol_cal(struct cal_block *cal_block)
 {
 	int result = 0;
 	pr_debug("%s,\n", __func__);
@@ -1038,7 +940,7 @@ done:
 	return result;
 }
 
-static void store_sidetone_cal(struct sidetone_cal *cal_data)
+void store_sidetone_cal(struct sidetone_cal *cal_data)
 {
 	pr_debug("%s,\n", __func__);
 
@@ -1060,103 +962,6 @@ int get_sidetone_cal(struct sidetone_cal *cal_data)
 	mutex_lock(&acdb_data.acdb_mutex);
 	cal_data->enable = acdb_data.sidetone_cal.enable;
 	cal_data->gain = acdb_data.sidetone_cal.gain;
-	mutex_unlock(&acdb_data.acdb_mutex);
-done:
-	return result;
-}
-
-static int store_meta_info(void *arg)
-{
-	int result = 0;
-
-	result = copy_from_user((void *)&(acdb_data.metainfo.nKeyValue),
-				(void *)arg, sizeof(uint32_t));
-	if (result) {
-		pr_err("ACDB=> %s failed to copy metaInfo Key: result=%d\n",
-			__func__, result);
-		result = -EFAULT;
-		goto done;
-	}
-	result = copy_from_user((void *)&(acdb_data.metainfo.nBufferLength),
-		(void *)(arg + sizeof(uint32_t)), sizeof(uint32_t));
-	if (result) {
-		pr_err("ACDB=> %s failed to copy metaInfo size: result=%d\n",
-			__func__, result);
-		result = -EFAULT;
-		goto done;
-	}
-	if (acdb_data.metainfo.nBufferLength > MAX_META_INFO_SIZE) {
-		pr_err("ACDB=> %s metaInfo size too large (%d)\n",
-			__func__, acdb_data.metainfo.nBufferLength);
-		result = -EFAULT;
-		goto done;
-
-	}
-	if (acdb_data.metainfo.nBuffer != NULL) {
-		pr_err("ACDB=> %s metaInfo already there\n",
-			__func__);
-		result = -EEXIST;
-		goto done;
-	}
-	acdb_data.metainfo.nBuffer =
-			kmalloc(acdb_data.metainfo.nBufferLength, GFP_KERNEL);
-	if (acdb_data.metainfo.nBuffer == NULL) {
-		pr_err("%s : Failed to allocate metaInfo\n",
-			__func__);
-		result = -ENOMEM;
-		goto done;
-	}
-
-	result = copy_from_user((void *)(acdb_data.metainfo.nBuffer),
-		 (void *)(*(uint32_t **)(arg + sizeof(uint32_t)*2)),
-		 acdb_data.metainfo.nBufferLength);
-
-	if (result) {
-		pr_err("ACDB=> %s failed to copy metaInfo : result=%d\n",
-			__func__, result);
-		kfree(acdb_data.metainfo.nBuffer);
-		result = -EFAULT;
-		goto done;
-	}
-
-done:
-	return result;
-}
-
-int get_meta_info_size(uint32_t key, uint32_t *size)
-{
-	int result = 0;
-
-	mutex_lock(&acdb_data.acdb_mutex);
-	if (key == acdb_data.metainfo.nKeyValue)
-		*size = acdb_data.metainfo.nBufferLength;
-	else
-		result = -EINVAL;
-
-	mutex_unlock(&acdb_data.acdb_mutex);
-
-	return result;
-}
-
-int get_meta_info(struct meta_info_t *metainfo)
-{
-	int result = 0;
-
-	if (metainfo == NULL || metainfo->nBuffer == NULL) {
-		pr_err("ACDB=> NULL pointer sent to %s\n", __func__);
-		result = -EINVAL;
-		goto done;
-	}
-	mutex_lock(&acdb_data.acdb_mutex);
-	if (metainfo->nKeyValue == acdb_data.metainfo.nKeyValue &&
-	    metainfo->nBufferLength == acdb_data.metainfo.nBufferLength &&
-	    acdb_data.metainfo.nBuffer  != NULL)
-		memcpy(metainfo->nBuffer, acdb_data.metainfo.nBuffer,
-			acdb_data.metainfo.nBufferLength);
-	else {
-		pr_err("ACDB=> wrong data %s\n", __func__);
-		result = -EINVAL;
-	}
 	mutex_unlock(&acdb_data.acdb_mutex);
 done:
 	return result;
@@ -1248,7 +1053,6 @@ static int acdb_open(struct inode *inode, struct file *f)
 
 	acdb_data.valid_adm_custom_top = 1;
 	acdb_data.valid_asm_custom_top = 1;
-	acdb_data.metainfo.nBuffer  = NULL;
 	acdb_data.usage_count++;
 	mutex_unlock(&acdb_data.acdb_mutex);
 
@@ -1564,9 +1368,6 @@ static long acdb_ioctl(struct file *f,
 	case AUDIO_SET_HW_DELAY_TX:
 		result = store_hw_delay(TX_CAL, (void *)arg);
 		goto done;
-	case AUDIO_SET_META_INFO:
-		result = store_meta_info((void *)arg);
-		goto done;
 	}
 
 	if (copy_from_user(&size, (void *) arg, sizeof(size))) {
@@ -1669,12 +1470,6 @@ static long acdb_ioctl(struct file *f,
 	case AUDIO_SET_AANC_CAL:
 		result = store_aanc_cal((struct cal_block *)data);
 		goto done;
-	case AUDIO_LISTEN_SET_ULP_LSM_CAL:
-		result = store_ulp_lsm_cal((struct cal_block *) data);
-		goto done;
-	case AUDIO_LISTEN_SET_ULP_AFE_CAL:
-		result = store_ulp_afe_cal((struct cal_block *) data);
-		goto done;
 	default:
 		pr_err("ACDB=> ACDB ioctl not found!\n");
 		result = -EFAULT;
@@ -1730,8 +1525,6 @@ static int acdb_release(struct inode *inode, struct file *f)
 		result = -EBUSY;
 		goto done;
 	}
-	if (acdb_data.metainfo.nBuffer != NULL)
-		kfree(acdb_data.metainfo.nBuffer);
 
 	result = deregister_memory();
 done:

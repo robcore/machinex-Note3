@@ -85,13 +85,11 @@ bool parameq(const char *a, const char *b)
 
 static int parse_one(char *param,
 		     char *val,
-		     const char *doing,
 		     const struct kernel_param *params,
 		     unsigned num_params,
 		     s16 min_level,
 		     s16 max_level,
-		     int (*handle_unknown)(char *param, char *val,
-				     const char *doing))
+		     int (*handle_unknown)(char *param, char *val))
 {
 	unsigned int i;
 	int err;
@@ -106,8 +104,8 @@ static int parse_one(char *param,
 			if (!val && params[i].ops->set != param_set_bool
 			    && params[i].ops->set != param_set_bint)
 				return -EINVAL;
-			pr_debug("handling %s with %p\n", param,
-				params[i].ops->set);
+			pr_debug("They are equal!  Calling %p\n",
+			       params[i].ops->set);
 			mutex_lock(&param_lock);
 			err = params[i].ops->set(val, &params[i]);
 			mutex_unlock(&param_lock);
@@ -116,11 +114,11 @@ static int parse_one(char *param,
 	}
 
 	if (handle_unknown) {
-		pr_debug("doing %s: %s='%s'\n", doing, param, val);
-		return handle_unknown(param, val, doing);
+		pr_debug("Unknown argument: calling %p\n", handle_unknown);
+		return handle_unknown(param, val);
 	}
 
-	pr_debug("Unknown argument '%s'\n", param);
+	pr_debug("Unknown argument `%s'\n", param);
 	return -ENOENT;
 }
 
@@ -177,21 +175,20 @@ static char *next_arg(char *args, char **param, char **val)
 }
 
 /* Args looks like "foo=bar,bar2 baz=fuz wiz". */
-int parse_args(const char *doing,
+int parse_args(const char *name,
 	       char *args,
 	       const struct kernel_param *params,
 	       unsigned num,
 	       s16 min_level,
 	       s16 max_level,
-	       int (*unknown)(char *param, char *val, const char *doing))
+	       int (*unknown)(char *param, char *val))
 {
 	char *param, *val;
 
+	pr_debug("Parsing ARGS: %s\n", args);
+
 	/* Chew leading spaces */
 	args = skip_spaces(args);
-
-	if (*args)
-		pr_debug("doing %s, parsing ARGS: '%s'\n", doing, args);
 
 	while (*args) {
 		int ret;
@@ -199,25 +196,28 @@ int parse_args(const char *doing,
 
 		args = next_arg(args, &param, &val);
 		irq_was_disabled = irqs_disabled();
-		ret = parse_one(param, val, doing, params, num,
+		ret = parse_one(param, val, params, num,
 				min_level, max_level, unknown);
-		if (irq_was_disabled && !irqs_disabled())
-			pr_warn("%s: option '%s' enabled irq's!\n",
-				doing, param);
-
+		if (irq_was_disabled && !irqs_disabled()) {
+			printk(KERN_WARNING "parse_args(): option '%s' enabled "
+					"irq's!\n", param);
+		}
 		switch (ret) {
 		case -ENOENT:
-			pr_err("%s: Unknown parameter `%s'\n", doing, param);
+			printk(KERN_ERR "%s: Unknown parameter `%s'\n",
+			       name, param);
 			return ret;
 		case -ENOSPC:
-			pr_err("%s: `%s' too large for parameter `%s'\n",
-			       doing, val ?: "", param);
+			printk(KERN_ERR
+			       "%s: `%s' too large for parameter `%s'\n",
+			       name, val ?: "", param);
 			return ret;
 		case 0:
 			break;
 		default:
-			pr_err("%s: `%s' invalid for parameter `%s'\n",
-			       doing, val ?: "", param);
+			printk(KERN_ERR
+			       "%s: `%s' invalid for parameter `%s'\n",
+			       name, val ?: "", param);
 			return ret;
 		}
 	}
@@ -263,7 +263,8 @@ STANDARD_PARAM_DEF(ulong, unsigned long, "%lu", unsigned long, strict_strtoul);
 int param_set_charp(const char *val, const struct kernel_param *kp)
 {
 	if (strlen(val) > 1024) {
-		pr_err("%s: string parameter too long\n", kp->name);
+		printk(KERN_ERR "%s: string parameter too long\n",
+		       kp->name);
 		return -ENOSPC;
 	}
 
@@ -399,7 +400,8 @@ static int param_array(const char *name,
 		int len;
 
 		if (*num == max) {
-			pr_err("%s: can only take %i arguments\n", name, max);
+			printk(KERN_ERR "%s: can only take %i arguments\n",
+			       name, max);
 			return -EINVAL;
 		}
 		len = strcspn(val, ",");
@@ -418,7 +420,8 @@ static int param_array(const char *name,
 	} while (save == ',');
 
 	if (*num < min) {
-		pr_err("%s: needs at least %i arguments\n", name, min);
+		printk(KERN_ERR "%s: needs at least %i arguments\n",
+		       name, min);
 		return -EINVAL;
 	}
 	return 0;
@@ -477,7 +480,7 @@ int param_set_copystring(const char *val, const struct kernel_param *kp)
 	const struct kparam_string *kps = kp->str;
 
 	if (strlen(val)+1 > kps->maxlen) {
-		pr_err("%s: string doesn't fit in %u chars.\n",
+		printk(KERN_ERR "%s: string doesn't fit in %u chars.\n",
 		       kp->name, kps->maxlen-1);
 		return -ENOSPC;
 	}
@@ -613,13 +616,10 @@ static __modinit int add_sysfs_param(struct module_kobject *mk,
 		       sizeof(*mk->mp) + sizeof(mk->mp->attrs[0]) * (num+1),
 		       GFP_KERNEL);
 	if (!new) {
-		kfree(attrs);
+		kfree(mk->mp);
 		err = -ENOMEM;
 		goto fail;
 	}
-	/* Despite looking like the typical realloc() bug, this is safe.
-	 * We *want* the old 'attrs' to be freed either way, and we'll store
-	 * the new one in the success case. */
 	attrs = krealloc(attrs, sizeof(new->grp.attrs[0])*(num+2), GFP_KERNEL);
 	if (!attrs) {
 		err = -ENOMEM;
@@ -750,8 +750,11 @@ static struct module_kobject * __init locate_module_kobject(const char *name)
 #endif
 		if (err) {
 			kobject_put(&mk->kobj);
-			pr_crit("Adding module '%s' to sysfs failed (%d), the system may be unstable.\n",
+			printk(KERN_ERR
+				"Module '%s' failed add to sysfs, error number %d\n",
 				name, err);
+			printk(KERN_ERR
+				"The system will be unstable now.\n");
 			return NULL;
 		}
 

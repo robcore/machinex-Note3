@@ -16,15 +16,17 @@
 /* Chosen so that structs with an unsigned long line up. */
 #define MAX_PARAM_PREFIX_LEN (64 - sizeof(unsigned long))
 
+#define ___module_cat(a,b) __mod_ ## a ## b
+#define __module_cat(a,b) ___module_cat(a,b)
 #ifdef MODULE
 #define __MODULE_INFO(tag, name, info)					  \
-static const char __UNIQUE_ID(name)[]					  \
+static const char __module_cat(name,__LINE__)[]				  \
   __used __attribute__((section(".modinfo"), unused, aligned(1)))	  \
   = __stringify(tag) "=" info
 #else  /* !MODULE */
 /* This struct is here for syntactic coherency, it is not used */
 #define __MODULE_INFO(tag, name, info)					  \
-  struct __UNIQUE_ID(name) {}
+  struct __module_cat(name,__LINE__) {}
 #endif
 #define __MODULE_PARM_TYPE(name, _type)					  \
   __MODULE_INFO(parmtype, name##type, #name ":" _type)
@@ -318,8 +320,7 @@ extern int parse_args(const char *name,
 		      unsigned num,
 		      s16 level_min,
 		      s16 level_max,
-		      int (*unknown)(char *param, char *val,
-			      const char *doing));
+		      int (*unknown)(char *param, char *val));
 
 /* Called by module remove. */
 #ifdef CONFIG_SYSFS

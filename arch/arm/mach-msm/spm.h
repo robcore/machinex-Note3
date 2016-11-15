@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -53,7 +53,6 @@ enum {
 	MSM_SPM_REG_SAW2_SECURE,
 	MSM_SPM_REG_SAW2_STS0,
 	MSM_SPM_REG_SAW2_STS1,
-	MSM_SPM_REG_SAW2_STS2,
 	MSM_SPM_REG_SAW2_VCTL,
 	MSM_SPM_REG_SAW2_SEQ_ENTRY,
 	MSM_SPM_REG_SAW2_SPM_STS,
@@ -87,17 +86,21 @@ struct msm_spm_platform_data {
 	struct msm_spm_seq_entry *modes;
 };
 
-#define spm_raw_write(v, a)	({ __raw_writel(v, a); __raw_readl(a); })
-#define spm_write_relaxed(v, c)	({ writel_relaxed(v, c); readl_relaxed(c); })
-
-#if defined(CONFIG_MSM_SPM)
+#if defined(CONFIG_MSM_SPM_V2)
 
 /* Public functions */
 
 int msm_spm_set_low_power_mode(unsigned int mode, bool notify_rpm);
 int msm_spm_set_vdd(unsigned int cpu, unsigned int vlevel);
 unsigned int msm_spm_get_vdd(unsigned int cpu);
-int msm_spm_turn_on_cpu_rail(unsigned long base, unsigned int cpu);
+#if defined(CONFIG_MSM_SPM_V2)
+int msm_spm_turn_on_cpu_rail(unsigned int cpu);
+#else
+static inline int msm_spm_turn_on_cpu_rail(unsigned int cpu)
+{
+	return -ENOSYS;
+}
+#endif
 
 /* Internal low power management specific functions */
 
@@ -146,7 +149,7 @@ static inline int msm_spm_enable_fts_lpm(uint32_t mode)
 	return -ENOSYS;
 }
 #endif /* defined(CONFIG_MSM_L2_SPM) */
-#else /* defined(CONFIG_MSM_SPM) */
+#else /* defined(CONFIG_MSM_SPM_V2) */
 static inline int msm_spm_set_low_power_mode(unsigned int mode, bool notify_rpm)
 {
 	return -ENOSYS;
@@ -167,7 +170,7 @@ static inline void msm_spm_reinit(void)
 	/* empty */
 }
 
-static inline int msm_spm_turn_on_cpu_rail(unsigned long base, unsigned int cpu)
+static inline int msm_spm_turn_on_cpu_rail(unsigned int cpu)
 {
 	return -ENOSYS;
 }
@@ -177,5 +180,5 @@ static inline int msm_spm_device_init(void)
 	return -ENOSYS;
 }
 
-#endif  /* defined (CONFIG_MSM_SPM) */
+#endif  /* defined (CONFIG_MSM_SPM_V2) */
 #endif  /* __ARCH_ARM_MACH_MSM_SPM_H */

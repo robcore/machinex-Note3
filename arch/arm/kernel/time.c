@@ -24,10 +24,10 @@
 #include <linux/syscore_ops.h>
 #include <linux/timer.h>
 #include <linux/irq.h>
-#include <linux/sched_clock.h>
 
 #include <asm/leds.h>
 #include <asm/thread_info.h>
+#include <asm/sched_clock.h>
 #include <asm/stacktrace.h>
 #include <asm/mach/arch.h>
 #include <asm/mach/time.h>
@@ -71,7 +71,7 @@ EXPORT_SYMBOL(profile_pc);
 #endif
 
 #ifdef CONFIG_ARCH_USES_GETTIMEOFFSET
-static u32 arm_gettimeoffset(void)
+u32 arch_gettimeoffset(void)
 {
 	if (system_timer->offset != NULL)
 		return system_timer->offset() * 1000;
@@ -110,42 +110,6 @@ void timer_tick(void)
 }
 #endif
 
-static void dummy_clock_access(struct timespec *ts)
-{
-	ts->tv_sec = 0;
-	ts->tv_nsec = 0;
-}
-
-static clock_access_fn __read_persistent_clock = dummy_clock_access;
-static clock_access_fn __read_boot_clock = dummy_clock_access;;
-
-void read_persistent_clock(struct timespec *ts)
-{
-	__read_persistent_clock(ts);
-}
-
-void read_boot_clock(struct timespec *ts)
-{
-	__read_boot_clock(ts);
-}
-
-int __init register_persistent_clock(clock_access_fn read_boot,
-				     clock_access_fn read_persistent)
-{
-	/* Only allow the clockaccess functions to be registered once */
-	if (__read_persistent_clock == dummy_clock_access &&
-	    __read_boot_clock == dummy_clock_access) {
-		if (read_boot)
-			__read_boot_clock = read_boot;
-		if (read_persistent)
-			__read_persistent_clock = read_persistent;
-
-		return 0;
-	}
-
-	return -EINVAL;
-}
-
 #if defined(CONFIG_PM) && !defined(CONFIG_GENERIC_CLOCKEVENTS)
 static int timer_suspend(void)
 {
@@ -181,11 +145,8 @@ device_initcall(timer_init_syscore_ops);
 
 void __init time_init(void)
 {
-#ifdef CONFIG_ARCH_USES_GETTIMEOFFSET
-	arch_gettimeoffset = arm_gettimeoffset;
-#endif
-
 	system_timer = machine_desc->timer;
 	system_timer->init();
+	sched_clock_postinit();
 }
 

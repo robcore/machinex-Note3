@@ -513,19 +513,42 @@ static void process_page(unsigned long data)
 	}
 }
 
-static void mm_unplug(struct blk_plug_cb *cb, bool from_schedule)
-{
-	struct cardinfo *card = cb->data;
+struct mm_plug_cb {
+	struct blk_plug_cb cb;
+	struct cardinfo *card;
+};
 
-	spin_lock_irq(&card->lock);
-	activate(card);
-	spin_unlock_irq(&card->lock);
-	kfree(cb);
+static void mm_unplug(struct blk_plug_cb *cb)
+{
+	struct mm_plug_cb *mmcb = container_of(cb, struct mm_plug_cb, cb);
+
+	spin_lock_irq(&mmcb->card->lock);
+	activate(mmcb->card);
+	spin_unlock_irq(&mmcb->card->lock);
+	kfree(mmcb);
 }
 
 static int mm_check_plugged(struct cardinfo *card)
 {
-	return !!blk_check_plugged(mm_unplug, card, sizeof(struct blk_plug_cb));
+	struct blk_plug *plug = current->plug;
+	struct mm_plug_cb *mmcb;
+
+	if (!plug)
+		return 0;
+
+	list_for_each_entry(mmcb, &plug->cb_list, cb.list) {
+		if (mmcb->cb.callback == mm_unplug && mmcb->card == card)
+			return 1;
+	}
+	/* Not currently on the callback list */
+	mmcb = kmalloc(sizeof(*mmcb), GFP_ATOMIC);
+	if (!mmcb)
+		return 0;
+
+	mmcb->card = card;
+	mmcb->cb.callback = mm_unplug;
+	list_add(&mmcb->cb.list, &plug->cb_list);
+	return 1;
 }
 
 static void mm_make_request(struct request_queue *q, struct bio *bio)

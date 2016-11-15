@@ -7,19 +7,17 @@
  */
 
 #include <linux/types.h>
+#include <linux/utsname.h>
 #include <linux/kernel.h>
 #include <linux/ktime.h>
 #include <linux/slab.h>
 
 #include <linux/sunrpc/clnt.h>
-#include <linux/sunrpc/addr.h>
 #include <linux/sunrpc/xprtsock.h>
 #include <linux/sunrpc/svc.h>
 #include <linux/lockd/lockd.h>
 
 #include <asm/unaligned.h>
-
-#include "netns.h"
 
 #define NLMDBG_FACILITY		NLMDBG_MONITOR
 #define NSM_PROGRAM		100024
@@ -51,6 +49,7 @@ struct nsm_res {
 };
 
 static const struct rpc_program	nsm_program;
+static				LIST_HEAD(nsm_handles);
 static				DEFINE_SPINLOCK(nsm_lock);
 
 /*
@@ -72,7 +71,7 @@ static struct rpc_clnt *nsm_create(struct net *net)
 	};
 	struct rpc_create_args args = {
 		.net			= net,
-		.protocol		= XPRT_TRANSPORT_TCP,
+		.protocol		= XPRT_TRANSPORT_UDP,
 		.address		= (struct sockaddr *)&sin,
 		.addrsize		= sizeof(sin),
 		.servername		= "rpc.statd",
@@ -85,61 +84,10 @@ static struct rpc_clnt *nsm_create(struct net *net)
 	return rpc_create(&args);
 }
 
-static struct rpc_clnt *nsm_client_set(struct lockd_net *ln,
-		struct rpc_clnt *clnt)
-{
-	spin_lock(&ln->nsm_clnt_lock);
-	if (ln->nsm_users == 0) {
-		if (clnt == NULL)
-			goto out;
-		ln->nsm_clnt = clnt;
-	}
-	clnt = ln->nsm_clnt;
-	ln->nsm_users++;
-out:
-	spin_unlock(&ln->nsm_clnt_lock);
-	return clnt;
-}
-
-static struct rpc_clnt *nsm_client_get(struct net *net)
-{
-	struct rpc_clnt	*clnt, *new;
-	struct lockd_net *ln = net_generic(net, lockd_net_id);
-
-	clnt = nsm_client_set(ln, NULL);
-	if (clnt != NULL)
-		goto out;
-
-	clnt = new = nsm_create(net);
-	if (IS_ERR(clnt))
-		goto out;
-
-	clnt = nsm_client_set(ln, new);
-	if (clnt != new)
-		rpc_shutdown_client(new);
-out:
-	return clnt;
-}
-
-static void nsm_client_put(struct net *net)
-{
-	struct lockd_net *ln = net_generic(net, lockd_net_id);
-	struct rpc_clnt	*clnt = NULL;
-
-	spin_lock(&ln->nsm_clnt_lock);
-	ln->nsm_users--;
-	if (ln->nsm_users == 0) {
-		clnt = ln->nsm_clnt;
-		ln->nsm_clnt = NULL;
-	}
-	spin_unlock(&ln->nsm_clnt_lock);
-	if (clnt != NULL)
-		rpc_shutdown_client(clnt);
-}
-
 static int nsm_mon_unmon(struct nsm_handle *nsm, u32 proc, struct nsm_res *res,
-			 struct rpc_clnt *clnt)
+			 struct net *net)
 {
+	struct rpc_clnt	*clnt;
 	int		status;
 	struct nsm_args args = {
 		.priv		= &nsm->sm_priv,
@@ -147,17 +95,25 @@ static int nsm_mon_unmon(struct nsm_handle *nsm, u32 proc, struct nsm_res *res,
 		.vers		= 3,
 		.proc		= NLMPROC_NSM_NOTIFY,
 		.mon_name	= nsm->sm_mon_name,
-		.nodename	= clnt->cl_nodename,
+		.nodename	= utsname()->nodename,
 	};
 	struct rpc_message msg = {
 		.rpc_argp	= &args,
 		.rpc_resp	= res,
 	};
 
+	clnt = nsm_create(net);
+	if (IS_ERR(clnt)) {
+		status = PTR_ERR(clnt);
+		dprintk("lockd: failed to create NSM upcall transport, "
+				"status=%d\n", status);
+		goto out;
+	}
+
 	memset(res, 0, sizeof(*res));
 
 	msg.rpc_proc = &clnt->cl_procinfo[proc];
-	status = rpc_call_sync(clnt, &msg, RPC_TASK_SOFTCONN);
+	status = rpc_call_sync(clnt, &msg, 0);
 	if (status == -ECONNREFUSED) {
 		dprintk("lockd:	NSM upcall RPC failed, status=%d, forcing rebind\n",
 				status);
@@ -169,6 +125,8 @@ static int nsm_mon_unmon(struct nsm_handle *nsm, u32 proc, struct nsm_res *res,
 				status);
 	else
 		status = 0;
+	rpc_shutdown_client(clnt);
+ out:
 	return status;
 }
 
@@ -188,7 +146,6 @@ int nsm_monitor(const struct nlm_host *host)
 	struct nsm_handle *nsm = host->h_nsmhandle;
 	struct nsm_res	res;
 	int		status;
-	struct rpc_clnt *clnt;
 
 	dprintk("lockd: nsm_monitor(%s)\n", nsm->sm_name);
 
@@ -201,15 +158,7 @@ int nsm_monitor(const struct nlm_host *host)
 	 */
 	nsm->sm_mon_name = nsm_use_hostnames ? nsm->sm_name : nsm->sm_addrbuf;
 
-	clnt = nsm_client_get(host->net);
-	if (IS_ERR(clnt)) {
-		status = PTR_ERR(clnt);
-		dprintk("lockd: failed to create NSM upcall transport, "
-				"status=%d, net=%p\n", status, host->net);
-		return status;
-	}
-
-	status = nsm_mon_unmon(nsm, NSMPROC_MON, &res, clnt);
+	status = nsm_mon_unmon(nsm, NSMPROC_MON, &res, host->net);
 	if (unlikely(res.status != 0))
 		status = -EIO;
 	if (unlikely(status < 0)) {
@@ -241,11 +190,9 @@ void nsm_unmonitor(const struct nlm_host *host)
 
 	if (atomic_read(&nsm->sm_count) == 1
 	 && nsm->sm_monitored && !nsm->sm_sticky) {
-		struct lockd_net *ln = net_generic(host->net, lockd_net_id);
-
 		dprintk("lockd: nsm_unmonitor(%s)\n", nsm->sm_name);
 
-		status = nsm_mon_unmon(nsm, NSMPROC_UNMON, &res, ln->nsm_clnt);
+		status = nsm_mon_unmon(nsm, NSMPROC_UNMON, &res, host->net);
 		if (res.status != 0)
 			status = -EIO;
 		if (status < 0)
@@ -253,40 +200,36 @@ void nsm_unmonitor(const struct nlm_host *host)
 					nsm->sm_name);
 		else
 			nsm->sm_monitored = 0;
-
-		nsm_client_put(host->net);
 	}
 }
 
-static struct nsm_handle *nsm_lookup_hostname(const struct list_head *nsm_handles,
-					const char *hostname, const size_t len)
+static struct nsm_handle *nsm_lookup_hostname(const char *hostname,
+					      const size_t len)
 {
 	struct nsm_handle *nsm;
 
-	list_for_each_entry(nsm, nsm_handles, sm_link)
+	list_for_each_entry(nsm, &nsm_handles, sm_link)
 		if (strlen(nsm->sm_name) == len &&
 		    memcmp(nsm->sm_name, hostname, len) == 0)
 			return nsm;
 	return NULL;
 }
 
-static struct nsm_handle *nsm_lookup_addr(const struct list_head *nsm_handles,
-					const struct sockaddr *sap)
+static struct nsm_handle *nsm_lookup_addr(const struct sockaddr *sap)
 {
 	struct nsm_handle *nsm;
 
-	list_for_each_entry(nsm, nsm_handles, sm_link)
+	list_for_each_entry(nsm, &nsm_handles, sm_link)
 		if (rpc_cmp_addr(nsm_addr(nsm), sap))
 			return nsm;
 	return NULL;
 }
 
-static struct nsm_handle *nsm_lookup_priv(const struct list_head *nsm_handles,
-					const struct nsm_private *priv)
+static struct nsm_handle *nsm_lookup_priv(const struct nsm_private *priv)
 {
 	struct nsm_handle *nsm;
 
-	list_for_each_entry(nsm, nsm_handles, sm_link)
+	list_for_each_entry(nsm, &nsm_handles, sm_link)
 		if (memcmp(nsm->sm_priv.data, priv->data,
 					sizeof(priv->data)) == 0)
 			return nsm;
@@ -351,7 +294,6 @@ static struct nsm_handle *nsm_create_handle(const struct sockaddr *sap,
 
 /**
  * nsm_get_handle - Find or create a cached nsm_handle
- * @net: network namespace
  * @sap: pointer to socket address of handle to find
  * @salen: length of socket address
  * @hostname: pointer to C string containing hostname to find
@@ -364,13 +306,11 @@ static struct nsm_handle *nsm_create_handle(const struct sockaddr *sap,
  * @hostname cannot be found in the handle cache.  Returns NULL if
  * an error occurs.
  */
-struct nsm_handle *nsm_get_handle(const struct net *net,
-				  const struct sockaddr *sap,
+struct nsm_handle *nsm_get_handle(const struct sockaddr *sap,
 				  const size_t salen, const char *hostname,
 				  const size_t hostname_len)
 {
 	struct nsm_handle *cached, *new = NULL;
-	struct lockd_net *ln = net_generic(net, lockd_net_id);
 
 	if (hostname && memchr(hostname, '/', hostname_len) != NULL) {
 		if (printk_ratelimit()) {
@@ -385,10 +325,9 @@ retry:
 	spin_lock(&nsm_lock);
 
 	if (nsm_use_hostnames && hostname != NULL)
-		cached = nsm_lookup_hostname(&ln->nsm_handles,
-					hostname, hostname_len);
+		cached = nsm_lookup_hostname(hostname, hostname_len);
 	else
-		cached = nsm_lookup_addr(&ln->nsm_handles, sap);
+		cached = nsm_lookup_addr(sap);
 
 	if (cached != NULL) {
 		atomic_inc(&cached->sm_count);
@@ -402,7 +341,7 @@ retry:
 	}
 
 	if (new != NULL) {
-		list_add(&new->sm_link, &ln->nsm_handles);
+		list_add(&new->sm_link, &nsm_handles);
 		spin_unlock(&nsm_lock);
 		dprintk("lockd: created nsm_handle for %s (%s)\n",
 				new->sm_name, new->sm_addrbuf);
@@ -419,22 +358,19 @@ retry:
 
 /**
  * nsm_reboot_lookup - match NLMPROC_SM_NOTIFY arguments to an nsm_handle
- * @net:  network namespace
  * @info: pointer to NLMPROC_SM_NOTIFY arguments
  *
  * Returns a matching nsm_handle if found in the nsm cache. The returned
  * nsm_handle's reference count is bumped. Otherwise returns NULL if some
  * error occurred.
  */
-struct nsm_handle *nsm_reboot_lookup(const struct net *net,
-				const struct nlm_reboot *info)
+struct nsm_handle *nsm_reboot_lookup(const struct nlm_reboot *info)
 {
 	struct nsm_handle *cached;
-	struct lockd_net *ln = net_generic(net, lockd_net_id);
 
 	spin_lock(&nsm_lock);
 
-	cached = nsm_lookup_priv(&ln->nsm_handles, &info->priv);
+	cached = nsm_lookup_priv(&info->priv);
 	if (unlikely(cached == NULL)) {
 		spin_unlock(&nsm_lock);
 		dprintk("lockd: never saw rebooted peer '%.*s' before\n",
@@ -479,6 +415,7 @@ static void encode_nsm_string(struct xdr_stream *xdr, const char *string)
 	const u32 len = strlen(string);
 	__be32 *p;
 
+	BUG_ON(len > SM_MAXSTRLEN);
 	p = xdr_reserve_space(xdr, 4 + len);
 	xdr_encode_opaque(p, string, len);
 }

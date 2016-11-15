@@ -1471,7 +1471,8 @@ static void o2hb_region_release(struct config_item *item)
 
 	mlog(ML_HEARTBEAT, "hb region release (%s)\n", reg->hr_dev_name);
 
-	kfree(reg->hr_tmp_block);
+	if (reg->hr_tmp_block)
+		kfree(reg->hr_tmp_block);
 
 	if (reg->hr_slot_data) {
 		for (i = 0; i < reg->hr_num_pages; i++) {
@@ -1485,7 +1486,8 @@ static void o2hb_region_release(struct config_item *item)
 	if (reg->hr_bdev)
 		blkdev_put(reg->hr_bdev, FMODE_READ|FMODE_WRITE);
 
-	kfree(reg->hr_slots);
+	if (reg->hr_slots)
+		kfree(reg->hr_slots);
 
 	kfree(reg->hr_db_regnum);
 	kfree(reg->hr_db_livenodes);
@@ -1744,10 +1746,11 @@ static ssize_t o2hb_region_dev_write(struct o2hb_region *reg,
 	long fd;
 	int sectsize;
 	char *p = (char *)page;
-	struct fd f;
-	struct inode *inode;
+	struct file *filp = NULL;
+	struct inode *inode = NULL;
 	ssize_t ret = -EINVAL;
 	int live_threshold;
+	int fput_needed;
 
 	if (reg->hr_bdev)
 		goto out;
@@ -1764,26 +1767,26 @@ static ssize_t o2hb_region_dev_write(struct o2hb_region *reg,
 	if (fd < 0 || fd >= INT_MAX)
 		goto out;
 
-	f = fdget(fd);
-	if (f.file == NULL)
+	filp = fget_light(fd, &fput_needed);
+	if (filp == NULL)
 		goto out;
 
 	if (reg->hr_blocks == 0 || reg->hr_start_block == 0 ||
 	    reg->hr_block_bytes == 0)
-		goto out2;
+		goto out;
 
-	inode = igrab(f.file->f_mapping->host);
+	inode = igrab(filp->f_mapping->host);
 	if (inode == NULL)
-		goto out2;
+		goto out;
 
 	if (!S_ISBLK(inode->i_mode))
-		goto out3;
+		goto out;
 
-	reg->hr_bdev = I_BDEV(f.file->f_mapping->host);
+	reg->hr_bdev = I_BDEV(filp->f_mapping->host);
 	ret = blkdev_get(reg->hr_bdev, FMODE_WRITE | FMODE_READ, NULL);
 	if (ret) {
 		reg->hr_bdev = NULL;
-		goto out3;
+		goto out;
 	}
 	inode = NULL;
 
@@ -1795,7 +1798,7 @@ static ssize_t o2hb_region_dev_write(struct o2hb_region *reg,
 		     "blocksize %u incorrect for device, expected %d",
 		     reg->hr_block_bytes, sectsize);
 		ret = -EINVAL;
-		goto out3;
+		goto out;
 	}
 
 	o2hb_init_region_params(reg);
@@ -1809,13 +1812,13 @@ static ssize_t o2hb_region_dev_write(struct o2hb_region *reg,
 	ret = o2hb_map_slot_data(reg);
 	if (ret) {
 		mlog_errno(ret);
-		goto out3;
+		goto out;
 	}
 
 	ret = o2hb_populate_slot_data(reg);
 	if (ret) {
 		mlog_errno(ret);
-		goto out3;
+		goto out;
 	}
 
 	INIT_DELAYED_WORK(&reg->hr_write_timeout_work, o2hb_write_timeout);
@@ -1845,7 +1848,7 @@ static ssize_t o2hb_region_dev_write(struct o2hb_region *reg,
 	if (IS_ERR(hb_task)) {
 		ret = PTR_ERR(hb_task);
 		mlog_errno(ret);
-		goto out3;
+		goto out;
 	}
 
 	spin_lock(&o2hb_live_lock);
@@ -1861,7 +1864,7 @@ static ssize_t o2hb_region_dev_write(struct o2hb_region *reg,
 
 	if (reg->hr_aborted_start) {
 		ret = -EIO;
-		goto out3;
+		goto out;
 	}
 
 	/* Ok, we were woken.  Make sure it wasn't by drop_item() */
@@ -1880,11 +1883,11 @@ static ssize_t o2hb_region_dev_write(struct o2hb_region *reg,
 		printk(KERN_NOTICE "o2hb: Heartbeat started on region %s (%s)\n",
 		       config_item_name(&reg->hr_item), reg->hr_dev_name);
 
-out3:
-	iput(inode);
-out2:
-	fdput(f);
 out:
+	if (filp)
+		fput_light(filp, fput_needed);
+	if (inode)
+		iput(inode);
 	if (ret < 0) {
 		if (reg->hr_bdev) {
 			blkdev_put(reg->hr_bdev, FMODE_READ|FMODE_WRITE);

@@ -50,7 +50,7 @@ int set_task_ioprio(struct task_struct *task, int ioprio)
 
 	ioc = get_task_io_context(task, GFP_ATOMIC, NUMA_NO_NODE);
 	if (ioc) {
-		ioc->ioprio = ioprio;
+		ioc_ioprio_changed(ioc, ioprio);
 		put_io_context(ioc);
 	}
 
@@ -145,10 +145,8 @@ static int get_task_ioprio(struct task_struct *p)
 	if (ret)
 		goto out;
 	ret = IOPRIO_PRIO_VALUE(IOPRIO_CLASS_NONE, IOPRIO_NORM);
-	task_lock(p);
 	if (p->io_context)
 		ret = p->io_context->ioprio;
-	task_unlock(p);
 out:
 	return ret;
 }

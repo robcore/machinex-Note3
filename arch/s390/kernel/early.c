@@ -239,14 +239,14 @@ static noinline __init void detect_machine_type(void)
 
 static __init void early_pgm_check_handler(void)
 {
-	const struct exception_table_entry *fixup;
 	unsigned long addr;
+	const struct exception_table_entry *fixup;
 
 	addr = S390_lowcore.program_old_psw.addr;
 	fixup = search_exception_tables(addr & PSW_ADDR_INSN);
 	if (!fixup)
 		disabled_wait(0);
-	S390_lowcore.program_old_psw.addr = extable_fixup(fixup)|PSW_ADDR_AMODE;
+	S390_lowcore.program_old_psw.addr = fixup->fixup | PSW_ADDR_AMODE;
 }
 
 static noinline __init void setup_lowcore_early(void)
@@ -459,6 +459,7 @@ void __init startup_init(void)
 	init_kernel_storage_key();
 	lockdep_init();
 	lockdep_off();
+	sort_main_extable();
 	setup_lowcore_early();
 	setup_facility_list();
 	detect_machine_type();

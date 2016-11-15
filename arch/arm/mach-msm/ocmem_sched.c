@@ -384,15 +384,25 @@ static int destroy_region(struct ocmem_region *region)
 
 static int attach_req(struct ocmem_region *region, struct ocmem_req *req)
 {
-	int id;
+	int ret, id;
 
-	id = idr_alloc(&region->region_idr, req, 1, 0, GFP_KERNEL);
-	if (id < 0)
-		return id;
-	req->req_id = id;
-	pr_debug("ocmem: request %p(id:%d) attached to region %p\n",
-			req, id, region);
-	return 0;
+	while (1) {
+		if (idr_pre_get(&region->region_idr, GFP_KERNEL) == 0)
+			return -ENOMEM;
+
+		ret = idr_get_new_above(&region->region_idr, req, 1, &id);
+
+		if (ret != -EAGAIN)
+			break;
+	}
+
+	if (!ret) {
+		req->req_id = id;
+		pr_debug("ocmem: request %p(id:%d) attached to region %p\n",
+				req, id, region);
+		return 0;
+	}
+	return -EINVAL;
 }
 
 static int detach_req(struct ocmem_region *region, struct ocmem_req *req)
@@ -707,8 +717,6 @@ static int __sched_grow(struct ocmem_req *req, bool can_block)
 
 	struct ocmem_zone *zone = get_zone(owner);
 	struct ocmem_region *region = NULL;
-
-	BUG_ON(!zone);
 
 	matched_region = find_region_match(req->req_start, req->req_end);
 	matched_req = find_req_match(req->req_id, matched_region);
@@ -1598,8 +1606,6 @@ static void ocmem_rdm_worker(struct work_struct *work)
 	struct ocmem_handle *handle = work_data->handle;
 	struct ocmem_req *req = handle_to_req(handle);
 	struct ocmem_buf *buffer = handle_to_buffer(handle);
-
-	BUG_ON(!req);
 
 	down_write(&req->rw_sem);
 	offset = phys_to_offset(req->req_start);

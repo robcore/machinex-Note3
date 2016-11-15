@@ -26,9 +26,6 @@
 #include <linux/workqueue.h>
 #include <linux/freezer.h>
 #include <linux/export.h>
-#include <linux/workqueue.h>
-
-#include <mach/cpuidle.h>
 
 #include <mach/cpuidle.h>
 
@@ -56,8 +53,6 @@ static DEFINE_SPINLOCK(freezer_delta_lock);
 static struct wakeup_source *ws;
 static struct delayed_work work;
 static struct workqueue_struct *power_off_alarm_workqueue;
-
-static struct wakeup_source *ws;
 
 #ifdef CONFIG_RTC_CLASS
 /* rtc timer and device for setting alarm wakeups at suspend */
@@ -98,17 +93,6 @@ void power_on_alarm_init(void)
 	}
 }
 
-static void alarmtimer_triggered_func(void *p)
-{
-	struct rtc_device *rtc = rtcdev;
-	if (!(rtc->irq_data & RTC_AF))
-		return;
-	__pm_wakeup_event(ws, 2 * MSEC_PER_SEC);
-}
-
-static struct rtc_task alarmtimer_rtc_task = {
-	.func = alarmtimer_triggered_func
-};
 /**
  * set_power_on_alarm - set power on alarm value into rtc register
  *
@@ -356,10 +340,6 @@ static enum hrtimer_restart alarmtimer_fired(struct hrtimer *timer)
 	if (alarm->type == ALARM_POWEROFF_REALTIME)
 		queue_delayed_work(power_off_alarm_workqueue, &work, 0);
 
-	/* set next power off alarm */
-	if (alarm->type == ALARM_POWEROFF_REALTIME)
-		queue_delayed_work(power_off_alarm_workqueue, &work, 0);
-
 	return ret;
 
 }
@@ -391,8 +371,6 @@ static int alarmtimer_suspend(struct device *dev)
 	struct rtc_device *rtc;
 	int i;
 	int ret = 0;
-
-	cancel_delayed_work_sync(&work);
 
 	cancel_delayed_work_sync(&work);
 
@@ -457,8 +435,6 @@ static int alarmtimer_suspend(struct device *dev)
 	struct rtc_device *rtc;
 	int i;
 	int ret;
-
-	cancel_delayed_work_sync(&work);
 
 	cancel_delayed_work_sync(&work);
 
@@ -575,15 +551,10 @@ EXPORT_SYMBOL_GPL(alarm_init);
  */
 int alarm_start(struct alarm *alarm, ktime_t start)
 {
-	struct alarm_base *base;
+	struct alarm_base *base = &alarm_bases[alarm->type];
 	unsigned long flags;
 	int ret;
 
-	if (alarm->type >= ALARM_NUMTYPE) {
-		pr_err("Array out of index\n");
-		return -EINVAL;
-	}
-	base = &alarm_bases[alarm->type];
 	spin_lock_irqsave(&base->lock, flags);
 	alarm->node.expires = start;
 	alarmtimer_enqueue(base, alarm);

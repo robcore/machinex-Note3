@@ -39,7 +39,6 @@ void show_regs(struct pt_regs *regs)
 	unsigned long long ah, al, bh, bl, ch, cl;
 
 	printk("\n");
-	show_regs_print_info(KERN_DEFAULT);
 
 	ah = (regs->pc) >> 32;
 	al = (regs->pc) & 0xffffffff;
@@ -491,14 +490,14 @@ asmlinkage int sys_execve(const char *ufilename, char **uargv,
 			  struct pt_regs *pregs)
 {
 	int error;
-	struct filename *filename;
+	char *filename;
 
 	filename = getname((char __user *)ufilename);
 	error = PTR_ERR(filename);
 	if (IS_ERR(filename))
 		goto out;
 
-	error = do_execve(filename->name,
+	error = do_execve(filename,
 			  (const char __user *const __user *)uargv,
 			  (const char __user *const __user *)uenvp,
 			  pregs);

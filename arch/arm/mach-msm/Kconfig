@@ -156,7 +156,7 @@ config ARCH_MSM8960
 	select MSM_PIL
 	select MSM_AUDIO_QDSP6 if SND_SOC
 	select CPU_HAS_L2_PMU
-	select MSM_SPM
+	select MSM_SPM_V2
 	select MSM_L2_SPM
 	select MSM_NATIVE_RESTART
 	select DONT_MAP_HOLE_AFTER_MEMBANK0
@@ -198,7 +198,7 @@ config ARCH_MSM8930
 	select MSM_PIL
 	select MSM_AUDIO_QDSP6 if SND_SOC
 	select CPU_HAS_L2_PMU
-	select MSM_SPM
+	select MSM_SPM_V2
 	select MSM_L2_SPM
 	select MSM_NATIVE_RESTART
 	select DONT_MAP_HOLE_AFTER_MEMBANK0
@@ -232,7 +232,7 @@ config ARCH_APQ8064
 	select MSM_AUDIO_QDSP6 if SND_SOC
 	select MULTI_IRQ_HANDLER
 	select MSM_RPM
-	select MSM_SPM
+	select MSM_SPM_V2
 	select MSM_L2_SPM
 	select MSM_PM8X60 if PM
 	select CPU_HAS_L2_PMU
@@ -264,7 +264,7 @@ config ARCH_MSM8974
 	select PM_DEVFREQ
 	select MSM_DEVFREQ_CPUBW
 	select MSM_PIL
-	select MSM_SPM
+	select MSM_SPM_V2
 	select MSM_L2_SPM
 	select MSM_NATIVE_RESTART
 	select MSM_RESTART_V2
@@ -280,14 +280,13 @@ config ARCH_MSM8974
 	select ARM_HAS_SG_CHAIN
 	select MSM_RUN_QUEUE_STATS
 	select MEMORY_HOLE_CARVEOUT
-#	select MSM_RPM_STATS_LOG
+	select MSM_RPM_STATS_LOG
 	select QMI_ENCDEC
 	select MSM_ULTRASOUND_B
-#	select MSM_RPM_LOG
+	select MSM_RPM_LOG
 	select ARCH_WANT_KMAP_ATOMIC_FLUSH
 	select KRAIT_REGULATOR
 	select ENABLE_VMALLOC_SAVINGS
-	select HAS_MACH_MEMUTILS
 
 config ARCH_MSM8974PRO
 	bool "MSM8974PRO"
@@ -314,7 +313,7 @@ config ARCH_APQ8084
 	select ARCH_WANT_KMAP_ATOMIC_FLUSH
 	select MEMORY_HOLE_CARVEOUT
 	select QMI_ENCDEC
-	select MSM_SPM
+	select MSM_SPM_V2
 	select MSM_L2_SPM
 	select MSM_RPM_SMD
 	select PM_DEVFREQ
@@ -375,7 +374,7 @@ config ARCH_MSM9615
 	select GPIO_MSM_V2
 	select MSM_GPIOMUX
 	select MSM_RPM
-	select MSM_SPM
+	select MSM_SPM_V2
 	select MSM_NATIVE_RESTART
 	select REGULATOR
 	select MSM_RPM_REGULATOR
@@ -414,7 +413,7 @@ config ARCH_MSM9625
 	select MSM_RPM_SMD
 	select MSM_NATIVE_RESTART
 	select MSM_RESTART_V2
-	select MSM_SPM
+	select MSM_SPM_V2
 	select MSM_PM8X60 if PM
 	select MULTI_IRQ_HANDLER
 	select GPIO_MSM_V3
@@ -439,7 +438,7 @@ config ARCH_MSMKRYPTON
 	select MSM_RPM_SMD
 	select MSM_NATIVE_RESTART
 	select MSM_RESTART_V2
-	select MSM_SPM
+	select MSM_SPM_V2
 	select MSM_PM if PM
 	select MULTI_IRQ_HANDLER
 	select GPIO_MSM_V3
@@ -471,7 +470,7 @@ config ARCH_MSM8610
 	select MSM_AUDIO_QDSP6V2 if SND_SOC
 	select QMI_ENCDEC
 	select MSM_RPM_SMD
-	select MSM_SPM
+	select MSM_SPM_V2
 	select MSM_L2_SPM
 	select MSM_PM if PM
 	select MEMORY_HOLE_CARVEOUT
@@ -513,7 +512,7 @@ config ARCH_MSM8226
 	select MSM_AUDIO_QDSP6V2 if SND_SOC
 	select QMI_ENCDEC
 	select MSM_RPM_SMD
-	select MSM_SPM
+	select MSM_SPM_V2
 	select MSM_L2_SPM
 	select MSM_PM if PM
 	select MEMORY_HOLE_CARVEOUT
@@ -556,7 +555,7 @@ config ARCH_MSMSAMARIUM
 	select MSM_PIL
 	select MSM_GPIOMUX
 	select MULTI_IRQ_HANDLER
-	select MSM_SPM
+	select MSM_SPM_V2
 	select MSM_L2_SPM
 	select MSM_NATIVE_RESTART
 	select MSM_RESTART_V2
@@ -602,8 +601,7 @@ config  ARCH_MSM_SCORPION
 config  ARCH_MSM_KRAIT
 	bool
 	select ARM_L1_CACHE_SHIFT_6
-	select DEVFREQ_GOV_MSM_BW_HWMON
-	select DEVFREQ_GOV_MSM_CACHE_HWMON
+	select DEVFREQ_GOV_MSM_CPUBW_HWMON
 
 config  MSM_CORTEX_A7
 	bool
@@ -2774,7 +2772,6 @@ config SEC_LPDDR_6G
 config MSM_STACKED_MEMORY
 	bool "Stacked Memory"
 	default y
-	depends on STATE_NOTIFIER
 	help
 	  This option is used to indicate the presence of on-die stacked
 	  memory.  When present this memory bank is used for a high speed
@@ -3507,34 +3504,6 @@ config MSM_DALRPC_TEST
 
 if CPU_FREQ_MSM
 
-config AUTOSMP
-	bool "Multi-core automatic hotplug support"
-	depends on SMP && HOTPLUG_CPU
-	default n
-	help
-	  Automatically hotplugs the multiple cpu cores on and off
-	  based on cpu load and suspend state
-
-config MAKO_HOTPLUG
-        bool "Enable mako-hotplug cpu hotplug driver"
-        default n
-        help
-          Generic Intelli-plug cpu hotplug driver for ARM SOCs	  
-
-config BLU_PLUG
- 	bool "Dynamic hotplug driver"
- 	depends on HOTPLUG_CPU
- 	default n
- 	help
- 	  The Dynamic hotplug driver automatically online/offline CPUs proportional to system load.
-
-config THUNDERPLUG_CONTROL
-	bool "Enable plugging down/up of cores based on load per core"
-	depends on SMP && HOTPLUG_CPU
-	default n
-	help
-	  This driver hotplugs cpu cores based on per-core load
-
 config MSM_CPU_FREQ_SET_MIN_MAX
 	bool "Set Min/Max CPU frequencies."
 	default n
@@ -4186,14 +4155,6 @@ config MSM_RUN_QUEUE_STATS
          in user mode, called MPDecision will be using this data to decide
          on when to switch off/on the other cores.
 
-config MSM_RUN_QUEUE_STATS_BE_CONSERVATIVE
-	bool "Use a more conservative computation for RQ Stats"
-	depends on MSM_RUN_QUEUE_STATS
-	default n
-	help
-	  Enable more conservative computation of load and size of the run
-	  queue.
-
 config MSM_STANDALONE_POWER_COLLAPSE
        bool "Enable standalone power collapse"
        default n
@@ -4370,7 +4331,7 @@ config MSM_SPM_V1
 	  used to manage the processor power during sleep. The driver allows
 	  configuring SPM to allow different power modes.
 
-config MSM_SPM
+config MSM_SPM_V2
 	bool "Driver support for SPM Version 2"
 	help
 	  Enables the support for Version 2 of the SPM driver. SPM hardware is
@@ -4379,7 +4340,7 @@ config MSM_SPM
 
 config MSM_L2_SPM
 	bool "SPM support for L2 cache"
-	depends on MSM_SPM
+	depends on MSM_SPM_V2
 	help
 	  Enable SPM driver support for L2 cache. Some MSM chipsets allow
 	  control of L2 cache low power mode with a Subsystem Power manager.
@@ -4929,11 +4890,3 @@ config SEC_SMART_MGR_RUNQUEUE_AVG
 	help
 	  Support for Smart MGR function.
 endif
-
-config KERNEL_TEXT_MPU_PROT
-        bool "Enable xpu protection of kernel r/o sections"
-        help
-          Enables xpu protection of kernel code and read-only data
-          sections early in boot. Read access is permitted to
-          all masters; Write access is only permited to the
-          secure world.
