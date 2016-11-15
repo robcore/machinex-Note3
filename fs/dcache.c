@@ -36,7 +36,6 @@
 #include <linux/bit_spinlock.h>
 #include <linux/rculist_bl.h>
 #include <linux/prefetch.h>
-#include <linux/powersuspend.h>
 #include <linux/ratelimit.h>
 #include "internal.h"
 #include "mount.h"
@@ -79,12 +78,7 @@
  *   dentry1->d_lock
  *     dentry2->d_lock
  */
-
-#define DEFAULT_VFS_CACHE_PRESSURE 60
-#define DEFAULT_VFS_SUSPEND_CACHE_PRESSURE 20
-int sysctl_vfs_cache_pressure __read_mostly, resume_cache_pressure;
-int sysctl_vfs_suspend_cache_pressure __read_mostly, suspend_cache_pressure;
-
+int sysctl_vfs_cache_pressure __read_mostly = 100;
 EXPORT_SYMBOL_GPL(sysctl_vfs_cache_pressure);
 
 static __cacheline_aligned_in_smp DEFINE_SPINLOCK(dcache_lru_lock);
@@ -114,7 +108,8 @@ static inline struct hlist_bl_head *d_hash(const struct dentry *parent,
 					unsigned int hash)
 {
 	hash += (unsigned long) parent / L1_CACHE_BYTES;
-	return dentry_hashtable + hash_32(hash, d_hash_shift);
+	hash = hash + (hash >> D_HASHBITS);
+	return dentry_hashtable + (hash & D_HASHMASK);
 }
 
 /* Statistics gathering. */
@@ -134,7 +129,7 @@ static int get_nr_dentry(void)
 	return sum < 0 ? 0 : sum;
 }
 
-int proc_nr_dentry(struct ctl_table *table, int write, void __user *buffer,
+int proc_nr_dentry(ctl_table *table, int write, void __user *buffer,
 		   size_t *lenp, loff_t *ppos)
 {
 	dentry_stat.nr_dentry = get_nr_dentry();
@@ -2608,11 +2603,11 @@ char *__d_path(const struct path *path,
 	int error;
 
 	prepend(&res, &buflen, "\0", 1);
-	br_read_lock(&vfsmount_lock);
+	br_read_lock(vfsmount_lock);
 	write_seqlock(&rename_lock);
 	error = prepend_path(path, root, &res, &buflen);
 	write_sequnlock(&rename_lock);
-	br_read_unlock(&vfsmount_lock);
+	br_read_unlock(vfsmount_lock);
 
 	if (error < 0)
 		return ERR_PTR(error);
@@ -2629,11 +2624,11 @@ char *d_absolute_path(const struct path *path,
 	int error;
 
 	prepend(&res, &buflen, "\0", 1);
-	br_read_lock(&vfsmount_lock);
+	br_read_lock(vfsmount_lock);
 	write_seqlock(&rename_lock);
 	error = prepend_path(path, &root, &res, &buflen);
 	write_sequnlock(&rename_lock);
-	br_read_unlock(&vfsmount_lock);
+	br_read_unlock(vfsmount_lock);
 
 	if (error > 1)
 		error = -EINVAL;
@@ -2697,11 +2692,11 @@ char *d_path(const struct path *path, char *buf, int buflen)
 		return path->dentry->d_op->d_dname(path->dentry, buf, buflen);
 
 	get_fs_root(current->fs, &root);
-	br_read_lock(&vfsmount_lock);
+	br_read_lock(vfsmount_lock);
 	write_seqlock(&rename_lock);
 	error = path_with_deleted(path, &root, &res, &buflen);
 	write_sequnlock(&rename_lock);
-	br_read_unlock(&vfsmount_lock);
+	br_read_unlock(vfsmount_lock);
 	if (error < 0)
 		res = ERR_PTR(error);
 	path_put(&root);
@@ -2747,7 +2742,7 @@ char *dynamic_dname(struct dentry *dentry, char *buffer, int buflen,
 			const char *fmt, ...)
 {
 	va_list args;
-	char temp[256];
+	char temp[64];
 	int sz;
 
 	va_start(args, fmt);
@@ -2858,7 +2853,7 @@ SYSCALL_DEFINE2(getcwd, char __user *, buf, unsigned long, size)
 	get_fs_root_and_pwd(current->fs, &root, &pwd);
 
 	error = -ENOENT;
-	br_read_lock(&vfsmount_lock);
+	br_read_lock(vfsmount_lock);
 	write_seqlock(&rename_lock);
 	if (!d_unlinked(pwd.dentry)) {
 		unsigned long len;
@@ -2868,7 +2863,7 @@ SYSCALL_DEFINE2(getcwd, char __user *, buf, unsigned long, size)
 		prepend(&cwd, &buflen, "\0", 1);
 		error = prepend_path(&pwd, &root, &cwd, &buflen);
 		write_sequnlock(&rename_lock);
-		br_read_unlock(&vfsmount_lock);
+		br_read_unlock(vfsmount_lock);
 
 		if (error < 0)
 			goto out;
@@ -2889,7 +2884,7 @@ SYSCALL_DEFINE2(getcwd, char __user *, buf, unsigned long, size)
 		}
 	} else {
 		write_sequnlock(&rename_lock);
-		br_read_unlock(&vfsmount_lock);
+		br_read_unlock(vfsmount_lock);
 	}
 
 out:
@@ -3051,21 +3046,6 @@ ino_t find_inode_number(struct dentry *dir, struct qstr *name)
 }
 EXPORT_SYMBOL(find_inode_number);
 
-static void cpressure_early_suspend(struct power_suspend *handler)
-{
-	sysctl_vfs_cache_pressure = suspend_cache_pressure;
-}
-
-static void cpressure_late_resume(struct power_suspend *handler)
-{
-	sysctl_vfs_cache_pressure = resume_cache_pressure;
-}
-
-static struct power_suspend cpressure_suspend = {
-	.suspend = cpressure_early_suspend,
-	.resume = cpressure_late_resume,
-};
-
 static __initdata unsigned long dhash_entries;
 static int __init set_dhash_entries(char *str)
 {
@@ -3138,11 +3118,6 @@ EXPORT_SYMBOL(d_genocide);
 
 void __init vfs_caches_init_early(void)
 {
-	sysctl_vfs_cache_pressure = resume_cache_pressure =
-		DEFAULT_VFS_CACHE_PRESSURE;
-	sysctl_vfs_suspend_cache_pressure = suspend_cache_pressure =
-		DEFAULT_VFS_SUSPEND_CACHE_PRESSURE;
-
 	dcache_init_early();
 	inode_init_early();
 }
@@ -3166,6 +3141,4 @@ void __init vfs_caches_init(unsigned long mempages)
 	mnt_init();
 	bdev_cache_init();
 	chrdev_init();
-
-	register_power_suspend(&cpressure_suspend);
 }

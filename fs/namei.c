@@ -34,7 +34,6 @@
 #include <linux/device_cgroup.h>
 #include <linux/fs_struct.h>
 #include <linux/posix_acl.h>
-#include <linux/hash.h>
 #include <asm/uaccess.h>
 
 #include "internal.h"
@@ -230,6 +229,9 @@ static int acl_permission_check(struct inode *inode, int mask)
 {
 	unsigned int mode = inode->i_mode;
 
+	if (current_user_ns() != inode_userns(inode))
+		goto other_perms;
+
 	if (likely(current_fsuid() == inode->i_uid))
 		mode >>= 6;
 	else {
@@ -243,6 +245,7 @@ static int acl_permission_check(struct inode *inode, int mask)
 			mode >>= 3;
 	}
 
+other_perms:
 	/*
 	 * If the DACs are ok we don't need any capability check.
 	 */
@@ -278,10 +281,10 @@ int generic_permission(struct inode *inode, int mask)
 
 	if (S_ISDIR(inode->i_mode)) {
 		/* DACs are overridable for directories */
-		if (inode_capable(inode, CAP_DAC_OVERRIDE))
+		if (ns_capable(inode_userns(inode), CAP_DAC_OVERRIDE))
 			return 0;
 		if (!(mask & MAY_WRITE))
-			if (inode_capable(inode, CAP_DAC_READ_SEARCH))
+			if (ns_capable(inode_userns(inode), CAP_DAC_READ_SEARCH))
 				return 0;
 		return -EACCES;
 	}
@@ -291,7 +294,7 @@ int generic_permission(struct inode *inode, int mask)
 	 * at least one exec bit set.
 	 */
 	if (!(mask & MAY_EXEC) || (inode->i_mode & S_IXUGO))
-		if (inode_capable(inode, CAP_DAC_OVERRIDE))
+		if (ns_capable(inode_userns(inode), CAP_DAC_OVERRIDE))
 			return 0;
 
 	/*
@@ -299,7 +302,7 @@ int generic_permission(struct inode *inode, int mask)
 	 */
 	mask &= MAY_READ | MAY_WRITE | MAY_EXEC;
 	if (mask == MAY_READ)
-		if (inode_capable(inode, CAP_DAC_READ_SEARCH))
+		if (ns_capable(inode_userns(inode), CAP_DAC_READ_SEARCH))
 			return 0;
 
 	return -EACCES;
@@ -478,7 +481,7 @@ static int unlazy_walk(struct nameidata *nd, struct dentry *dentry)
 	mntget(nd->path.mnt);
 
 	rcu_read_unlock();
-	br_read_unlock(&vfsmount_lock);
+	br_read_unlock(vfsmount_lock);
 	nd->flags &= ~LOOKUP_RCU;
 	return 0;
 
@@ -536,14 +539,14 @@ static int complete_walk(struct nameidata *nd)
 		if (unlikely(!__d_rcu_to_refcount(dentry, nd->seq))) {
 			spin_unlock(&dentry->d_lock);
 			rcu_read_unlock();
-			br_read_unlock(&vfsmount_lock);
+			br_read_unlock(vfsmount_lock);
 			return -ECHILD;
 		}
 		BUG_ON(nd->inode != dentry->d_inode);
 		spin_unlock(&dentry->d_lock);
 		mntget(nd->path.mnt);
 		rcu_read_unlock();
-		br_read_unlock(&vfsmount_lock);
+		br_read_unlock(vfsmount_lock);
 	}
 
 	if (likely(!(nd->flags & LOOKUP_JUMPED)))
@@ -709,15 +712,15 @@ int follow_up(struct path *path)
 	struct mount *parent;
 	struct dentry *mountpoint;
 
-	br_read_lock(&vfsmount_lock);
+	br_read_lock(vfsmount_lock);
 	parent = mnt->mnt_parent;
 	if (&parent->mnt == path->mnt) {
-		br_read_unlock(&vfsmount_lock);
+		br_read_unlock(vfsmount_lock);
 		return 0;
 	}
 	mntget(&parent->mnt);
 	mountpoint = dget(mnt->mnt_mountpoint);
-	br_read_unlock(&vfsmount_lock);
+	br_read_unlock(vfsmount_lock);
 	dput(path->dentry);
 	path->dentry = mountpoint;
 	mntput(path->mnt);
@@ -978,7 +981,7 @@ failed:
 	if (!(nd->flags & LOOKUP_ROOT))
 		nd->root.mnt = NULL;
 	rcu_read_unlock();
-	br_read_unlock(&vfsmount_lock);
+	br_read_unlock(vfsmount_lock);
 	return -ECHILD;
 }
 
@@ -1289,7 +1292,7 @@ static void terminate_walk(struct nameidata *nd)
 		if (!(nd->flags & LOOKUP_ROOT))
 			nd->root.mnt = NULL;
 		rcu_read_unlock();
-		br_read_unlock(&vfsmount_lock);
+		br_read_unlock(vfsmount_lock);
 	}
 }
 
@@ -1438,7 +1441,8 @@ static inline int can_lookup(struct inode *inode)
 
 static inline unsigned int fold_hash(unsigned long hash)
 {
-	return hash_64(hash, 32);
+	hash += hash >> (8*sizeof(int));
+	return hash;
 }
 
 #else	/* 32-bit case */
@@ -1644,7 +1648,7 @@ static int path_init(int dfd, const char *name, unsigned int flags,
 		nd->path = nd->root;
 		nd->inode = inode;
 		if (flags & LOOKUP_RCU) {
-			br_read_lock(&vfsmount_lock);
+			br_read_lock(vfsmount_lock);
 			rcu_read_lock();
 			nd->seq = __read_seqcount_begin(&nd->path.dentry->d_seq);
 		} else {
@@ -1657,7 +1661,7 @@ static int path_init(int dfd, const char *name, unsigned int flags,
 
 	if (*name=='/') {
 		if (flags & LOOKUP_RCU) {
-			br_read_lock(&vfsmount_lock);
+			br_read_lock(vfsmount_lock);
 			rcu_read_lock();
 			nd->seq = set_root_rcu(nd);
 		} else {
@@ -1670,7 +1674,7 @@ static int path_init(int dfd, const char *name, unsigned int flags,
 			struct fs_struct *fs = current->fs;
 			unsigned seq;
 
-			br_read_lock(&vfsmount_lock);
+			br_read_lock(vfsmount_lock);
 			rcu_read_lock();
 
 			do {
@@ -1706,7 +1710,7 @@ static int path_init(int dfd, const char *name, unsigned int flags,
 			if (fput_needed)
 				*fp = file;
 			nd->seq = __read_seqcount_begin(&nd->path.dentry->d_seq);
-			br_read_lock(&vfsmount_lock);
+			br_read_lock(vfsmount_lock);
 			rcu_read_lock();
 		} else {
 			path_get(&file->f_path);
@@ -1961,11 +1965,15 @@ static inline int check_sticky(struct inode *dir, struct inode *inode)
 
 	if (!(dir->i_mode & S_ISVTX))
 		return 0;
+	if (current_user_ns() != inode_userns(inode))
+		goto other_userns;
 	if (inode->i_uid == fsuid)
 		return 0;
 	if (dir->i_uid == fsuid)
 		return 0;
-	return !inode_capable(inode, CAP_FOWNER);
+
+other_userns:
+	return !ns_capable(inode_userns(inode), CAP_FOWNER);
 }
 
 /*
@@ -2561,7 +2569,7 @@ int vfs_mknod(struct inode *dir, struct dentry *dentry, umode_t mode, dev_t dev)
 		return error;
 
 	if ((S_ISCHR(mode) || S_ISBLK(mode)) &&
-	    !inode_capable(dir, CAP_MKNOD))
+	    !ns_capable(inode_userns(dir), CAP_MKNOD))
 		return -EPERM;
 
 	if (!dir->i_op->mknod)
@@ -2779,7 +2787,7 @@ out:
 static long do_rmdir(int dfd, const char __user *pathname)
 {
 	int error = 0;
-	char *name = NULL;
+	char * name;
 	struct dentry *dentry;
 	struct nameidata nd;
 
@@ -2875,7 +2883,7 @@ int vfs_unlink(struct inode *dir, struct dentry *dentry)
 static long do_unlinkat(int dfd, const char __user *pathname)
 {
 	int error;
-	char *name = NULL;
+	char *name;
 	struct dentry *dentry;
 	struct nameidata nd;
 	struct inode *inode = NULL;
@@ -2967,7 +2975,7 @@ SYSCALL_DEFINE3(symlinkat, const char __user *, oldname,
 		int, newdfd, const char __user *, newname)
 {
 	int error;
-	char *from = NULL;
+	char *from;
 	struct dentry *dentry;
 	struct path path;
 
@@ -3275,8 +3283,8 @@ SYSCALL_DEFINE4(renameat, int, olddfd, const char __user *, oldname,
 	struct dentry *old_dentry, *new_dentry;
 	struct dentry *trap;
 	struct nameidata oldnd, newnd;
-	char *from = NULL;
-	char *to = NULL;
+	char *from;
+	char *to;
 	int error;
 
 	error = user_path_parent(olddfd, oldname, &oldnd, &from);

@@ -1201,6 +1201,7 @@ EXPORT_SYMBOL_GPL(sunrpc_cache_pipe_upcall);
  * key and content are both parsed by cache
  */
 
+#define isodigit(c) (isdigit(c) && c <= '7')
 int qword_get(char **bpp, char *dest, int bufsize)
 {
 	/* return bytes copied, or -1 on error */
@@ -1631,7 +1632,7 @@ static int create_cache_proc_entries(struct cache_detail *cd, struct net *net)
 
 void __init cache_initialize(void)
 {
-	INIT_DEFERRABLE_WORK(&cache_cleaner, do_cache_clean);
+	INIT_DELAYED_WORK_DEFERRABLE(&cache_cleaner, do_cache_clean);
 }
 
 int cache_register_net(struct cache_detail *cd, struct net *net)

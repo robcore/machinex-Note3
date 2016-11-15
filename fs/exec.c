@@ -1016,6 +1016,40 @@ no_thread_group:
 	return 0;
 }
 
+/*
+ * These functions flushes out all traces of the currently running executable
+ * so that a new one can be started
+ */
+static void flush_old_files(struct files_struct * files)
+{
+	long j = -1;
+	struct fdtable *fdt;
+
+	spin_lock(&files->file_lock);
+	for (;;) {
+		unsigned long set, i;
+
+		j++;
+		i = j * BITS_PER_LONG;
+		fdt = files_fdtable(files);
+		if (i >= fdt->max_fds)
+			break;
+		set = fdt->close_on_exec[j];
+		if (!set)
+			continue;
+		fdt->close_on_exec[j] = 0;
+		spin_unlock(&files->file_lock);
+		for ( ; set ; i++,set >>= 1) {
+			if (set & 1) {
+				sys_close(i);
+			}
+		}
+		spin_lock(&files->file_lock);
+
+	}
+	spin_unlock(&files->file_lock);
+}
+
 char *get_task_comm(char *buf, struct task_struct *tsk)
 {
 	/* buf must be at least sizeof(tsk->comm) in size */
@@ -1025,11 +1059,6 @@ char *get_task_comm(char *buf, struct task_struct *tsk)
 	return buf;
 }
 EXPORT_SYMBOL_GPL(get_task_comm);
-
-/*
- * These functions flushes out all traces of the currently running executable
- * so that a new one can be started
- */
 
 void set_task_comm(struct task_struct *tsk, char *buf)
 {
@@ -1146,7 +1175,7 @@ void setup_new_exec(struct linux_binprm * bprm)
 	current->self_exec_id++;
 			
 	flush_signal_handlers(current, 0);
-	do_close_on_exec(current->files);
+	flush_old_files(current->files);
 }
 EXPORT_SYMBOL(setup_new_exec);
 
@@ -1222,10 +1251,49 @@ void install_exec_creds(struct linux_binprm *bprm)
 }
 EXPORT_SYMBOL(install_exec_creds);
 
+static void bprm_fill_uid(struct linux_binprm *bprm)
+{
+	struct inode *inode;
+	unsigned int mode;
+	uid_t uid;
+	gid_t gid;
+
+	/* clear any previous set[ug]id data from a previous binary */
+	bprm->cred->euid = current_euid();
+	bprm->cred->egid = current_egid();
+
+	if (bprm->file->f_path.mnt->mnt_flags & MNT_NOSUID)
+		return;
+
+	inode = bprm->file->f_path.dentry->d_inode;
+	mode = ACCESS_ONCE(inode->i_mode);
+	if (!(mode & (S_ISUID|S_ISGID)))
+		return;
+
+	/* Be careful if suid/sgid is set */
+	mutex_lock(&inode->i_mutex);
+
+	/* reload atomically mode/uid/gid now that lock held */
+	mode = inode->i_mode;
+	uid = inode->i_uid;
+	gid = inode->i_gid;
+	mutex_unlock(&inode->i_mutex);
+
+	if (mode & S_ISUID) {
+		bprm->per_clear |= PER_CLEAR_ON_SETID;
+		bprm->cred->euid = uid;
+	}
+
+	if ((mode & (S_ISGID | S_IXGRP)) == (S_ISGID | S_IXGRP)) {
+		bprm->per_clear |= PER_CLEAR_ON_SETID;
+		bprm->cred->egid = gid;
+	}
+}
+
 /*
  * determine how safe it is to execute the proposed program
  * - the caller must hold ->cred_guard_mutex to protect against
- *   PTRACE_ATTACH or seccomp thread-sync
+ *   PTRACE_ATTACH
  */
 static int check_unsafe_exec(struct linux_binprm *bprm)
 {
@@ -1239,13 +1307,6 @@ static int check_unsafe_exec(struct linux_binprm *bprm)
 		else
 			bprm->unsafe |= LSM_UNSAFE_PTRACE;
 	}
-
-	/*
-	 * This isn't strictly necessary, but it makes it harder for LSMs to
-	 * mess up.
-	 */
-	if (task_no_new_privs(current))
-		bprm->unsafe |= LSM_UNSAFE_NO_NEW_PRIVS;
 
 	n_fs = 1;
 	spin_lock(&p->fs->lock);
@@ -1278,37 +1339,12 @@ static int check_unsafe_exec(struct linux_binprm *bprm)
  */
 int prepare_binprm(struct linux_binprm *bprm)
 {
-	umode_t mode;
-	struct inode * inode = bprm->file->f_path.dentry->d_inode;
 	int retval;
 
-	mode = inode->i_mode;
 	if (bprm->file->f_op == NULL)
 		return -EACCES;
 
-	/* clear any previous set[ug]id data from a previous binary */
-	bprm->cred->euid = current_euid();
-	bprm->cred->egid = current_egid();
-
-	if (!(bprm->file->f_path.mnt->mnt_flags & MNT_NOSUID) &&
-	    !task_no_new_privs(current)) {
-		/* Set-uid? */
-		if (mode & S_ISUID) {
-			bprm->per_clear |= PER_CLEAR_ON_SETID;
-			bprm->cred->euid = inode->i_uid;
-		}
-
-		/* Set-gid? */
-		/*
-		 * If setgid is set but no group execute bit then this
-		 * is a candidate for mandatory locking, not a setgid
-		 * executable.
-		 */
-		if ((mode & (S_ISGID | S_IXGRP)) == (S_ISGID | S_IXGRP)) {
-			bprm->per_clear |= PER_CLEAR_ON_SETID;
-			bprm->cred->egid = inode->i_gid;
-		}
-	}
+	bprm_fill_uid(bprm);
 
 	/* fill in binprm security blob */
 	retval = security_bprm_set_creds(bprm);
@@ -1983,17 +2019,17 @@ static void coredump_finish(struct mm_struct *mm)
 void set_dumpable(struct mm_struct *mm, int value)
 {
 	switch (value) {
-	case SUID_DUMPABLE_DISABLED:
+	case 0:
 		clear_bit(MMF_DUMPABLE, &mm->flags);
 		smp_wmb();
 		clear_bit(MMF_DUMP_SECURELY, &mm->flags);
 		break;
-	case SUID_DUMPABLE_ENABLED:
+	case 1:
 		set_bit(MMF_DUMPABLE, &mm->flags);
 		smp_wmb();
 		clear_bit(MMF_DUMP_SECURELY, &mm->flags);
 		break;
-	case SUID_DUMPABLE_SAFE:
+	case 2:
 		set_bit(MMF_DUMP_SECURELY, &mm->flags);
 		smp_wmb();
 		set_bit(MMF_DUMPABLE, &mm->flags);
@@ -2006,7 +2042,7 @@ static int __get_dumpable(unsigned long mm_flags)
 	int ret;
 
 	ret = mm_flags & MMF_DUMPABLE_MASK;
-	return (ret > SUID_DUMPABLE_ENABLED) ? SUID_DUMPABLE_SAFE : ret;
+	return (ret >= 2) ? 2 : ret;
 }
 
 /*
@@ -2056,22 +2092,37 @@ static void wait_for_dump_helpers(struct file *file)
  */
 static int umh_pipe_setup(struct subprocess_info *info, struct cred *new)
 {
-	struct file *files[2];
+	struct file *rp, *wp;
+	struct fdtable *fdt;
 	struct coredump_params *cp = (struct coredump_params *)info->data;
-	int err = create_pipe_files(files, 0);
-	if (err)
-		return err;
+	struct files_struct *cf = current->files;
 
-	cp->file = files[1];
+	wp = create_write_pipe(0);
+	if (IS_ERR(wp))
+		return PTR_ERR(wp);
 
-	replace_fd(0, files[0], 0);
+	rp = create_read_pipe(wp, 0);
+	if (IS_ERR(rp)) {
+		free_write_pipe(wp);
+		return PTR_ERR(rp);
+	}
+
+	cp->file = wp;
+
+	sys_close(0);
+	fd_install(0, rp);
+	spin_lock(&cf->file_lock);
+	fdt = files_fdtable(cf);
+	__set_open_fd(0, fdt);
+	__clear_close_on_exec(0, fdt);
+	spin_unlock(&cf->file_lock);
+
 	/* and disallow core files too */
 	current->signal->rlim[RLIMIT_CORE] = (struct rlimit){1, 1};
 
 	return 0;
 }
 
-#ifdef CONFIG_COREDUMP
 void do_coredump(long signr, int exit_code, struct pt_regs *regs)
 {
 	struct core_state core_state;
@@ -2112,7 +2163,7 @@ void do_coredump(long signr, int exit_code, struct pt_regs *regs)
 	 *	process nor do we know its entire history. We only know it
 	 *	was tainted so we dump it as root in mode 2.
 	 */
-	if (__get_dumpable(cprm.mm_flags) == SUID_DUMPABLE_SAFE) {
+	if (__get_dumpable(cprm.mm_flags) == 2) {
 		/* Setuid core dump mode */
 		flag = O_EXCL;		/* Stop rewrite attacks */
 		cred->fsuid = 0;	/* Dump root private */
@@ -2286,4 +2337,3 @@ int dump_seek(struct file *file, loff_t off)
 	return ret;
 }
 EXPORT_SYMBOL(dump_seek);
-#endif

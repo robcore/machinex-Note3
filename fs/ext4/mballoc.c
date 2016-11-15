@@ -790,7 +790,7 @@ static int ext4_mb_init_cache(struct page *page, char *incore)
 	int first_block;
 	struct super_block *sb;
 	struct buffer_head *bhs;
-	struct buffer_head **bh = NULL;
+	struct buffer_head **bh;
 	struct inode *inode;
 	char *data;
 	char *bitmap;
@@ -1867,12 +1867,6 @@ static int ext4_mb_good_group(struct ext4_allocation_context *ac,
 
 	BUG_ON(cr < 0 || cr >= 4);
 
-	free = grp->bb_free;
-	if (free == 0)
-		return 0;
-	if (cr <= 2 && free < ac->ac_g_ex.fe_len)
-		return 0;
-
 	/* We only do this if the grp has never been initialized */
 	if (unlikely(EXT4_MB_GRP_NEED_INIT(grp))) {
 		int ret = ext4_mb_init_group(ac->ac_sb, group);
@@ -1880,7 +1874,10 @@ static int ext4_mb_good_group(struct ext4_allocation_context *ac,
 			return 0;
 	}
 
+	free = grp->bb_free;
 	fragments = grp->bb_fragments;
+	if (free == 0)
+		return 0;
 	if (fragments == 0)
 		return 0;
 
@@ -2809,8 +2806,7 @@ ext4_mb_mark_diskspace_used(struct ext4_allocation_context *ac,
 	}
 	len = ext4_free_group_clusters(sb, gdp) - ac->ac_b_ex.fe_len;
 	ext4_free_group_clusters_set(sb, gdp, len);
-	ext4_block_bitmap_csum_set(sb, ac->ac_b_ex.fe_group, gdp, bitmap_bh);
-	ext4_group_desc_csum_set(sb, ac->ac_b_ex.fe_group, gdp);
+	gdp->bg_checksum = ext4_group_desc_csum(sbi, ac->ac_b_ex.fe_group, gdp);
 
 	ext4_unlock_group(sb, ac->ac_b_ex.fe_group);
 	percpu_counter_sub(&sbi->s_freeclusters_counter, ac->ac_b_ex.fe_len);
@@ -3902,7 +3898,8 @@ static void ext4_mb_show_ac(struct ext4_allocation_context *ac)
 			(unsigned long)ac->ac_b_ex.fe_len,
 			(unsigned long)ac->ac_b_ex.fe_logical,
 			(int)ac->ac_criteria);
-	ext4_msg(ac->ac_sb, KERN_ERR, "%d found", ac->ac_found);
+	ext4_msg(ac->ac_sb, KERN_ERR, "%lu scanned, %d found",
+		 ac->ac_ex_scanned, ac->ac_found);
 	ext4_msg(ac->ac_sb, KERN_ERR, "groups: ");
 	ngroups = ext4_get_groups_count(sb);
 	for (i = 0; i < ngroups; i++) {
@@ -4676,8 +4673,7 @@ do_more:
 
 	ret = ext4_free_group_clusters(sb, gdp) + count_clusters;
 	ext4_free_group_clusters_set(sb, gdp, ret);
-	ext4_block_bitmap_csum_set(sb, block_group, gdp, bitmap_bh);
-	ext4_group_desc_csum_set(sb, block_group, gdp);
+	gdp->bg_checksum = ext4_group_desc_csum(sbi, block_group, gdp);
 	ext4_unlock_group(sb, block_group);
 	percpu_counter_add(&sbi->s_freeclusters_counter, count_clusters);
 
@@ -4721,7 +4717,7 @@ error_return:
  * ext4_group_add_blocks() -- Add given blocks to an existing group
  * @handle:			handle to this transaction
  * @sb:				super block
- * @block:			start physical block to add to the block group
+ * @block:			start physcial block to add to the block group
  * @count:			number of blocks to free
  *
  * This marks the blocks as free in the bitmap and buddy.
@@ -4821,8 +4817,7 @@ int ext4_group_add_blocks(handle_t *handle, struct super_block *sb,
 	mb_free_blocks(NULL, &e4b, bit, count);
 	blk_free_count = blocks_freed + ext4_free_group_clusters(sb, desc);
 	ext4_free_group_clusters_set(sb, desc, blk_free_count);
-	ext4_block_bitmap_csum_set(sb, block_group, desc, bitmap_bh);
-	ext4_group_desc_csum_set(sb, block_group, desc);
+	desc->bg_checksum = ext4_group_desc_csum(sbi, block_group, desc);
 	ext4_unlock_group(sb, block_group);
 	percpu_counter_add(&sbi->s_freeclusters_counter,
 			   EXT4_NUM_B2C(sbi, blocks_freed));

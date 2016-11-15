@@ -273,18 +273,18 @@ void ext3_evict_inode (struct inode *inode)
 	if (ext3_mark_inode_dirty(handle, inode)) {
 		/* If that failed, just dquot_drop() and be done with that */
 		dquot_drop(inode);
-		clear_inode(inode);
+		end_writeback(inode);
 	} else {
 		ext3_xattr_delete_inode(handle, inode);
 		dquot_free_inode(inode);
 		dquot_drop(inode);
-		clear_inode(inode);
+		end_writeback(inode);
 		ext3_free_inode(handle, inode);
 	}
 	ext3_journal_stop(handle);
 	return;
 no_delete:
-	clear_inode(inode);
+	end_writeback(inode);
 	dquot_drop(inode);
 }
 
@@ -1857,8 +1857,7 @@ static int ext3_releasepage(struct page *page, gfp_t wait)
  * VFS code falls back into buffered path in that case so we are safe.
  */
 static ssize_t ext3_direct_IO(int rw, struct kiocb *iocb,
-			const struct iovec *iov, loff_t offset,
-			unsigned long nr_segs)
+			struct iov_iter *iter, loff_t offset)
 {
 	struct file *file = iocb->ki_filp;
 	struct inode *inode = file->f_mapping->host;
@@ -1866,10 +1865,10 @@ static ssize_t ext3_direct_IO(int rw, struct kiocb *iocb,
 	handle_t *handle;
 	ssize_t ret;
 	int orphan = 0;
-	size_t count = iov_length(iov, nr_segs);
+	size_t count = iov_iter_count(iter);
 	int retries = 0;
 
-	trace_ext3_direct_IO_enter(inode, offset, iov_length(iov, nr_segs), rw);
+	trace_ext3_direct_IO_enter(inode, offset, count, rw);
 
 	if (rw == WRITE) {
 		loff_t final_size = offset + count;
@@ -1893,15 +1892,14 @@ static ssize_t ext3_direct_IO(int rw, struct kiocb *iocb,
 	}
 
 retry:
-	ret = blockdev_direct_IO(rw, iocb, inode, iov, offset, nr_segs,
-				 ext3_get_block);
+	ret = blockdev_direct_IO(rw, iocb, inode, iter, offset, ext3_get_block);
 	/*
 	 * In case of error extending write may have instantiated a few
 	 * blocks outside i_size. Trim these off again.
 	 */
 	if (unlikely((rw & WRITE) && ret < 0)) {
 		loff_t isize = i_size_read(inode);
-		loff_t end = offset + iov_length(iov, nr_segs);
+		loff_t end = offset + count;
 
 		if (end > isize)
 			ext3_truncate_failed_direct_write(inode);
@@ -1944,8 +1942,7 @@ retry:
 			ret = err;
 	}
 out:
-	trace_ext3_direct_IO_exit(inode, offset,
-				iov_length(iov, nr_segs), rw, ret);
+	trace_ext3_direct_IO_exit(inode, offset, count, rw, ret);
 	return ret;
 }
 
@@ -3200,7 +3197,7 @@ out_brelse:
  *
  * - Within generic_file_write() for O_SYNC files.
  *   Here, there will be no transaction running. We wait for any running
- *   transaction to commit.
+ *   trasnaction to commit.
  *
  * - Within sys_sync(), kupdate and such.
  *   We wait on commit, if tol to.

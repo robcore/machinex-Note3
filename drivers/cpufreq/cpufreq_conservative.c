@@ -23,7 +23,6 @@
 #include <linux/tick.h>
 #include <linux/ktime.h>
 #include <linux/sched.h>
-#include <linux/slab.h>
 
 /*
  * dbs is used in this file as a shortform for demandbased switching
@@ -469,7 +468,7 @@ static inline void dbs_timer_init(struct cpu_dbs_info_s *dbs_info)
 	delay -= jiffies % delay;
 
 	dbs_info->enable = 1;
-	INIT_DEFERRABLE_WORK(&dbs_info->work, do_dbs_timer);
+	INIT_DELAYED_WORK_DEFERRABLE(&dbs_info->work, do_dbs_timer);
 	queue_delayed_work_on(dbs_info->cpu, dbs_wq, &dbs_info->work, delay);
 }
 

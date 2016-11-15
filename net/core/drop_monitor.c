@@ -4,8 +4,6 @@
  * Copyright (C) 2009 Neil Horman <nhorman@tuxdriver.com>
  */
 
-#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
-
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
 #include <linux/string.h>
@@ -346,10 +344,10 @@ static int __init init_net_drop_monitor(void)
 	struct per_cpu_dm_data *data;
 	int cpu, rc;
 
-	pr_info("Initializing network drop monitor service\n");
+	printk(KERN_INFO "Initializing network drop monitor service\n");
 
 	if (sizeof(void *) > 8) {
-		pr_err("Unable to store program counters on this arch, Drop monitor failed\n");
+		printk(KERN_ERR "Unable to store program counters on this arch, Drop monitor failed\n");
 		return -ENOSPC;
 	}
 
@@ -357,13 +355,13 @@ static int __init init_net_drop_monitor(void)
 					   dropmon_ops,
 					   ARRAY_SIZE(dropmon_ops));
 	if (rc) {
-		pr_err("Could not create drop monitor netlink family\n");
+		printk(KERN_ERR "Could not create drop monitor netlink family\n");
 		return rc;
 	}
 
 	rc = register_netdevice_notifier(&dropmon_net_notifier);
 	if (rc < 0) {
-		pr_crit("Failed to register netdevice notifier\n");
+		printk(KERN_CRIT "Failed to register netdevice notifier\n");
 		goto out_unreg;
 	}
 

@@ -91,6 +91,9 @@ int no_printk(const char *fmt, ...)
 extern asmlinkage __printf(1, 2)
 void early_printk(const char *fmt, ...);
 
+extern int printk_needs_cpu(int cpu);
+extern void printk_tick(void);
+
 #ifdef CONFIG_PRINTK
 asmlinkage __printf(1, 0)
 int vprintk(const char *fmt, va_list args);
@@ -213,19 +216,8 @@ extern void dump_stack(void) __cold;
 		printk(fmt, ##__VA_ARGS__);	\
 	}					\
 })
-#define printk_deferred_once(fmt, ...)				\
-({								\
-	static bool __print_once __read_mostly;			\
-								\
-	if (!__print_once) {					\
-		__print_once = true;				\
-		printk_deferred(fmt, ##__VA_ARGS__);		\
-	}							\
-})
 #else
 #define printk_once(fmt, ...)			\
-	no_printk(fmt, ##__VA_ARGS__)
-#define printk_deferred_once(fmt, ...)				\
 	no_printk(fmt, ##__VA_ARGS__)
 #endif
 

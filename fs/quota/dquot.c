@@ -603,14 +603,12 @@ out:
 }
 EXPORT_SYMBOL(dquot_scan_active);
 
-/* Write all dquot structures to quota files */
-int dquot_writeback_dquots(struct super_block *sb, int type)
+int dquot_quota_sync(struct super_block *sb, int type, int wait)
 {
 	struct list_head *dirty;
 	struct dquot *dquot;
 	struct quota_info *dqopt = sb_dqopt(sb);
 	int cnt;
-	int err, ret = 0;
 
 	mutex_lock(&dqopt->dqonoff_mutex);
 	for (cnt = 0; cnt < MAXQUOTAS; cnt++) {
@@ -634,9 +632,7 @@ int dquot_writeback_dquots(struct super_block *sb, int type)
 			atomic_inc(&dquot->dq_count);
 			spin_unlock(&dq_list_lock);
 			dqstats_inc(DQST_LOOKUPS);
-			err = sb->dq_op->write_dquot(dquot);
-			if (!ret && err)
-				err = ret;
+			sb->dq_op->write_dquot(dquot);
 			dqput(dquot);
 			spin_lock(&dq_list_lock);
 		}
@@ -650,21 +646,7 @@ int dquot_writeback_dquots(struct super_block *sb, int type)
 	dqstats_inc(DQST_SYNCS);
 	mutex_unlock(&dqopt->dqonoff_mutex);
 
-	return ret;
-}
-EXPORT_SYMBOL(dquot_writeback_dquots);
-
-/* Write all dquot structures to disk and make them visible from userspace */
-int dquot_quota_sync(struct super_block *sb, int type)
-{
-	struct quota_info *dqopt = sb_dqopt(sb);
-	int cnt;
-	int ret;
-
-	ret = dquot_writeback_dquots(sb, type);
-	if (ret)
-		return ret;
-	if (dqopt->flags & DQUOT_QUOTA_SYS_FILE)
+	if (!wait || (sb_dqopt(sb)->flags & DQUOT_QUOTA_SYS_FILE))
 		return 0;
 
 	/* This is not very clever (and fast) but currently I don't know about
@@ -678,18 +660,18 @@ int dquot_quota_sync(struct super_block *sb, int type)
 	 * Now when everything is written we can discard the pagecache so
 	 * that userspace sees the changes.
 	 */
-	mutex_lock(&dqopt->dqonoff_mutex);
+	mutex_lock(&sb_dqopt(sb)->dqonoff_mutex);
 	for (cnt = 0; cnt < MAXQUOTAS; cnt++) {
 		if (type != -1 && cnt != type)
 			continue;
 		if (!sb_has_quota_active(sb, cnt))
 			continue;
-		mutex_lock_nested(&dqopt->files[cnt]->i_mutex,
+		mutex_lock_nested(&sb_dqopt(sb)->files[cnt]->i_mutex,
 				  I_MUTEX_QUOTA);
-		truncate_inode_pages(&dqopt->files[cnt]->i_data, 0);
-		mutex_unlock(&dqopt->files[cnt]->i_mutex);
+		truncate_inode_pages(&sb_dqopt(sb)->files[cnt]->i_data, 0);
+		mutex_unlock(&sb_dqopt(sb)->files[cnt]->i_mutex);
 	}
-	mutex_unlock(&dqopt->dqonoff_mutex);
+	mutex_unlock(&sb_dqopt(sb)->dqonoff_mutex);
 
 	return 0;
 }

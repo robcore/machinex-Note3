@@ -15,8 +15,6 @@
  *	Harald Welte		Add neighbour cache statistics like rtstat
  */
 
-#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
-
 #include <linux/slab.h>
 #include <linux/types.h>
 #include <linux/kernel.h>
@@ -717,13 +715,14 @@ void neigh_destroy(struct neighbour *neigh)
 	NEIGH_CACHE_STAT_INC(neigh->tbl, destroys);
 
 	if (!neigh->dead) {
-		pr_warn("Destroying alive neighbour %p\n", neigh);
+		printk(KERN_WARNING
+		       "Destroying alive neighbour %p\n", neigh);
 		dump_stack();
 		return;
 	}
 
 	if (neigh_del_timer(neigh))
-		pr_warn("Impossible event\n");
+		printk(KERN_WARNING "Impossible event.\n");
 
 	write_lock_bh(&neigh->lock);
 	__skb_queue_purge(&neigh->arp_queue);
@@ -1535,7 +1534,7 @@ void neigh_table_init_no_netlink(struct neigh_table *tbl)
 		panic("cannot allocate neighbour cache hashes");
 
 	rwlock_init(&tbl->lock);
-	INIT_DEFERRABLE_WORK(&tbl->gc_work, neigh_periodic_work);
+	INIT_DELAYED_WORK_DEFERRABLE(&tbl->gc_work, neigh_periodic_work);
 	schedule_delayed_work(&tbl->gc_work, tbl->parms.reachable_time);
 	setup_timer(&tbl->proxy_timer, neigh_proxy_process, (unsigned long)tbl);
 	skb_queue_head_init_class(&tbl->proxy_queue,
@@ -1561,8 +1560,8 @@ void neigh_table_init(struct neigh_table *tbl)
 	write_unlock(&neigh_tbl_lock);
 
 	if (unlikely(tmp)) {
-		pr_err("Registering multiple tables for family %d\n",
-		       tbl->family);
+		printk(KERN_ERR "NEIGH: Registering multiple tables for "
+		       "family %d\n", tbl->family);
 		dump_stack();
 	}
 }
@@ -1578,7 +1577,7 @@ int neigh_table_clear(struct neigh_table *tbl)
 	pneigh_queue_purge(&tbl->proxy_queue);
 	neigh_ifdown(tbl, NULL);
 	if (atomic_read(&tbl->entries))
-		pr_crit("neighbour leakage\n");
+		printk(KERN_CRIT "neighbour leakage\n");
 	write_lock(&neigh_tbl_lock);
 	for (tp = &neigh_tables; *tp; tp = &(*tp)->next) {
 		if (*tp == tbl) {

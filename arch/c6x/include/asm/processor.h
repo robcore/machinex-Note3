@@ -92,6 +92,9 @@ static inline void release_thread(struct task_struct *dead_task)
 {
 }
 
+/* Prepare to copy thread state - unlazy all lazy status */
+#define prepare_to_copy(tsk)	do { } while (0)
+
 extern int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags);
 
 #define copy_segments(tsk, mm)		do { } while (0)

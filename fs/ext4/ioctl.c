@@ -157,13 +157,6 @@ flags_out:
 		if (!inode_owner_or_capable(inode))
 			return -EPERM;
 
-		if (EXT4_HAS_RO_COMPAT_FEATURE(inode->i_sb,
-				EXT4_FEATURE_RO_COMPAT_METADATA_CSUM)) {
-			ext4_warning(sb, "Setting inode version is not "
-				     "supported with metadata_csum enabled.");
-			return -ENOTTY;
-		}
-
 		err = mnt_want_write_file(filp);
 		if (err)
 			return err;
@@ -234,7 +227,7 @@ group_extend_out:
 	case EXT4_IOC_MOVE_EXT: {
 		struct move_extent me;
 		struct file *donor_filp;
-		int err, fput_needed;
+		int err;
 
 		if (!(filp->f_mode & FMODE_READ) ||
 		    !(filp->f_mode & FMODE_WRITE))
@@ -245,7 +238,7 @@ group_extend_out:
 			return -EFAULT;
 		me.moved_len = 0;
 
-		donor_filp = fget_light(me.donor_fd, &fput_needed);
+		donor_filp = fget(me.donor_fd);
 		if (!donor_filp)
 			return -EBADF;
 
@@ -273,7 +266,7 @@ group_extend_out:
 				 &me, sizeof(me)))
 			err = -EFAULT;
 mext_out:
-		fput_light(donor_filp, fput_needed);
+		fput(donor_filp);
 		return err;
 	}
 

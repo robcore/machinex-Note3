@@ -10,7 +10,6 @@
 #ifndef __LINUX_MUTEX_H
 #define __LINUX_MUTEX_H
 
-#include <asm/current.h>
 #include <linux/list.h>
 #include <linux/spinlock_types.h>
 #include <linux/linkage.h>
@@ -131,13 +130,12 @@ static inline int mutex_is_locked(struct mutex *lock)
 }
 
 /*
- * See kernel/locking/mutex.c for detailed documentation of these APIs.
+ * See kernel/mutex.c for detailed documentation of these APIs.
  * Also see Documentation/mutex-design.txt.
  */
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 extern void mutex_lock_nested(struct mutex *lock, unsigned int subclass);
 extern void _mutex_lock_nest_lock(struct mutex *lock, struct lockdep_map *nest_lock);
-
 extern int __must_check mutex_lock_interruptible_nested(struct mutex *lock,
 					unsigned int subclass);
 extern int __must_check mutex_lock_killable_nested(struct mutex *lock,
@@ -149,7 +147,7 @@ extern int __must_check mutex_lock_killable_nested(struct mutex *lock,
 
 #define mutex_lock_nest_lock(lock, nest_lock)				\
 do {									\
-	typecheck(struct lockdep_map *, &(nest_lock)->dep_map);	\
+	typecheck(struct lockdep_map *, &(nest_lock)->dep_map);		\
 	_mutex_lock_nest_lock(lock, &(nest_lock)->dep_map);		\
 } while (0)
 
@@ -163,7 +161,9 @@ extern int __must_check mutex_lock_killable(struct mutex *lock);
 # define mutex_lock_killable_nested(lock, subclass) mutex_lock_killable(lock)
 # define mutex_lock_nest_lock(lock, nest_lock) mutex_lock(lock)
 #endif
-
+#ifdef CONFIG_ARCH_MSM8610
+extern struct task_struct * mutex_get_owner(struct mutex *lock);
+#endif
 /*
  * NOTE: mutex_trylock() follows the spin_trylock() convention,
  *       not the down_trylock() convention!
@@ -172,7 +172,6 @@ extern int __must_check mutex_lock_killable(struct mutex *lock);
  */
 extern int mutex_trylock(struct mutex *lock);
 extern void mutex_unlock(struct mutex *lock);
-
 extern int atomic_dec_and_mutex_lock(atomic_t *cnt, struct mutex *lock);
 
 #ifndef CONFIG_HAVE_ARCH_MUTEX_CPU_RELAX

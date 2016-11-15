@@ -18,10 +18,6 @@
  *
  *  v1.6 - remove autosleep and hybrid modes (autosleep not working on shamu)
  *
- *  v1.7 - do only run state change if change actually requests a new state
- *
- * v1.7.1 - Add autosleep and hybrid modes back
- *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
  * may be copied, distributed, and modified under those terms.
@@ -39,8 +35,7 @@
 #include <linux/workqueue.h>
 
 #define MAJOR_VERSION	1
-#define MINOR_VERSION	7
-#define SUB_MINOR_VERSION 1
+#define MINOR_VERSION	6
 
 struct workqueue_struct *suspend_work_queue;
 
@@ -53,7 +48,7 @@ static DECLARE_WORK(power_resume_work, power_resume);
 static DEFINE_SPINLOCK(state_lock);
 
 static int state; // Yank555.lu : Current powersave state (screen on / off)
-static int mode;  // Yank555.lu : Current powersave mode  (kernel / userspace / panel / hybrid)
+static int mode;  // Yank555.lu : Current powersave mode  (userspace / panel)
 
 void register_power_suspend(struct power_suspend *handler)
 {
@@ -135,44 +130,31 @@ void set_power_suspend_state(int new_state)
 {
 	unsigned long irqflags;
 
-	if (state != new_state) {
-		spin_lock_irqsave(&state_lock, irqflags);
-		if (state == POWER_SUSPEND_INACTIVE && new_state == POWER_SUSPEND_ACTIVE) {
-			pr_info("[POWERSUSPEND] state activated.\n");
-			state = new_state;
-			queue_work(suspend_work_queue, &power_suspend_work);
-		} else if (state == POWER_SUSPEND_ACTIVE && new_state == POWER_SUSPEND_INACTIVE) {
-			pr_info("[POWERSUSPEND] state deactivated.\n");
-			state = new_state;
-			queue_work(suspend_work_queue, &power_resume_work);
-		}
-		spin_unlock_irqrestore(&state_lock, irqflags);
-	} else {
-		pr_info("[POWERSUSPEND] state change requested, but unchanged ?! Ignored !\n");
+	spin_lock_irqsave(&state_lock, irqflags);
+	if (state == POWER_SUSPEND_INACTIVE && new_state == POWER_SUSPEND_ACTIVE) {
+		pr_info("[POWERSUSPEND] state activated.\n");
+		state = new_state;
+		queue_work(suspend_work_queue, &power_suspend_work);
+	} else if (state == POWER_SUSPEND_ACTIVE && new_state == POWER_SUSPEND_INACTIVE) {
+		pr_info("[POWERSUSPEND] state deactivated.\n");
+		state = new_state;
+		queue_work(suspend_work_queue, &power_resume_work);
 	}
+	spin_unlock_irqrestore(&state_lock, irqflags);
 }
-
-void set_power_suspend_state_autosleep_hook(int new_state)
-{
-	pr_info("[POWERSUSPEND] autosleep resquests %s.\n", new_state == POWER_SUSPEND_ACTIVE ? "sleep" : "wakeup");
-	// Yank555.lu : Only allow autosleep hook changes in autosleep & hybrid mode
-	if (mode == POWER_SUSPEND_AUTOSLEEP || mode == POWER_SUSPEND_HYBRID)
-		set_power_suspend_state(new_state);
-}
-
-EXPORT_SYMBOL(set_power_suspend_state_autosleep_hook);
 
 void set_power_suspend_state_panel_hook(int new_state)
 {
-	pr_info("[POWERSUSPEND] panel resquests %s.\n", new_state == POWER_SUSPEND_ACTIVE ? "sleep" : "wakeup");
-	// Yank555.lu : Only allow autosleep hook changes in autosleep & hybrid mode
-	if (mode == POWER_SUSPEND_PANEL || mode == POWER_SUSPEND_HYBRID)
+	// Yank555.lu : Only allow panel hook changes in panel mode
+	// robcore: only print panel request for state if we are in panel mode
+	if (mode == POWER_SUSPEND_PANEL)
+		pr_info("[POWERSUSPEND] panel resquests %s.\n", new_state == POWER_SUSPEND_ACTIVE ? "sleep" : "wakeup");
 		set_power_suspend_state(new_state);
 }
 
 EXPORT_SYMBOL(set_power_suspend_state_panel_hook);
 
-// ------------------------------------------ sysfs interface ------------------------------------------
+/* ------------------------------------------ sysfs interface ------------------------------------------ */
 
 static ssize_t power_suspend_state_show(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
@@ -217,14 +199,13 @@ static ssize_t power_suspend_mode_store(struct kobject *kobj,
 	sscanf(buf, "%d\n", &data);
 
 	switch (data) {
-		case POWER_SUSPEND_AUTOSLEEP:
 		case POWER_SUSPEND_PANEL:
-		case POWER_SUSPEND_USERSPACE:
-		case POWER_SUSPEND_HYBRID:	mode = data;
+		case POWER_SUSPEND_USERSPACE:	mode = data;
 						return count;
 		default:
 			return -EINVAL;
 	}
+
 }
 
 static struct kobj_attribute power_suspend_mode_attribute =
@@ -235,7 +216,7 @@ static struct kobj_attribute power_suspend_mode_attribute =
 static ssize_t power_suspend_version_show(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
 {
-	return sprintf(buf, "version: %d.%d.%d\n", MAJOR_VERSION, MINOR_VERSION, SUB_MINOR_VERSION);
+	return sprintf(buf, "version: %d.%d\n", MAJOR_VERSION, MINOR_VERSION);
 }
 
 static struct kobj_attribute power_suspend_version_attribute =
@@ -258,7 +239,7 @@ static struct attribute_group power_suspend_attr_group =
 
 static struct kobject *power_suspend_kobj;
 
-// ------------------ sysfs interface -----------------------
+/* ------------------ sysfs interface ----------------------- */
 static int __init power_suspend_init(void)
 {
 
@@ -286,8 +267,8 @@ static int __init power_suspend_init(void)
 		return -ENOMEM;
 	}
 
-//	mode = POWER_SUSPEND_USERSPACE;	// Yank555.lu : Default to userspace mode
-	mode = POWER_SUSPEND_PANEL;	// Yank555.lu : Default to display panel mode
+	mode = POWER_SUSPEND_USERSPACE;	// Yank555.lu : Default to userspace mode
+//	mode = POWER_SUSPEND_PANEL;	// Yank555.lu : Default to display panel mode
 
 	return 0;
 }
@@ -300,10 +281,11 @@ static void __exit power_suspend_exit(void)
 	destroy_workqueue(suspend_work_queue);
 }
 
-core_initcall(power_suspend_init);
+late_initcall(power_suspend_init);
 module_exit(power_suspend_exit);
 
 MODULE_AUTHOR("Paul Reioux <reioux@gmail.com> / Jean-Pierre Rasquin <yank555.lu@gmail.com>");
 MODULE_DESCRIPTION("power_suspend - A replacement kernel PM driver for"
         "Android's deprecated early_suspend/late_resume PM driver!");
 MODULE_LICENSE("GPL v2");
+

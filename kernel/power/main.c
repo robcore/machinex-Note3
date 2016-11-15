@@ -84,7 +84,7 @@ static ssize_t pm_async_store(struct kobject *kobj, struct kobj_attribute *attr,
 {
 	unsigned long val;
 
-	if (kstrtoul(buf, 10, &val))
+	if (strict_strtoul(buf, 10, &val))
 		return -EINVAL;
 
 	if (val > 1)
@@ -335,47 +335,6 @@ late_initcall(pm_debugfs_init);
 
 #endif /* CONFIG_PM_SLEEP */
 
-#ifdef CONFIG_PM_SLEEP_DEBUG
-/*
- * pm_print_times: print time taken by devices to suspend and resume.
- *
- * show() returns whether printing of suspend and resume times is enabled.
- * store() accepts 0 or 1.  0 disables printing and 1 enables it.
- */
-bool pm_print_times_enabled;
-
-static ssize_t pm_print_times_show(struct kobject *kobj,
-				   struct kobj_attribute *attr, char *buf)
-{
-	return sprintf(buf, "%d\n", pm_print_times_enabled);
-}
-
-static ssize_t pm_print_times_store(struct kobject *kobj,
-				    struct kobj_attribute *attr,
-				    const char *buf, size_t n)
-{
-	unsigned long val;
-
-	if (kstrtoul(buf, 10, &val))
-		return -EINVAL;
-
-	if (val > 1)
-		return -EINVAL;
-
-	pm_print_times_enabled = !!val;
-	return n;
-}
-
-power_attr(pm_print_times);
-
-static inline void pm_print_times_init(void)
-{
-	pm_print_times_enabled = !!initcall_debug;
-}
-#else /* !CONFIG_PP_SLEEP_DEBUG */
-static inline void pm_print_times_init(void) {}
-#endif /* CONFIG_PM_SLEEP_DEBUG */
-
 struct kobject *power_kobj;
 
 /**
@@ -393,12 +352,12 @@ static ssize_t state_show(struct kobject *kobj, struct kobj_attribute *attr,
 {
 	char *s = buf;
 #ifdef CONFIG_SUSPEND
-	suspend_state_t i;
+	int i;
 
-	for (i = PM_SUSPEND_MIN; i < PM_SUSPEND_MAX; i++)
-		if (pm_states[i].state)
-			s += sprintf(s,"%s ", pm_states[i].label);
-
+	for (i = 0; i < PM_SUSPEND_MAX; i++) {
+		if (pm_states[i] && valid_state(i))
+			s += sprintf(s,"%s ", pm_states[i]);
+	}
 #endif
 #ifdef CONFIG_HIBERNATION
 	s += sprintf(s, "%s\n", "disk");
@@ -416,9 +375,9 @@ static suspend_state_t decode_state(const char *buf, size_t n)
 #ifdef CONFIG_EARLYSUSPEND
 	suspend_state_t state = PM_SUSPEND_ON;
 #else
-	suspend_state_t state = PM_SUSPEND_MIN;
+	suspend_state_t state = PM_SUSPEND_STANDBY;
 #endif
-	struct pm_sleep_state *s;
+	const char * const *s;
 #endif
 	char *p;
 	int len;
@@ -432,9 +391,8 @@ static suspend_state_t decode_state(const char *buf, size_t n)
 
 #ifdef CONFIG_SUSPEND
 	for (s = &pm_states[state]; state < PM_SUSPEND_MAX; s++, state++)
-		if (s->state && len == strlen(s->label)
-		    && !strncmp(buf, s->label, len))
-			return s->state;
+		if (*s && len == strlen(*s) && !strncmp(buf, *s, len))
+			return state;
 #endif
 
 	return PM_SUSPEND_ON;
@@ -703,8 +661,8 @@ static ssize_t autosleep_show(struct kobject *kobj,
 
 #ifdef CONFIG_SUSPEND
 	if (state < PM_SUSPEND_MAX)
-		return sprintf(buf, "%s\n", pm_states[state].state ?
-					pm_states[state].label : "error");
+		return sprintf(buf, "%s\n", valid_state(state) ?
+						pm_states[state] : "error");
 #endif
 #ifdef CONFIG_HIBERNATION
 	return sprintf(buf, "disk\n");
@@ -1015,32 +973,6 @@ power_attr(pm_trace_dev_match);
 power_attr(wake_lock);
 power_attr(wake_unlock);
 #endif
-
-#ifdef CONFIG_FREEZER
-static ssize_t pm_freeze_timeout_show(struct kobject *kobj,
-				      struct kobj_attribute *attr, char *buf)
-{
-	return sprintf(buf, "%u\n", freeze_timeout_msecs);
-}
-
-static ssize_t pm_freeze_timeout_store(struct kobject *kobj,
-				       struct kobj_attribute *attr,
-				       const char *buf, size_t n)
-{
-	unsigned long val;
-
-	if (kstrtoul(buf, 10, &val))
-		return -EINVAL;
-
-	freeze_timeout_msecs = val;
-	return n;
-}
-
-power_attr(pm_freeze_timeout);
-
-#endif	/* CONFIG_FREEZER*/
-
-
 #ifdef CONFIG_SEC_DVFS
 DEFINE_MUTEX(dvfs_mutex);
 static unsigned long dvfs_id;
@@ -1272,9 +1204,6 @@ static struct attribute *g[] = {
 #ifdef CONFIG_PM_DEBUG
 	&pm_test_attr.attr,
 #endif
-#ifdef CONFIG_PM_SLEEP_DEBUG
-	&pm_print_times_attr.attr,
-#endif
 #ifdef CONFIG_USER_WAKELOCK
 	&wake_lock_attr.attr,
 	&wake_unlock_attr.attr,
@@ -1289,12 +1218,6 @@ static struct attribute *g[] = {
 	&cpufreq_min_limit_attr.attr,
 	&cpufreq_max_limit_attr.attr,
 	&cpufreq_table_attr.attr,
-#endif
-#ifdef CONFIG_FREEZER
-	&pm_freeze_timeout_attr.attr,
-#endif
-#ifdef CONFIG_FREEZER
-	&pm_freeze_timeout_attr.attr,
 #endif
 	NULL,
 };
@@ -1344,7 +1267,6 @@ static int __init pm_init(void)
 	apps_max_freq = MAX_FREQ_LIMIT;
 	thermald_max_freq = MAX_FREQ_LIMIT;
 #endif
-	pm_print_times_init();
 	return pm_autosleep_init();
 }
 

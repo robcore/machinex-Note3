@@ -775,8 +775,7 @@ out:
  * VFS code falls back into buffered path in that case so we are safe.
  */
 ssize_t ext4_ind_direct_IO(int rw, struct kiocb *iocb,
-			   const struct iovec *iov, loff_t offset,
-			   unsigned long nr_segs)
+			   struct iov_iter *iter, loff_t offset)
 {
 	struct file *file = iocb->ki_filp;
 	struct inode *inode = file->f_mapping->host;
@@ -784,7 +783,7 @@ ssize_t ext4_ind_direct_IO(int rw, struct kiocb *iocb,
 	handle_t *handle;
 	ssize_t ret;
 	int orphan = 0;
-	size_t count = iov_length(iov, nr_segs);
+	size_t count = iov_iter_count(iter);
 	int retries = 0;
 
 	if (rw == WRITE) {
@@ -810,36 +809,21 @@ ssize_t ext4_ind_direct_IO(int rw, struct kiocb *iocb,
 
 retry:
 	if (rw == READ && ext4_should_dioread_nolock(inode)) {
-		if (unlikely(atomic_read(&EXT4_I(inode)->i_unwritten))) {
+		if (unlikely(!list_empty(&ei->i_completed_io_list))) {
 			mutex_lock(&inode->i_mutex);
-			ext4_flush_unwritten_io(inode);
+			ext4_flush_completed_IO(inode);
 			mutex_unlock(&inode->i_mutex);
 		}
-		/*
-		 * Nolock dioread optimization may be dynamically disabled
-		 * via ext4_inode_block_unlocked_dio(). Check inode's state
-		 * while holding extra i_dio_count ref.
-		 */
-		atomic_inc(&inode->i_dio_count);
-		smp_mb();
-		if (unlikely(ext4_test_inode_state(inode,
-						    EXT4_STATE_DIOREAD_LOCK))) {
-			inode_dio_done(inode);
-			goto locked;
-		}
 		ret = __blockdev_direct_IO(rw, iocb, inode,
-				 inode->i_sb->s_bdev, iov,
-				 offset, nr_segs,
-				 ext4_get_block, NULL, NULL, 0);
-		inode_dio_done(inode);
+				 inode->i_sb->s_bdev, iter,
+				 offset, ext4_get_block, NULL, NULL, 0);
 	} else {
-locked:
-		ret = blockdev_direct_IO(rw, iocb, inode, iov,
-				 offset, nr_segs, ext4_get_block);
+		ret = blockdev_direct_IO(rw, iocb, inode, iter,
+				 offset, ext4_get_block);
 
 		if (unlikely((rw & WRITE) && ret < 0)) {
 			loff_t isize = i_size_read(inode);
-			loff_t end = offset + iov_length(iov, nr_segs);
+			loff_t end = offset + iov_iter_count(iter);
 
 			if (end > isize)
 				ext4_truncate_failed_write(inode);

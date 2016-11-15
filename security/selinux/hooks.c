@@ -2141,13 +2141,6 @@ static int selinux_bprm_set_creds(struct linux_binprm *bprm)
 		new_tsec->sid = old_tsec->exec_sid;
 		/* Reset exec SID on execve. */
 		new_tsec->exec_sid = 0;
-
-		/*
-		 * Minimize confusion: if no_new_privs and a transition is
-		 * explicitly requested, then fail the exec.
-		 */
-		if (bprm->unsafe & LSM_UNSAFE_NO_NEW_PRIVS)
-			return -EPERM;
 	} else {
 		/* Check for a default transition on this program. */
 		rc = security_transition_sid(old_tsec->sid, isec->sid,
@@ -2161,8 +2154,7 @@ static int selinux_bprm_set_creds(struct linux_binprm *bprm)
 	ad.selinux_audit_data = &sad;
 	ad.u.path = bprm->file->f_path;
 
-	if ((bprm->file->f_path.mnt->mnt_flags & MNT_NOSUID) ||
-	    (bprm->unsafe & LSM_UNSAFE_NO_NEW_PRIVS))
+	if (bprm->file->f_path.mnt->mnt_flags & MNT_NOSUID)
 		new_tsec->sid = old_tsec->sid;
 
 	if (new_tsec->sid == old_tsec->sid) {
@@ -2244,11 +2236,6 @@ static int selinux_bprm_secureexec(struct linux_binprm *bprm)
 	return (atsecure || cap_bprm_secureexec(bprm));
 }
 
-static int match_file(const void *p, struct file *file, unsigned fd)
-{
-	return file_has_perm(p, file, file_to_av(file)) ? fd + 1 : 0;
-}
-
 /* Derived from fs/exec.c:flush_old_files. */
 static inline void flush_unauthorized_files(const struct cred *cred,
 					    struct files_struct *files)
@@ -2257,8 +2244,9 @@ static inline void flush_unauthorized_files(const struct cred *cred,
 	struct selinux_audit_data sad = {0,};
 	struct file *file, *devnull = NULL;
 	struct tty_struct *tty;
+	struct fdtable *fdt;
+	long j = -1;
 	int drop_tty = 0;
-	unsigned n;
 
 	tty = get_current_tty();
 	if (tty) {
@@ -2293,24 +2281,59 @@ static inline void flush_unauthorized_files(const struct cred *cred,
 	COMMON_AUDIT_DATA_INIT(&ad, INODE);
 	ad.selinux_audit_data = &sad;
 
-	n = iterate_fd(files, 0, match_file, cred);
-	if (!n) /* none found? */
-		return;
+	spin_lock(&files->file_lock);
+	for (;;) {
+		unsigned long set, i;
+		int fd;
 
-	devnull = dentry_open(dget(selinux_null), mntget(selinuxfs_mount),
-			O_RDWR, cred);
-	if (!IS_ERR(devnull)) {
-		/* replace all the matching ones with this */
-		do {
-			replace_fd(n - 1, get_file(devnull), 0);
-		} while ((n = iterate_fd(files, n, match_file, cred)) != 0);
-		fput(devnull);
-	} else {
-		/* just close all the matching ones */
-		do {
-			replace_fd(n - 1, NULL, 0);
-		} while ((n = iterate_fd(files, n, match_file, cred)) != 0);
+		j++;
+		i = j * BITS_PER_LONG;
+		fdt = files_fdtable(files);
+		if (i >= fdt->max_fds)
+			break;
+		set = fdt->open_fds[j];
+		if (!set)
+			continue;
+		spin_unlock(&files->file_lock);
+		for ( ; set ; i++, set >>= 1) {
+			if (set & 1) {
+				file = fget(i);
+				if (!file)
+					continue;
+				if (file_has_perm(cred,
+						  file,
+						  file_to_av(file))) {
+					sys_close(i);
+					fd = get_unused_fd();
+					if (fd != i) {
+						if (fd >= 0)
+							put_unused_fd(fd);
+						fput(file);
+						continue;
+					}
+					if (devnull) {
+						get_file(devnull);
+					} else {
+						devnull = dentry_open(
+							dget(selinux_null),
+							mntget(selinuxfs_mount),
+							O_RDWR, cred);
+						if (IS_ERR(devnull)) {
+							devnull = NULL;
+							put_unused_fd(fd);
+							fput(file);
+							continue;
+						}
+					}
+					fd_install(fd, devnull);
+				}
+				fput(file);
+			}
+		}
+		spin_lock(&files->file_lock);
+
 	}
+	spin_unlock(&files->file_lock);
 }
 
 /*
@@ -3300,7 +3323,6 @@ static int selinux_file_fcntl(struct file *file, unsigned int cmd,
 	case F_GETFL:
 	case F_GETOWN:
 	case F_GETSIG:
-	case F_GETOWNER_UIDS:
 		/* Just check FD__USE permission */
 		err = file_has_perm(cred, file, 0);
 		break;

@@ -86,7 +86,6 @@ static void __exit_signal(struct task_struct *tsk)
 	bool group_dead = thread_group_leader(tsk);
 	struct sighand_struct *sighand;
 	struct tty_struct *uninitialized_var(tty);
-	cputime_t utime, stime;
 
 	sighand = rcu_dereference_check(tsk->sighand,
 					lockdep_tasklist_lock_is_held());
@@ -125,10 +124,9 @@ static void __exit_signal(struct task_struct *tsk)
 		 * We won't ever get here for the group leader, since it
 		 * will have been the last reference on the signal_struct.
 		 */
-		task_cputime(tsk, &utime, &stime);
-		sig->utime += utime;
-		sig->stime += stime;
-		sig->gtime += task_gtime(tsk);
+		sig->utime += tsk->utime;
+		sig->stime += tsk->stime;
+		sig->gtime += tsk->gtime;
 		sig->min_flt += tsk->min_flt;
 		sig->maj_flt += tsk->maj_flt;
 		sig->nvcsw += tsk->nvcsw;
@@ -448,12 +446,107 @@ void daemonize(const char *name, ...)
 	/* Become as one with the init task */
 
 	daemonize_fs_struct();
-	daemonize_descriptors();
+	exit_files(current);
+	current->files = init_task.files;
+	atomic_inc(&current->files->count);
 
 	reparent_to_kthreadd();
 }
 
 EXPORT_SYMBOL(daemonize);
+
+static void close_files(struct files_struct * files)
+{
+	int i, j;
+	struct fdtable *fdt;
+
+	j = 0;
+
+	/*
+	 * It is safe to dereference the fd table without RCU or
+	 * ->file_lock because this is the last reference to the
+	 * files structure.  But use RCU to shut RCU-lockdep up.
+	 */
+	rcu_read_lock();
+	fdt = files_fdtable(files);
+	rcu_read_unlock();
+	for (;;) {
+		unsigned long set;
+		i = j * BITS_PER_LONG;
+		if (i >= fdt->max_fds)
+			break;
+		set = fdt->open_fds[j++];
+		while (set) {
+			if (set & 1) {
+				struct file * file = xchg(&fdt->fd[i], NULL);
+				if (file) {
+					filp_close(file, files);
+					cond_resched();
+				}
+			}
+			i++;
+			set >>= 1;
+		}
+	}
+}
+
+struct files_struct *get_files_struct(struct task_struct *task)
+{
+	struct files_struct *files;
+
+	task_lock(task);
+	files = task->files;
+	if (files)
+		atomic_inc(&files->count);
+	task_unlock(task);
+
+	return files;
+}
+
+void put_files_struct(struct files_struct *files)
+{
+	struct fdtable *fdt;
+
+	if (atomic_dec_and_test(&files->count)) {
+		close_files(files);
+		/*
+		 * Free the fd and fdset arrays if we expanded them.
+		 * If the fdtable was embedded, pass files for freeing
+		 * at the end of the RCU grace period. Otherwise,
+		 * you can free files immediately.
+		 */
+		rcu_read_lock();
+		fdt = files_fdtable(files);
+		if (fdt != &files->fdtab)
+			kmem_cache_free(files_cachep, files);
+		free_fdtable(fdt);
+		rcu_read_unlock();
+	}
+}
+
+void reset_files_struct(struct files_struct *files)
+{
+	struct task_struct *tsk = current;
+	struct files_struct *old;
+
+	old = tsk->files;
+	task_lock(tsk);
+	tsk->files = files;
+	task_unlock(tsk);
+	put_files_struct(old);
+}
+
+void exit_files(struct task_struct *tsk)
+{
+	struct files_struct * files = tsk->files;
+
+	if (files) {
+		task_lock(tsk);
+		tsk->files = NULL;
+		task_unlock(tsk);
+		put_files_struct(files);
+	}
+}
 
 #ifdef CONFIG_MM_OWNER
 /*
@@ -673,6 +766,7 @@ static void reparent_leader(struct task_struct *father, struct task_struct *p,
 				struct list_head *dead)
 {
 	list_move_tail(&p->sibling, &p->real_parent->children);
+
 	/*
 	 * If this is a threaded reparent there is no need to
 	 * notify anyone anything has happened.
@@ -796,7 +890,6 @@ static void check_stack_usage(void)
 	static DEFINE_SPINLOCK(low_water_lock);
 	static int lowest_to_date = THREAD_SIZE;
 	unsigned long free;
-	int islower = false;
 
 	free = stack_not_used(current);
 
@@ -805,16 +898,12 @@ static void check_stack_usage(void)
 
 	spin_lock(&low_water_lock);
 	if (free < lowest_to_date) {
-		lowest_to_date = free;
-		islower = true;
-	}
-	spin_unlock(&low_water_lock);
-
-	if (islower) {
 		printk(KERN_WARNING "%s used greatest stack depth: %lu bytes "
 				"left\n",
 				current->comm, free);
+		lowest_to_date = free;
 	}
+	spin_unlock(&low_water_lock);
 }
 #else
 static inline void check_stack_usage(void) {}
@@ -876,6 +965,8 @@ void do_exit(long code)
 	smp_mb();
 	raw_spin_unlock_wait(&tsk->pi_lock);
 
+	exit_irq_thread();
+
 	if (unlikely(in_atomic()))
 		printk(KERN_INFO "note: %s[%d] exited with preempt_count %d\n",
 				current->comm, task_pid_nr(current),
@@ -910,7 +1001,6 @@ void do_exit(long code)
 	exit_shm(tsk);
 	exit_files(tsk);
 	exit_fs(tsk);
-	exit_task_work(tsk);
 	check_stack_usage();
 	exit_thread();
 
@@ -950,7 +1040,7 @@ void do_exit(long code)
 	/*
 	 * Make sure we are holding no locks:
 	 */
-	debug_check_no_locks_held();
+	debug_check_no_locks_held(tsk);
 	/*
 	 * We can do this unlocked here. The futex code uses this flag
 	 * just to verify whether the pi state cleanup has been done
@@ -1196,17 +1286,17 @@ static int wait_task_zombie(struct wait_opts *wo, struct task_struct *p)
 		 * as other threads in the parent group can be right
 		 * here reaping other children at the same time.
 		 *
-		 * We use thread_group_cputime_adjusted() to get times for the thread
+		 * We use thread_group_times() to get times for the thread
 		 * group, which consolidates times for all threads in the
 		 * group including the group leader.
 		 */
-		thread_group_cputime_adjusted(p, &tgutime, &tgstime);
+		thread_group_times(p, &tgutime, &tgstime);
 		spin_lock_irq(&p->real_parent->sighand->siglock);
 		psig = p->real_parent->signal;
 		sig = p->signal;
 		psig->cutime += tgutime + sig->cutime;
 		psig->cstime += tgstime + sig->cstime;
-		psig->cgtime += task_gtime(p) + sig->gtime + sig->cgtime;
+		psig->cgtime += p->gtime + sig->gtime + sig->cgtime;
 		psig->cmin_flt +=
 			p->min_flt + sig->min_flt + sig->cmin_flt;
 		psig->cmaj_flt +=

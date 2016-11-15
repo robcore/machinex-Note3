@@ -9,8 +9,6 @@
  * Authors:	Neil Horman <nhorman@tuxdriver.com>
  */
 
-#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
-
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/types.h>
@@ -25,7 +23,20 @@
 #include <net/sock.h>
 #include <net/netprio_cgroup.h>
 
-#include <linux/fdtable.h>
+static struct cgroup_subsys_state *cgrp_create(struct cgroup *cgrp);
+static void cgrp_destroy(struct cgroup *cgrp);
+static int cgrp_populate(struct cgroup_subsys *ss, struct cgroup *cgrp);
+
+struct cgroup_subsys net_prio_subsys = {
+	.name		= "net_prio",
+	.create		= cgrp_create,
+	.destroy	= cgrp_destroy,
+	.populate	= cgrp_populate,
+#ifdef CONFIG_NETPRIO_CGROUP
+	.subsys_id	= net_prio_subsys_id,
+#endif
+	.module		= THIS_MODULE
+};
 
 #define PRIOIDX_SZ 128
 
@@ -51,9 +62,8 @@ static int get_prioidx(u32 *prio)
 		return -ENOSPC;
 	}
 	set_bit(prioidx, prioidx_map);
-	if (atomic_read(&max_prioidx) < prioidx)
-		atomic_set(&max_prioidx, prioidx);
 	spin_unlock_irqrestore(&prioidx_map_lock, flags);
+	atomic_set(&max_prioidx, prioidx);
 	*prio = prioidx;
 	return 0;
 }
@@ -67,7 +77,7 @@ static void put_prioidx(u32 idx)
 	spin_unlock_irqrestore(&prioidx_map_lock, flags);
 }
 
-static int extend_netdev_table(struct net_device *dev, u32 new_len)
+static void extend_netdev_table(struct net_device *dev, u32 new_len)
 {
 	size_t new_size = sizeof(struct netprio_map) +
 			   ((sizeof(u32) * new_len));
@@ -78,8 +88,8 @@ static int extend_netdev_table(struct net_device *dev, u32 new_len)
 	old_priomap  = rtnl_dereference(dev->priomap);
 
 	if (!new_priomap) {
-		pr_warn("Unable to alloc new priomap!\n");
-		return -ENOMEM;
+		printk(KERN_WARNING "Unable to alloc new priomap!\n");
+		return;
 	}
 
 	for (i = 0;
@@ -92,77 +102,46 @@ static int extend_netdev_table(struct net_device *dev, u32 new_len)
 	rcu_assign_pointer(dev->priomap, new_priomap);
 	if (old_priomap)
 		kfree_rcu(old_priomap, rcu);
-	return 0;
 }
 
-static int write_update_netdev_table(struct net_device *dev)
+static void update_netdev_tables(void)
 {
-	int ret = 0;
-	u32 max_len;
-	struct netprio_map *map;
-
-	max_len = atomic_read(&max_prioidx) + 1;
-	map = rtnl_dereference(dev->priomap);
-	if (!map || map->priomap_len < max_len)
-		ret = extend_netdev_table(dev, max_len);
-
-	return ret;
-}
-
-static int update_netdev_tables(void)
-{
-	int ret = 0;
 	struct net_device *dev;
-	u32 max_len;
+	u32 max_len = atomic_read(&max_prioidx) + 1;
 	struct netprio_map *map;
 
 	rtnl_lock();
-	max_len = atomic_read(&max_prioidx) + 1;
 	for_each_netdev(&init_net, dev) {
 		map = rtnl_dereference(dev->priomap);
-		/*
-		 * don't allocate priomap if we didn't
-		 * change net_prio.ifpriomap (map == NULL),
-		 * this will speed up skb_update_prio.
-		 */
-		if (map && map->priomap_len < max_len) {
-			ret = extend_netdev_table(dev, max_len);
-			if (ret < 0)
-				break;
-		}
+		if ((!map) ||
+		    (map->priomap_len < max_len))
+			extend_netdev_table(dev, max_len);
 	}
 	rtnl_unlock();
-	return ret;
 }
 
 static struct cgroup_subsys_state *cgrp_create(struct cgroup *cgrp)
 {
 	struct cgroup_netprio_state *cs;
-	int ret = -EINVAL;
+	int ret;
 
 	cs = kzalloc(sizeof(*cs), GFP_KERNEL);
 	if (!cs)
 		return ERR_PTR(-ENOMEM);
 
-	if (cgrp->parent && cgrp_netprio_state(cgrp->parent)->prioidx)
-		goto out;
-
-	ret = get_prioidx(&cs->prioidx);
-	if (ret < 0) {
-		pr_warn("No space in priority index array\n");
-		goto out;
+	if (cgrp->parent && cgrp_netprio_state(cgrp->parent)->prioidx) {
+		kfree(cs);
+		return ERR_PTR(-EINVAL);
 	}
 
-	ret = update_netdev_tables();
-	if (ret < 0) {
-		put_prioidx(cs->prioidx);
-		goto out;
+	ret = get_prioidx(&cs->prioidx);
+	if (ret != 0) {
+		printk(KERN_WARNING "No space in priority index array\n");
+		kfree(cs);
+		return ERR_PTR(ret);
 	}
 
 	return &cs->css;
-out:
-	kfree(cs);
-	return ERR_PTR(ret);
 }
 
 static void cgrp_destroy(struct cgroup *cgrp)
@@ -175,7 +154,7 @@ static void cgrp_destroy(struct cgroup *cgrp)
 	rtnl_lock();
 	for_each_netdev(&init_net, dev) {
 		map = rtnl_dereference(dev->priomap);
-		if (map && cs->prioidx < map->priomap_len)
+		if (map)
 			map->priomap[cs->prioidx] = 0;
 	}
 	rtnl_unlock();
@@ -199,7 +178,7 @@ static int read_priomap(struct cgroup *cont, struct cftype *cft,
 	rcu_read_lock();
 	for_each_netdev_rcu(&init_net, dev) {
 		map = rcu_dereference(dev->priomap);
-		priority = (map && prioidx < map->priomap_len) ? map->priomap[prioidx] : 0;
+		priority = map ? map->priomap[prioidx] : 0;
 		cb->fill(cb, dev->name, priority);
 	}
 	rcu_read_unlock();
@@ -254,44 +233,18 @@ static int write_priomap(struct cgroup *cgrp, struct cftype *cft,
 	if (!dev)
 		goto out_free_devname;
 
-	rtnl_lock();
-	ret = write_update_netdev_table(dev);
-	if (ret < 0)
-		goto out_put_dev;
-
-	map = rtnl_dereference(dev->priomap);
+	update_netdev_tables();
+	ret = 0;
+	rcu_read_lock();
+	map = rcu_dereference(dev->priomap);
 	if (map)
 		map->priomap[prioidx] = priority;
-
-out_put_dev:
-	rtnl_unlock();
+	rcu_read_unlock();
 	dev_put(dev);
 
 out_free_devname:
 	kfree(devname);
 	return ret;
-}
-
-static int update_netprio(const void *v, struct file *file, unsigned n)
-{
-	int err;
-	struct socket *sock = sock_from_file(file, &err);
-	if (sock)
-		sock->sk->sk_cgrp_prioidx = (u32)(unsigned long)v;
-	return 0;
-}
-
-void net_prio_attach(struct cgroup *cgrp, struct cgroup_taskset *tset)
-{
-	struct task_struct *p;
-	void *v;
-
-	cgroup_taskset_for_each(p, cgrp, tset) {
-		task_lock(p);
-		v = (void *)(unsigned long)task_netprioidx(p);
-		iterate_fd(p->files, 0, update_netprio, v);
-		task_unlock(p);
-	}
 }
 
 static struct cftype ss_files[] = {
@@ -304,20 +257,12 @@ static struct cftype ss_files[] = {
 		.read_map = read_priomap,
 		.write_string = write_priomap,
 	},
-	{ }	/* terminate */
 };
 
-struct cgroup_subsys net_prio_subsys = {
-	.name		= "net_prio",
-	.create		= cgrp_create,
-	.destroy	= cgrp_destroy,
-	.attach		= net_prio_attach,
-#ifdef CONFIG_NETPRIO_CGROUP
-	.subsys_id	= net_prio_subsys_id,
-#endif
-	.base_cftypes	= ss_files,
-	.module		= THIS_MODULE
-};
+static int cgrp_populate(struct cgroup_subsys *ss, struct cgroup *cgrp)
+{
+	return cgroup_add_files(cgrp, ss, ss_files, ARRAY_SIZE(ss_files));
+}
 
 static int netprio_device_event(struct notifier_block *unused,
 				unsigned long event, void *ptr)

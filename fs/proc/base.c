@@ -416,13 +416,12 @@ static const struct file_operations proc_lstats_operations = {
 
 static int proc_oom_score(struct task_struct *task, char *buffer)
 {
-	unsigned long totalpages = totalram_pages + total_swap_pages;
 	unsigned long points = 0;
 
 	read_lock(&tasklist_lock);
 	if (pid_alive(task))
-		points = oom_badness(task, NULL, NULL, totalpages) *
-						1000 / totalpages;
+		points = oom_badness(task, NULL, NULL,
+					totalram_pages + total_swap_pages);
 	read_unlock(&tasklist_lock);
 	return sprintf(buffer, "%lu\n", points);
 }
@@ -2387,7 +2386,8 @@ proc_map_files_readdir(struct file *filp, void *dirent, filldir_t filldir)
 				if (++pos <= filp->f_pos)
 					continue;
 
-				info.file = get_file(vma->vm_file);
+				get_file(vma->vm_file);
+				info.file = vma->vm_file;
 				info.len = snprintf(info.name,
 						sizeof(info.name), "%lx-%lx",
 						vma->vm_start, vma->vm_end);

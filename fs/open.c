@@ -132,16 +132,16 @@ SYSCALL_DEFINE2(truncate, const char __user *, path, long, length)
 
 static long do_sys_ftruncate(unsigned int fd, loff_t length, int small)
 {
-	struct inode *inode;
+	struct inode * inode;
 	struct dentry *dentry;
-	struct file *file;
-	int error, fput_needed;
+	struct file * file;
+	int error;
 
 	error = -EINVAL;
 	if (length < 0)
 		goto out;
 	error = -EBADF;
-	file = fget_light(fd, &fput_needed);
+	file = fget(fd);
 	if (!file)
 		goto out;
 
@@ -170,7 +170,7 @@ static long do_sys_ftruncate(unsigned int fd, loff_t length, int small)
 	if (!error)
 		error = do_truncate(dentry, length, ATTR_MTIME|ATTR_CTIME, file);
 out_putf:
-	fput_light(file, fput_needed);
+	fput(file);
 out:
 	return error;
 }
@@ -272,12 +272,12 @@ int do_fallocate(struct file *file, int mode, loff_t offset, loff_t len)
 SYSCALL_DEFINE(fallocate)(int fd, int mode, loff_t offset, loff_t len)
 {
 	struct file *file;
-	int error = -EBADF, fput_needed;
+	int error = -EBADF;
 
-	file = fget_light(fd, &fput_needed);
+	file = fget(fd);
 	if (file) {
 		error = do_fallocate(file, mode, offset, len);
-		fput_light(file, fput_needed);
+		fput(file);
 	}
 
 	return error;
@@ -594,21 +594,23 @@ out:
 
 SYSCALL_DEFINE3(fchown, unsigned int, fd, uid_t, user, gid_t, group)
 {
-	struct file *file;
-	int error = -EBADF, fput_needed;
+	struct file * file;
+	int error = -EBADF;
+	struct dentry * dentry;
 
-	file = fget_light(fd, &fput_needed);
+	file = fget(fd);
 	if (!file)
 		goto out;
 
 	error = mnt_want_write_file(file);
 	if (error)
 		goto out_fput;
-	audit_inode(NULL, file->f_path.dentry);
+	dentry = file->f_path.dentry;
+	audit_inode(NULL, dentry);
 	error = chown_common(&file->f_path, user, group);
 	mnt_drop_write_file(file);
 out_fput:
-	fput_light(file, fput_needed);
+	fput(file);
 out:
 	return error;
 }
@@ -642,23 +644,10 @@ static inline int __get_file_write_access(struct inode *inode,
 	return error;
 }
 
-int open_check_o_direct(struct file *f)
-{
-	/* NB: we're sure to have correct a_ops only after f_op->open */
-	if (f->f_flags & O_DIRECT) {
-		if (!f->f_mapping->a_ops ||
-		    ((!f->f_mapping->a_ops->direct_IO) &&
-		    (!f->f_mapping->a_ops->get_xip_mem))) {
-			return -EINVAL;
-		}
-	}
-	return 0;
-}
-
-static struct file *do_dentry_open(struct dentry *dentry, struct vfsmount *mnt,
-				   struct file *f,
-				   int (*open)(struct inode *, struct file *),
-				   const struct cred *cred)
+static struct file *__dentry_open(struct dentry *dentry, struct vfsmount *mnt,
+					struct file *f,
+					int (*open)(struct inode *, struct file *),
+					const struct cred *cred)
 {
 	static const struct file_operations empty_fops = {};
 	struct inode *inode;
@@ -713,6 +702,16 @@ static struct file *do_dentry_open(struct dentry *dentry, struct vfsmount *mnt,
 
 	file_ra_state_init(&f->f_ra, f->f_mapping->host->i_mapping);
 
+	/* NB: we're sure to have correct a_ops only after f_op->open */
+	if (f->f_flags & O_DIRECT) {
+		if (!f->f_mapping->a_ops ||
+		    ((!f->f_mapping->a_ops->direct_IO) &&
+		    (!f->f_mapping->a_ops->get_xip_mem))) {
+			fput(f);
+			f = ERR_PTR(-EINVAL);
+		}
+	}
+
 	return f;
 
 cleanup_all:
@@ -733,27 +732,10 @@ cleanup_all:
 	f->f_path.dentry = NULL;
 	f->f_path.mnt = NULL;
 cleanup_file:
+	put_filp(f);
 	dput(dentry);
 	mntput(mnt);
 	return ERR_PTR(error);
-}
-
-static struct file *__dentry_open(struct dentry *dentry, struct vfsmount *mnt,
-				struct file *f,
-				int (*open)(struct inode *, struct file *),
-				const struct cred *cred)
-{
-	struct file *res = do_dentry_open(dentry, mnt, f, open, cred);
-	if (!IS_ERR(res)) {
-		int error = open_check_o_direct(f);
-		if (error) {
-			fput(res);
-			res = ERR_PTR(error);
-		}
-	} else {
-		put_filp(f);
-	}
-	return res;
 }
 
 /**
@@ -810,31 +792,13 @@ struct file *nameidata_to_filp(struct nameidata *nd)
 
 	/* Pick up the filp from the open intent */
 	filp = nd->intent.open.file;
+	nd->intent.open.file = NULL;
 
 	/* Has the filesystem initialised the file for us? */
-	if (filp->f_path.dentry != NULL) {
-		nd->intent.open.file = NULL;
-	} else {
-		struct file *res;
-
+	if (filp->f_path.dentry == NULL) {
 		path_get(&nd->path);
-		res = do_dentry_open(nd->path.dentry, nd->path.mnt,
-				     filp, NULL, cred);
-		if (!IS_ERR(res)) {
-			int error;
-
-			nd->intent.open.file = NULL;
-			BUG_ON(res != filp);
-
-			error = open_check_o_direct(filp);
-			if (error) {
-				fput(filp);
-				filp = ERR_PTR(error);
-			}
-		} else {
-			/* Allow nd->intent.open.file to be recycled */
-			filp = res;
-		}
+		filp = __dentry_open(nd->path.dentry, nd->path.mnt, filp,
+				     NULL, cred);
 	}
 	return filp;
 }
@@ -866,6 +830,50 @@ struct file *dentry_open(struct dentry *dentry, struct vfsmount *mnt, int flags,
 	return __dentry_open(dentry, mnt, f, NULL, cred);
 }
 EXPORT_SYMBOL(dentry_open);
+
+static void __put_unused_fd(struct files_struct *files, unsigned int fd)
+{
+	struct fdtable *fdt = files_fdtable(files);
+	__clear_open_fd(fd, fdt);
+	if (fd < files->next_fd)
+		files->next_fd = fd;
+}
+
+void put_unused_fd(unsigned int fd)
+{
+	struct files_struct *files = current->files;
+	spin_lock(&files->file_lock);
+	__put_unused_fd(files, fd);
+	spin_unlock(&files->file_lock);
+}
+
+EXPORT_SYMBOL(put_unused_fd);
+
+/*
+ * Install a file pointer in the fd array.
+ *
+ * The VFS is full of places where we drop the files lock between
+ * setting the open_fds bitmap and installing the file in the file
+ * array.  At any such point, we are vulnerable to a dup2() race
+ * installing a file in the array before us.  We need to detect this and
+ * fput() the struct file we are about to overwrite in this case.
+ *
+ * It should never happen - if we allow dup2() do it, _really_ bad things
+ * will follow.
+ */
+
+void fd_install(unsigned int fd, struct file *file)
+{
+	struct files_struct *files = current->files;
+	struct fdtable *fdt;
+	spin_lock(&files->file_lock);
+	fdt = files_fdtable(files);
+	BUG_ON(fdt->fd[fd] != NULL);
+	rcu_assign_pointer(fdt->fd[fd], file);
+	spin_unlock(&files->file_lock);
+}
+
+EXPORT_SYMBOL(fd_install);
 
 static inline int build_open_flags(int flags, umode_t mode, struct open_flags *op)
 {
@@ -1059,7 +1067,28 @@ EXPORT_SYMBOL(filp_close);
  */
 SYSCALL_DEFINE1(close, unsigned int, fd)
 {
-	int retval = __close_fd(current->files, fd);
+	struct file * filp;
+	struct files_struct *files = current->files;
+	struct fdtable *fdt;
+	int retval;
+
+#ifdef CONFIG_SEC_DEBUG_ZERO_FD_CLOSE
+	if (fd == 0 && strcmp(current->group_leader->comm,"mediaserver") == 0)
+		panic("trying to close fd=0");
+#endif
+
+	spin_lock(&files->file_lock);
+	fdt = files_fdtable(files);
+	if (fd >= fdt->max_fds)
+		goto out_unlock;
+	filp = fdt->fd[fd];
+	if (!filp)
+		goto out_unlock;
+	rcu_assign_pointer(fdt->fd[fd], NULL);
+	__clear_close_on_exec(fd, fdt);
+	__put_unused_fd(files, fd);
+	spin_unlock(&files->file_lock);
+	retval = filp_close(filp, files);
 
 	/* can't restart close syscall because file table entry was cleared */
 	if (unlikely(retval == -ERESTARTSYS ||
@@ -1069,6 +1098,10 @@ SYSCALL_DEFINE1(close, unsigned int, fd)
 		retval = -EINTR;
 
 	return retval;
+
+out_unlock:
+	spin_unlock(&files->file_lock);
+	return -EBADF;
 }
 EXPORT_SYMBOL(sys_close);
 

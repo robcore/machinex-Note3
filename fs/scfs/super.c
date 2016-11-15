@@ -39,7 +39,7 @@
 #include "../mount.h"
 #include <linux/lzo.h>
 
-#define SCFS_VERSION "1.2.19"
+#define SCFS_VERSION "1.2.18"
 
 #if MAX_BUFFER_CACHE
 //extern struct read_buffer_cache buffer_cache[];
@@ -132,7 +132,7 @@ static struct inode *scfs_alloc_inode(struct super_block *sb)
 	sii->is_inserted_to_sii_list = 0;
 	sii->cbm_list_comp = NULL;
 #endif
-
+	
 	return &sii->vfs_inode;
 }
 
@@ -153,7 +153,7 @@ static void scfs_destroy_inode(struct inode *inode)
 		__free_pages(sii->cluster_buffer.c_page, SCFS_MEMPOOL_ORDER + 1);
 		sii->cluster_buffer.c_buffer = NULL;
 		sii->cluster_buffer.c_page = NULL;
-	}
+	} 
 
 	if (sii->cluster_buffer.u_page) {
 		__free_pages(sii->cluster_buffer.u_page, SCFS_MEMPOOL_ORDER + 1);
@@ -175,7 +175,7 @@ static void scfs_evict_inode(struct inode *inode)
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
 	clear_inode(inode);
 #else
-	clear_inode(inode);
+	end_writeback(inode);
 #endif
 	/* to conserve memory, evicted inode will throw out the cluster info */
 	if (sii->cinfo_array) {
@@ -271,7 +271,7 @@ static int scfs_debugfs_init(struct super_block *sb)
 		return -ENODEV;
 
 	memset(root_name, 0, 100);
-	sprintf(root_name, "scfs_%d", scfs_mounted);
+	sprintf(root_name, "scfs_%d", scfs_mounted);	
 	debugfs_root = debugfs_create_dir(root_name, NULL);
 	if (!debugfs_root)
 		return PTR_ERR(debugfs_root);
@@ -389,8 +389,9 @@ static struct dentry *scfs_mount(struct file_system_type *fs_type, int flags,
 	if (!sbi->options.comp_type)
 		sbi->options.comp_type = SCFS_COMP_LZO;
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
 	sb = sget(fs_type, NULL, set_anon_super, flags, NULL);
-#if 0
+#else
 	sb = sget(fs_type, NULL, set_anon_super, NULL);
 #endif
 	if (IS_ERR(sb)) {
@@ -407,7 +408,7 @@ static struct dentry *scfs_mount(struct file_system_type *fs_type, int flags,
 
 	sb->s_op = &scfs_sops;
 	sb->s_d_op = &scfs_dops;
-
+	
 	ret= kern_path(dev_name, LOOKUP_FOLLOW | LOOKUP_DIRECTORY, &path);
 	if (ret) {
 		goto out_deactivate;
@@ -428,7 +429,7 @@ static struct dentry *scfs_mount(struct file_system_type *fs_type, int flags,
 		ret = -ENOMEM;
 		goto out_pathput;
 	}
-
+		
 	root_info = kmem_cache_zalloc(scfs_dentry_info_cache, GFP_KERNEL);
 	if (!root_info)
 		goto out_pathput;
@@ -443,7 +444,7 @@ static struct dentry *scfs_mount(struct file_system_type *fs_type, int flags,
 	scfs_set_dentry_lower_mnt(sb->s_root, path.mnt);
 
 	/* shared mempool for read/write cluster buffers. */
-	sbi->mempool = mempool_create_page_pool(SCFS_MEMPOOL_COUNT,
+	sbi->mempool = mempool_create_page_pool(SCFS_MEMPOOL_COUNT, 
 		SCFS_MEMPOOL_ORDER);
 	if (!sbi->mempool) {
 		SCFS_PRINT_ERROR("mempool create failed!\n");
@@ -452,7 +453,7 @@ static struct dentry *scfs_mount(struct file_system_type *fs_type, int flags,
 	}
 
 #if MAX_BUFFER_CACHE
-	/* initialize read buffers */
+	/* initialize read buffers */	
 	for (i = 0; i < MAX_BUFFER_CACHE; i++) {
 		sbi->buffer_cache[i].u_page = scfs_alloc_mempool_buffer(sbi);
 		sbi->buffer_cache[i].c_page = scfs_alloc_mempool_buffer(sbi);
@@ -515,7 +516,7 @@ static struct dentry *scfs_mount(struct file_system_type *fs_type, int flags,
 		goto out_workdata;
 	}
 
-	SCFS_PRINT_ALWAYS("v.%s\n (mempool:%dKBx%d,dev:%s,comp:%s)\n",
+	SCFS_PRINT_ALWAYS("v.%s\n (mempool:%dKBx%d,dev:%s,comp:%s)\n", 
 		scfs_version,
 		SCFS_MEMPOOL_SIZE / 1024, SCFS_MEMPOOL_COUNT,
 		dev_name, tfm_names[sbi->options.comp_type]);
@@ -525,14 +526,14 @@ static struct dentry *scfs_mount(struct file_system_type *fs_type, int flags,
 	return dget(sb->s_root);
 
 out_pathput:
-	path_put(&path);
+	path_put(&path);	
 out_workdata:
 	vfree(sbi->scfs_workdata);
 out_deactivate:
 	deactivate_locked_super(sb);
 out_free:
 	kfree(sbi);
-
+	
 	return ERR_PTR(ret);
 }
 
@@ -653,7 +654,7 @@ static int scfs_remount_fs(struct super_block *sb, int *flags, char *options)
 	char *dev_name = NULL, *dir_name;
 	int start = PATH_MAX - 1;
 	int ret = -EINVAL;
-
+	
 	dir_name = kmalloc(PATH_MAX, GFP_KERNEL);
 	if (!dir_name)
 		return -ENOMEM;
@@ -662,18 +663,16 @@ static int scfs_remount_fs(struct super_block *sb, int *flags, char *options)
 		set_device_ro(lower_sb->s_bdev, 0);
 
 	dir_name[start] = '\0';
-	mnt = list_first_entry(&lower_sb->s_mounts, struct mount, mnt_instance);
+	mnt = list_first_entry(&lower_sb->s_mounts, struct mount, mnt_instance);	
 	if (mnt) {
 		dev_name = kstrdup(mnt->mnt_devname, GFP_KERNEL);
 		dentry = mnt->mnt_mountpoint;
 		while (dentry->d_parent != dentry) {
 			start -= dentry->d_name.len;
-			if (start < 0) {
-				kfree(dir_name);
+			if (start < 0)
 				return -EINVAL;
-			}
 
-			memcpy(dir_name + start, dentry->d_name.name, dentry->d_name.len);
+			memcpy(dir_name + start, dentry->d_name.name, dentry->d_name.len); 
 			dir_name[--start] = '/';
 			dentry = dentry->d_parent;
 			if (dentry->d_parent == dentry && mnt->mnt_parent &&

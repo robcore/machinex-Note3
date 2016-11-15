@@ -67,7 +67,6 @@
 #include <linux/syscalls.h>
 #include <linux/capability.h>
 #include <linux/fs_struct.h>
-#include <linux/compat.h>
 
 #include "audit.h"
 
@@ -88,7 +87,7 @@
 #define MAX_EXECVE_AUDIT_LEN 7500
 
 /* number of audit rules */
-int audit_n_rules;
+int audit_n_rules = 1;
 
 /* determines whether we collect data for signals sent */
 int audit_signals;
@@ -926,7 +925,7 @@ static int audit_filter_inode_name(struct task_struct *tsk,
 	int h = audit_hash_ino((u32)n->ino);
 	struct list_head *list = &audit_inode_hash[h];
 	struct audit_entry *e;
-	enum audit_state state = 0;
+	enum audit_state state;
 
 	if (list_empty(list))
 		return 0;
@@ -2724,7 +2723,7 @@ void audit_core_dumps(long signr)
 	audit_log_end(ab);
 }
 
-void __audit_seccomp(unsigned long syscall, long signr, int code)
+void __audit_seccomp(unsigned long syscall)
 {
 	struct audit_buffer *ab;
 

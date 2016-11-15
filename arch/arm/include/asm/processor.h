@@ -3,8 +3,6 @@
  *
  *  Copyright (C) 1995-1999 Russell King
  *
- *  Copyright (c) 2014, NVIDIA CORPORATION.  All rights reserved.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
@@ -78,6 +76,9 @@ struct task_struct;
 /* Free all resources held by a thread. */
 extern void release_thread(struct task_struct *);
 
+/* Prepare to copy thread state - unlazy all lazy status */
+#define prepare_to_copy(tsk)	do { } while (0)
+
 unsigned long get_wchan(struct task_struct *p);
 
 #if __LINUX_ARM_ARCH__ == 6 || defined(CONFIG_ARM_ERRATA_754327)
@@ -125,7 +126,5 @@ static inline void prefetch(const void *ptr)
 #define HAVE_ARCH_PICK_MMAP_LAYOUT
 
 #endif
-
-#include <asm-generic/processor.h>
 
 #endif /* __ASM_ARM_PROCESSOR_H */

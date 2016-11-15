@@ -31,7 +31,6 @@
 #include <linux/perf_event.h>
 #include <linux/audit.h>
 #include <linux/khugepaged.h>
-#include <linux/sched/sysctl.h>
 
 #include <asm/uaccess.h>
 #include <asm/cacheflush.h>
@@ -1381,7 +1380,8 @@ munmap_back:
 				goto free_vma;
 			correct_wcount = 1;
 		}
-		vma->vm_file = get_file(file);
+		vma->vm_file = file;
+		get_file(file);
 		error = file->f_op->mmap(file, vma);
 		if (error)
 			goto unmap_and_free_vma;

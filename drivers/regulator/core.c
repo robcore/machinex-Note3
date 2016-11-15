@@ -1758,9 +1758,8 @@ int regulator_disable_deferred(struct regulator *regulator, int ms)
 	rdev->deferred_disables++;
 	mutex_unlock(&rdev->mutex);
 
-	ret = queue_delayed_work(system_power_efficient_wq,
-				 &rdev->disable_work,
-				 msecs_to_jiffies(ms));
+	ret = schedule_delayed_work(&rdev->disable_work,
+				    msecs_to_jiffies(ms));
 	if (ret < 0)
 		return ret;
 	else
@@ -2593,7 +2592,7 @@ static void regulator_bulk_enable_async(void *data, async_cookie_t cookie)
 int regulator_bulk_enable(int num_consumers,
 			  struct regulator_bulk_data *consumers)
 {
-	ASYNC_DOMAIN_EXCLUSIVE(async_domain);
+	LIST_HEAD(async_domain);
 	int i;
 	int ret = 0;
 

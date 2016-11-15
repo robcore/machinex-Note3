@@ -378,7 +378,7 @@ out:
 		smp_wmb();
 	}
 done:
-	clear_inode(inode);
+	end_writeback(inode);
 }
 
 static void ubifs_dirty_inode(struct inode *inode, int flags)
@@ -2138,7 +2138,7 @@ static struct dentry *ubifs_mount(struct file_system_type *fs_type, int flags,
 
 	dbg_gen("opened ubi%d_%d", c->vi.ubi_num, c->vi.vol_id);
 
-	sb = sget(fs_type, sb_test, sb_set, flags, c);
+	sb = sget(fs_type, sb_test, sb_set, c);
 	if (IS_ERR(sb)) {
 		err = PTR_ERR(sb);
 		kfree(c);
@@ -2155,6 +2155,7 @@ static struct dentry *ubifs_mount(struct file_system_type *fs_type, int flags,
 			goto out_deact;
 		}
 	} else {
+		sb->s_flags = flags;
 		err = ubifs_fill_super(sb, data, flags & MS_SILENT ? 1 : 0);
 		if (err)
 			goto out_deact;

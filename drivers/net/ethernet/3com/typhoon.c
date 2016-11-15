@@ -364,7 +364,7 @@ typhoon_inc_rxfree_index(u32 *index, const int count)
 static inline void
 typhoon_inc_tx_index(u32 *index, const int count)
 {
-	/* if we start using the Hi Tx ring, this needs updating */
+	/* if we start using the Hi Tx ring, this needs updateing */
 	typhoon_inc_index(index, count, TXLO_ENTRIES);
 }
 

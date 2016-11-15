@@ -142,6 +142,8 @@ request_any_context_irq(unsigned int irq, irq_handler_t handler,
 extern int __must_check
 request_percpu_irq(unsigned int irq, irq_handler_t handler,
 		   const char *devname, void __percpu *percpu_dev_id);
+
+extern void exit_irq_thread(void);
 #else
 
 extern int __must_check
@@ -175,6 +177,8 @@ request_percpu_irq(unsigned int irq, irq_handler_t handler,
 {
 	return request_irq(irq, handler, 0, devname, percpu_dev_id);
 }
+
+static inline void exit_irq_thread(void) { }
 #endif
 
 extern void free_irq(unsigned int, void *);
@@ -195,11 +199,6 @@ devm_request_irq(struct device *dev, unsigned int irq, irq_handler_t handler,
 	return devm_request_threaded_irq(dev, irq, handler, NULL, irqflags,
 					 devname, dev_id);
 }
-
-extern int __must_check
-devm_request_any_context_irq(struct device *dev, unsigned int irq,
-		 irq_handler_t handler, unsigned long irqflags,
-		 const char *devname, void *dev_id);
 
 extern void devm_free_irq(struct device *dev, unsigned int irq, void *dev_id);
 
@@ -274,6 +273,11 @@ struct irq_affinity_notify {
 
 extern int
 irq_set_affinity_notifier(unsigned int irq, struct irq_affinity_notify *notify);
+
+static inline void irq_run_affinity_notifiers(void)
+{
+	flush_scheduled_work();
+}
 
 #else /* CONFIG_SMP */
 
@@ -432,8 +436,6 @@ enum
 
 	NR_SOFTIRQS
 };
-
-#define SOFTIRQ_STOP_IDLE_MASK (~(1 << RCU_SOFTIRQ))
 
 /* map softirq index to softirq name. update 'softirq_to_name' in
  * kernel/softirq.c when adding a new softirq.

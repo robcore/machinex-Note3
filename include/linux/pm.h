@@ -43,12 +43,8 @@ struct device;
 
 #ifdef CONFIG_PM
 extern const char power_group_name[];		/* = "power" */
-
-extern void dev_pm_syscore_device(struct device *dev, bool val);
 #else
 #define power_group_name	NULL
-
-static inline void dev_pm_syscore_device(struct device *dev, bool val) {}
 #endif
 
 typedef struct pm_message {
@@ -514,8 +510,6 @@ struct dev_pm_info {
 	bool			is_prepared:1;	/* Owned by the PM core */
 	bool			is_suspended:1;	/* Ditto */
 	bool			ignore_children:1;
-	bool			early_init:1;	/* Owned by the PM core */
-	bool			syscore:1;
 	spinlock_t		lock;
 #ifdef CONFIG_PM_SLEEP
 	struct list_head	entry;
@@ -550,9 +544,12 @@ struct dev_pm_info {
 	unsigned long		active_jiffies;
 	unsigned long		suspended_jiffies;
 	unsigned long		accounting_timestamp;
+	ktime_t			suspend_time;
+	s64			max_time_suspended_ns;
+	struct dev_pm_qos_request *pq_req;
 #endif
 	struct pm_subsys_data	*subsys_data;  /* Owned by the subsystem. */
-	struct dev_pm_qos	*qos;
+	struct pm_qos_constraints *constraints;
 };
 
 extern void update_pm_runtime_accounting(struct device *dev);
@@ -643,7 +640,6 @@ extern void __suspend_report_result(const char *function, void *fn, int ret);
 	} while (0)
 
 extern int device_pm_wait_for_dev(struct device *sub, struct device *dev);
-extern void dpm_for_each_dev(void *data, void (*fn)(struct device *, void *));
 
 extern int pm_generic_prepare(struct device *dev);
 extern int pm_generic_suspend_late(struct device *dev);
@@ -681,10 +677,6 @@ static inline int dpm_suspend_start(pm_message_t state)
 static inline int device_pm_wait_for_dev(struct device *a, struct device *b)
 {
 	return 0;
-}
-
-static inline void dpm_for_each_dev(void *data, void (*fn)(struct device *, void *))
-{
 }
 
 #define pm_generic_prepare	NULL

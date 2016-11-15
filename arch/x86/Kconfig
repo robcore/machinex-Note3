@@ -18,7 +18,6 @@ config X86
 	def_bool y
 	select HAVE_AOUT if X86_32
 	select HAVE_UNSTABLE_SCHED_CLOCK
-	select ARCH_SUPPORTS_INT128 if X86_64
 	select HAVE_IDE
 	select HAVE_OPROFILE
 	select HAVE_PCSPKR_PLATFORM
@@ -258,6 +257,8 @@ config ZONE_DMA
 	  Disable if no such devices will be used.
 
 	  If unsure, say Y.
+
+source "kernel/time/Kconfig"
 
 config SMP
 	bool "Symmetric multi-processing support"

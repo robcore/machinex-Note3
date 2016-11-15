@@ -36,8 +36,6 @@
 #include <linux/personality.h>
 #include <linux/ptrace.h>
 #include <linux/fs_struct.h>
-#include <linux/file.h>
-#include <linux/mount.h>
 #include <linux/gfp.h>
 #include <linux/syscore_ops.h>
 #include <linux/version.h>
@@ -130,6 +128,54 @@ EXPORT_SYMBOL(cad_pid);
  */
 
 void (*pm_power_off_prepare)(void);
+
+#if defined CONFIG_SEC_RESTRICT_SETUID
+int sec_check_execpath(struct mm_struct *mm, char *denypath);
+#if defined CONFIG_SEC_RESTRICT_ROOTING_LOG
+#define PRINT_LOG(...)	printk(KERN_ERR __VA_ARGS__)
+#else
+#define PRINT_LOG(...)
+#endif	// End of CONFIG_SEC_RESTRICT_ROOTING_LOG
+
+static int sec_restrict_uid(void)
+{
+	int ret = 0;
+	struct task_struct *parent_tsk;
+	const struct cred *parent_cred;
+
+	read_lock(&tasklist_lock);
+	parent_tsk = current->parent;
+	if (!parent_tsk) {
+		read_unlock(&tasklist_lock);
+		return 0;
+	}
+
+	get_task_struct(parent_tsk);
+	/* holding on to the task struct is enough so just release
+	 * the tasklist lock here */
+	read_unlock(&tasklist_lock);
+
+	parent_cred = get_task_cred(parent_tsk);
+	if (!parent_cred)
+		goto out;
+	if (parent_cred->euid == 0 || parent_tsk->pid == 1) {
+		ret = 0;
+	} else if (sec_check_execpath(current->mm, "/system/bin/pppd")) {
+		PRINT_LOG("VPN allowed to use root permission");
+		ret = 0;
+	} else {
+		PRINT_LOG("Restricted changing UID. PID = %d(%s) PPID = %d(%s)\n",
+			current->pid, current->comm,
+			parent_tsk->pid, parent_tsk->comm);
+		ret = 1;
+	}
+	put_cred(parent_cred);
+out:
+	put_task_struct(parent_tsk);
+
+	return ret;
+}
+#endif // End of CONFIG_SEC_RESTRICT_SETUID
 
 /*
  * Returns true if current's euid is same as p's uid or euid,
@@ -574,7 +620,7 @@ void ctrl_alt_del(void)
 	else
 		kill_cad_pid(SIGINT, 1);
 }
-
+	
 /*
  * Unprivileged users may change the real gid to the effective gid
  * or vice versa.  (BSD-style)
@@ -588,7 +634,7 @@ void ctrl_alt_del(void)
  *
  * The general idea is that a program which uses just setregid() will be
  * 100% compatible with BSD.  A program which uses just setgid() will be
- * 100% compatible with POSIX with saved IDs.
+ * 100% compatible with POSIX with saved IDs. 
  *
  * SMP: There are not races, the GIDs are checked only by filesystem
  *      operations (as far as semantic preservation is concerned).
@@ -598,6 +644,14 @@ SYSCALL_DEFINE2(setregid, gid_t, rgid, gid_t, egid)
 	const struct cred *old;
 	struct cred *new;
 	int retval;
+
+#if defined CONFIG_SEC_RESTRICT_SETUID
+	if(rgid == 0 || egid == 0)
+	{
+		if(sec_restrict_uid())
+			return -EACCES;
+	}
+#endif // End of CONFIG_SEC_RESTRICT_SETUID
 
 	new = prepare_creds();
 	if (!new)
@@ -636,7 +690,7 @@ error:
 }
 
 /*
- * setgid() is implemented like SysV w/ SAVED_IDS
+ * setgid() is implemented like SysV w/ SAVED_IDS 
  *
  * SMP: Same implicit races as above.
  */
@@ -645,6 +699,14 @@ SYSCALL_DEFINE1(setgid, gid_t, gid)
 	const struct cred *old;
 	struct cred *new;
 	int retval;
+
+#if defined CONFIG_SEC_RESTRICT_SETUID
+	if(gid == 0)
+	{
+		if(sec_restrict_uid())
+			return -EACCES;
+	}
+#endif // End of CONFIG_SEC_RESTRICT_SETUID
 
 	new = prepare_creds();
 	if (!new)
@@ -709,13 +771,21 @@ static int set_user(struct cred *new)
  *
  * The general idea is that a program which uses just setreuid() will be
  * 100% compatible with BSD.  A program which uses just setuid() will be
- * 100% compatible with POSIX with saved IDs.
+ * 100% compatible with POSIX with saved IDs. 
  */
 SYSCALL_DEFINE2(setreuid, uid_t, ruid, uid_t, euid)
 {
 	const struct cred *old;
 	struct cred *new;
 	int retval;
+
+#if defined CONFIG_SEC_RESTRICT_SETUID
+	if(ruid == 0 || euid == 0)
+	{
+		if(sec_restrict_uid())
+			return -EACCES;
+	}
+#endif // End of CONFIG_SEC_RESTRICT_SETUID
 
 	new = prepare_creds();
 	if (!new)
@@ -760,23 +830,31 @@ error:
 	abort_creds(new);
 	return retval;
 }
-
+		
 /*
- * setuid() is implemented like SysV with SAVED_IDS
- *
+ * setuid() is implemented like SysV with SAVED_IDS 
+ * 
  * Note that SAVED_ID's is deficient in that a setuid root program
- * like sendmail, for example, cannot set its uid to be a normal
+ * like sendmail, for example, cannot set its uid to be a normal 
  * user and then switch back, because if you're root, setuid() sets
  * the saved uid too.  If you don't like this, blame the bright people
  * in the POSIX committee and/or USG.  Note that the BSD-style setreuid()
  * will allow a root program to temporarily drop privileges and be able to
- * regain them by swapping the real and effective uid.
+ * regain them by swapping the real and effective uid.  
  */
 SYSCALL_DEFINE1(setuid, uid_t, uid)
 {
 	const struct cred *old;
 	struct cred *new;
 	int retval;
+
+#if defined CONFIG_SEC_RESTRICT_SETUID
+	if(uid == 0)
+	{
+		if(sec_restrict_uid())
+			return -EACCES;
+	}
+#endif // End of CONFIG_SEC_RESTRICT_SETUID
 
 	new = prepare_creds();
 	if (!new)
@@ -818,6 +896,14 @@ SYSCALL_DEFINE3(setresuid, uid_t, ruid, uid_t, euid, uid_t, suid)
 	const struct cred *old;
 	struct cred *new;
 	int retval;
+
+#if defined CONFIG_SEC_RESTRICT_SETUID
+	if(ruid == 0 || euid == 0 || suid == 0)
+	{
+		if(sec_restrict_uid())
+			return -EACCES;
+	}
+#endif // End of CONFIG_SEC_RESTRICT_SETUID
 
 	new = prepare_creds();
 	if (!new)
@@ -883,6 +969,14 @@ SYSCALL_DEFINE3(setresgid, gid_t, rgid, gid_t, egid, gid_t, sgid)
 	const struct cred *old;
 	struct cred *new;
 	int retval;
+
+#if defined CONFIG_SEC_RESTRICT_SETUID
+	if(rgid == 0 || egid == 0 || sgid == 0)
+	{
+		if(sec_restrict_uid())
+			return -EACCES;
+	}
+#endif // End of CONFIG_SEC_RESTRICT_SETUID
 
 	new = prepare_creds();
 	if (!new)
@@ -1003,7 +1097,7 @@ void do_sys_times(struct tms *tms)
 	cputime_t tgutime, tgstime, cutime, cstime;
 
 	spin_lock_irq(&current->sighand->siglock);
-	thread_group_cputime_adjusted(current, &tgutime, &tgstime);
+	thread_group_times(current, &tgutime, &tgstime);
 	cutime = current->signal->cutime;
 	cstime = current->signal->cstime;
 	spin_unlock_irq(&current->sighand->siglock);
@@ -1202,7 +1296,7 @@ out:
 	write_unlock_irq(&tasklist_lock);
 	if (err > 0) {
 		proc_sid_connector(group_leader);
-
+		
 	}
 	return err;
 }
@@ -1340,8 +1434,8 @@ SYSCALL_DEFINE2(sethostname, char __user *, name, int, len)
 		memcpy(u->nodename, tmp, len);
 		memset(u->nodename + len, 0, sizeof(u->nodename) - len);
 		errno = 0;
-		uts_proc_notify(UTS_PROC_HOSTNAME);
 	}
+	uts_proc_notify(UTS_PROC_HOSTNAME);
 	up_write(&uts_sem);
 	return errno;
 }
@@ -1391,8 +1485,8 @@ SYSCALL_DEFINE2(setdomainname, char __user *, name, int, len)
 		memcpy(u->domainname, tmp, len);
 		memset(u->domainname + len, 0, sizeof(u->domainname) - len);
 		errno = 0;
-		uts_proc_notify(UTS_PROC_DOMAINNAME);
 	}
+	uts_proc_notify(UTS_PROC_DOMAINNAME);
 	up_write(&uts_sem);
 	return errno;
 }
@@ -1414,7 +1508,7 @@ SYSCALL_DEFINE2(getrlimit, unsigned int, resource, struct rlimit __user *, rlim)
 /*
  *	Back compatibility for getrlimit. Needed for some apps.
  */
-
+ 
 SYSCALL_DEFINE2(old_getrlimit, unsigned int, resource,
 		struct rlimit __user *, rlim)
 {
@@ -1662,7 +1756,7 @@ static void k_getrusage(struct task_struct *p, int who, struct rusage *r)
 	utime = stime = 0;
 
 	if (who == RUSAGE_THREAD) {
-		task_cputime_adjusted(current, &utime, &stime);
+		task_times(current, &utime, &stime);
 		accumulate_thread_rusage(p, r);
 		maxrss = p->signal->maxrss;
 		goto out;
@@ -1688,7 +1782,7 @@ static void k_getrusage(struct task_struct *p, int who, struct rusage *r)
 				break;
 
 		case RUSAGE_SELF:
-			thread_group_cputime_adjusted(p, &tgutime, &tgstime);
+			thread_group_times(p, &tgutime, &tgstime);
 			utime += tgutime;
 			stime += tgstime;
 			r->ru_nvcsw += p->signal->nvcsw;
@@ -1747,105 +1841,77 @@ SYSCALL_DEFINE1(umask, int, mask)
 }
 
 #ifdef CONFIG_CHECKPOINT_RESTORE
-static int prctl_set_mm_exe_file(struct mm_struct *mm, unsigned int fd)
-{
-	struct file *exe_file;
-	struct dentry *dentry;
-	int err, fput_needed;
-
-	exe_file = fget_light(fd, &fput_needed);
-	if (!exe_file)
-		return -EBADF;
-
-	dentry = exe_file->f_path.dentry;
-
-	/*
-	 * Because the original mm->exe_file points to executable file, make
-	 * sure that this one is executable as well, to avoid breaking an
-	 * overall picture.
-	 */
-	err = -EACCES;
-	if (!S_ISREG(dentry->d_inode->i_mode)	||
-	    exe_file->f_path.mnt->mnt_flags & MNT_NOEXEC)
-		goto exit;
-
-	err = inode_permission(dentry->d_inode, MAY_EXEC);
-	if (err)
-		goto exit;
-
-	down_write(&mm->mmap_sem);
-
-	/*
-	 * Forbid mm->exe_file change if old file still mapped.
-	 */
-	err = -EBUSY;
-	if (mm->exe_file) {
-		struct vm_area_struct *vma;
-
-		for (vma = mm->mmap; vma; vma = vma->vm_next)
-			if (vma->vm_file &&
-			    path_equal(&vma->vm_file->f_path,
-				       &mm->exe_file->f_path))
-				goto exit_unlock;
-	}
-
-	/*
-	 * The symlink can be changed only once, just to disallow arbitrary
-	 * transitions malicious software might bring in. This means one
-	 * could make a snapshot over all processes running and monitor
-	 * /proc/pid/exe changes to notice unusual activity if needed.
-	 */
-	err = -EPERM;
-	if (test_and_set_bit(MMF_EXE_FILE_CHANGED, &mm->flags))
-		goto exit_unlock;
-
-	err = 0;
-	set_mm_exe_file(mm, exe_file);	/* this grabs a reference to exe_file */
-exit_unlock:
-	up_write(&mm->mmap_sem);
-
-exit:
-	fput_light(exe_file, fput_needed);
-	return err;
-}
-
 static int prctl_set_mm(int opt, unsigned long addr,
 			unsigned long arg4, unsigned long arg5)
 {
 	unsigned long rlim = rlimit(RLIMIT_DATA);
-	struct mm_struct *mm = current->mm;
+	unsigned long vm_req_flags;
+	unsigned long vm_bad_flags;
 	struct vm_area_struct *vma;
-	int error;
+	int error = 0;
+	struct mm_struct *mm = current->mm;
 
-	if (arg5 || (arg4 && opt != PR_SET_MM_AUXV))
+	if (arg4 | arg5)
 		return -EINVAL;
 
 	if (!capable(CAP_SYS_RESOURCE))
 		return -EPERM;
 
-	if (opt == PR_SET_MM_EXE_FILE)
-		return prctl_set_mm_exe_file(mm, (unsigned int)addr);
-
-	if (addr >= TASK_SIZE || addr < mmap_min_addr)
+	if (addr >= TASK_SIZE)
 		return -EINVAL;
-
-	error = -EINVAL;
 
 	down_read(&mm->mmap_sem);
 	vma = find_vma(mm, addr);
 
+	if (opt != PR_SET_MM_START_BRK && opt != PR_SET_MM_BRK) {
+		/* It must be existing VMA */
+		if (!vma || vma->vm_start > addr)
+			goto out;
+	}
+
+	error = -EINVAL;
 	switch (opt) {
 	case PR_SET_MM_START_CODE:
-		mm->start_code = addr;
-		break;
 	case PR_SET_MM_END_CODE:
-		mm->end_code = addr;
+		vm_req_flags = VM_READ | VM_EXEC;
+		vm_bad_flags = VM_WRITE | VM_MAYSHARE;
+
+		if ((vma->vm_flags & vm_req_flags) != vm_req_flags ||
+		    (vma->vm_flags & vm_bad_flags))
+			goto out;
+
+		if (opt == PR_SET_MM_START_CODE)
+			mm->start_code = addr;
+		else
+			mm->end_code = addr;
 		break;
+
 	case PR_SET_MM_START_DATA:
-		mm->start_data = addr;
-		break;
 	case PR_SET_MM_END_DATA:
-		mm->end_data = addr;
+		vm_req_flags = VM_READ | VM_WRITE;
+		vm_bad_flags = VM_EXEC | VM_MAYSHARE;
+
+		if ((vma->vm_flags & vm_req_flags) != vm_req_flags ||
+		    (vma->vm_flags & vm_bad_flags))
+			goto out;
+
+		if (opt == PR_SET_MM_START_DATA)
+			mm->start_data = addr;
+		else
+			mm->end_data = addr;
+		break;
+
+	case PR_SET_MM_START_STACK:
+
+#ifdef CONFIG_STACK_GROWSUP
+		vm_req_flags = VM_READ | VM_WRITE | VM_GROWSUP;
+#else
+		vm_req_flags = VM_READ | VM_WRITE | VM_GROWSDOWN;
+#endif
+		if ((vma->vm_flags & vm_req_flags) != vm_req_flags)
+			goto out;
+
+		mm->start_stack = addr;
 		break;
 
 	case PR_SET_MM_START_BRK:
@@ -1872,86 +1938,21 @@ static int prctl_set_mm(int opt, unsigned long addr,
 		mm->brk = addr;
 		break;
 
-	/*
-	 * If command line arguments and environment
-	 * are placed somewhere else on stack, we can
-	 * set them up here, ARG_START/END to setup
-	 * command line argumets and ENV_START/END
-	 * for environment.
-	 */
-	case PR_SET_MM_START_STACK:
-	case PR_SET_MM_ARG_START:
-	case PR_SET_MM_ARG_END:
-	case PR_SET_MM_ENV_START:
-	case PR_SET_MM_ENV_END:
-		if (!vma) {
-			error = -EFAULT;
-			goto out;
-		}
-		if (opt == PR_SET_MM_START_STACK)
-			mm->start_stack = addr;
-		else if (opt == PR_SET_MM_ARG_START)
-			mm->arg_start = addr;
-		else if (opt == PR_SET_MM_ARG_END)
-			mm->arg_end = addr;
-		else if (opt == PR_SET_MM_ENV_START)
-			mm->env_start = addr;
-		else if (opt == PR_SET_MM_ENV_END)
-			mm->env_end = addr;
-		break;
-
-	/*
-	 * This doesn't move auxiliary vector itself
-	 * since it's pinned to mm_struct, but allow
-	 * to fill vector with new values. It's up
-	 * to a caller to provide sane values here
-	 * otherwise user space tools which use this
-	 * vector might be unhappy.
-	 */
-	case PR_SET_MM_AUXV: {
-		unsigned long user_auxv[AT_VECTOR_SIZE];
-
-		if (arg4 > sizeof(user_auxv))
-			goto out;
-		up_read(&mm->mmap_sem);
-
-		if (copy_from_user(user_auxv, (const void __user *)addr, arg4))
-			return -EFAULT;
-
-		/* Make sure the last entry is always AT_NULL */
-		user_auxv[AT_VECTOR_SIZE - 2] = 0;
-		user_auxv[AT_VECTOR_SIZE - 1] = 0;
-
-		BUILD_BUG_ON(sizeof(user_auxv) != sizeof(mm->saved_auxv));
-
-		task_lock(current);
-		memcpy(mm->saved_auxv, user_auxv, arg4);
-		task_unlock(current);
-
-		return 0;
-	}
 	default:
+		error = -EINVAL;
 		goto out;
 	}
 
 	error = 0;
+
 out:
 	up_read(&mm->mmap_sem);
+
 	return error;
 }
-
-static int prctl_get_tid_address(struct task_struct *me, int __user **tid_addr)
-{
-	return put_user(me->clear_child_tid, tid_addr);
-}
-
 #else /* CONFIG_CHECKPOINT_RESTORE */
 static int prctl_set_mm(int opt, unsigned long addr,
 			unsigned long arg4, unsigned long arg5)
-{
-	return -EINVAL;
-}
-static int prctl_get_tid_address(struct task_struct *me, int __user **tid_addr)
 {
 	return -EINVAL;
 }
@@ -2119,6 +2120,7 @@ SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,
 				break;
 			}
 			me->pdeath_signal = arg2;
+			error = 0;
 			break;
 		case PR_GET_PDEATHSIG:
 			error = put_user(me->pdeath_signal, (int __user *)arg2);
@@ -2132,6 +2134,7 @@ SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,
 				break;
 			}
 			set_dumpable(me->mm, arg2);
+			error = 0;
 			break;
 
 		case PR_SET_UNALIGN:
@@ -2158,7 +2161,10 @@ SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,
 		case PR_SET_TIMING:
 			if (arg2 != PR_TIMING_STATISTICAL)
 				error = -EINVAL;
+			else
+				error = 0;
 			break;
+
 		case PR_SET_NAME:
 			comm[sizeof(me->comm)-1] = 0;
 			if (strncpy_from_user(comm, (char __user *)arg2,
@@ -2166,24 +2172,25 @@ SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,
 				return -EFAULT;
 			set_task_comm(me, comm);
 			proc_comm_connector(me);
-			break;
+			return 0;
 		case PR_GET_NAME:
 			get_task_comm(comm, me);
 			if (copy_to_user((char __user *)arg2, comm,
 					 sizeof(comm)))
 				return -EFAULT;
-			break;
+			return 0;
 		case PR_GET_ENDIAN:
 			error = GET_ENDIAN(me, arg2);
 			break;
 		case PR_SET_ENDIAN:
 			error = SET_ENDIAN(me, arg2);
 			break;
+
 		case PR_GET_SECCOMP:
 			error = prctl_get_seccomp();
 			break;
 		case PR_SET_SECCOMP:
-			error = prctl_set_seccomp(arg2, (char __user *)arg3);
+			error = prctl_set_seccomp(arg2);
 			break;
 		case PR_GET_TSC:
 			error = GET_TSC_CTL(arg2);
@@ -2206,6 +2213,7 @@ SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,
 					current->default_timer_slack_ns;
 			else
 				current->timer_slack_ns = arg2;
+			error = 0;
 			break;
 		case PR_MCE_KILL:
 			if (arg4 | arg5)
@@ -2231,6 +2239,7 @@ SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,
 			default:
 				return -EINVAL;
 			}
+			error = 0;
 			break;
 		case PR_MCE_KILL_GET:
 			if (arg2 | arg3 | arg4 | arg5)
@@ -2244,8 +2253,13 @@ SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,
 		case PR_SET_MM:
 			error = prctl_set_mm(arg2, arg3, arg4, arg5);
 			break;
-		case PR_GET_TID_ADDRESS:
-			error = prctl_get_tid_address(me, (int __user **)arg2);
+		case PR_SET_CHILD_SUBREAPER:
+			me->signal->is_child_subreaper = !!arg2;
+			error = 0;
+			break;
+		case PR_GET_CHILD_SUBREAPER:
+			error = put_user(me->signal->is_child_subreaper,
+					 (int __user *) arg2);
 			break;
 		case PR_SET_VMA:
 			error = prctl_set_vma(arg2, arg3, arg4, arg5);
@@ -2254,11 +2268,11 @@ SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,
 
 #ifndef CONFIG_SEC_H_PROJECT
 		case PR_SET_TIMERSLACK_PID:
-			if (task_pid_vnr(current) != (pid_t)arg3 &&
+			if (current->pid != (pid_t)arg3 &&
 					!capable(CAP_SYS_NICE))
 				return -EPERM;
 			rcu_read_lock();
-			tsk = find_task_by_vpid((pid_t)arg3);
+			tsk = find_task_by_pid_ns((pid_t)arg3, &init_pid_ns);
 			if (tsk == NULL) {
 				rcu_read_unlock();
 				return -EINVAL;
@@ -2274,23 +2288,6 @@ SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,
 			error = 0;
 			break;
 #endif
-		case PR_SET_CHILD_SUBREAPER:
-			me->signal->is_child_subreaper = !!arg2;
-			break;
-		case PR_GET_CHILD_SUBREAPER:
-			error = put_user(me->signal->is_child_subreaper,
-					 (int __user *) arg2);
-			break;
-		case PR_SET_NO_NEW_PRIVS:
-			if (arg2 != 1 || arg3 || arg4 || arg5)
-				return -EINVAL;
-
-			task_set_no_new_privs(current);
-			break;
-		case PR_GET_NO_NEW_PRIVS:
-			if (arg2 || arg3 || arg4 || arg5)
-				return -EINVAL;
-			return task_no_new_privs(current) ? 1 : 0;
 		default:
 			error = -EINVAL;
 			break;
@@ -2317,32 +2314,6 @@ static void argv_cleanup(struct subprocess_info *info)
 	argv_free(info->argv);
 }
 
-static int __orderly_poweroff(void)
-{
-	int argc;
-	char **argv;
-	static char *envp[] = {
-		"HOME=/",
-		"PATH=/sbin:/bin:/usr/sbin:/usr/bin",
-		NULL
-	};
-	int ret;
-
-	argv = argv_split(GFP_ATOMIC, poweroff_cmd, &argc);
-	if (argv == NULL) {
-		printk(KERN_WARNING "%s failed to allocate memory for \"%s\"\n",
-		       __func__, poweroff_cmd);
-		return -ENOMEM;
-	}
-
-	ret = call_usermodehelper_fns(argv[0], argv, envp, UMH_NO_WAIT,
-				      NULL, argv_cleanup, NULL);
-	if (ret == -ENOMEM)
-		argv_free(argv);
-
-	return ret;
-}
-
 /**
  * orderly_poweroff - Trigger an orderly system poweroff
  * @force: force poweroff if command execution fails
@@ -2352,17 +2323,40 @@ static int __orderly_poweroff(void)
  */
 int orderly_poweroff(bool force)
 {
-	int ret = __orderly_poweroff();
+	int argc;
+	char **argv = argv_split(GFP_ATOMIC, poweroff_cmd, &argc);
+	static char *envp[] = {
+		"HOME=/",
+		"PATH=/sbin:/bin:/usr/sbin:/usr/bin",
+		NULL
+	};
+	int ret = -ENOMEM;
+	struct subprocess_info *info;
 
+	if (argv == NULL) {
+		printk(KERN_WARNING "%s failed to allocate memory for \"%s\"\n",
+		       __func__, poweroff_cmd);
+		goto out;
+	}
+
+	info = call_usermodehelper_setup(argv[0], argv, envp, GFP_ATOMIC);
+	if (info == NULL) {
+		argv_free(argv);
+		goto out;
+	}
+
+	call_usermodehelper_setfns(info, NULL, argv_cleanup, NULL);
+
+	ret = call_usermodehelper_exec(info, UMH_NO_WAIT);
+
+  out:
 	if (ret && force) {
 		printk(KERN_WARNING "Failed to start orderly shutdown: "
 		       "forcing the issue\n");
 
-		/*
-		 * I guess this should try to kick off some daemon to sync and
-		 * poweroff asap.  Or not even bother syncing if we're doing an
-		 * emergency shutdown?
-		 */
+		/* I guess this should try to kick off some daemon to
+		   sync and poweroff asap.  Or not even bother syncing
+		   if we're doing an emergency shutdown? */
 		emergency_sync();
 		kernel_power_off();
 	}

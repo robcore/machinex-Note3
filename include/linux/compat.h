@@ -369,9 +369,10 @@ asmlinkage long compat_sys_ptrace(compat_long_t request, compat_long_t pid,
 /*
  * epoll (fs/eventpoll.c) compat bits follow ...
  */
-struct epoll_event;	/* fortunately, this one is fixed-layout */
+struct epoll_event;
+#define compat_epoll_event	epoll_event
 asmlinkage long compat_sys_epoll_pwait(int epfd,
-			struct epoll_event __user *events,
+			struct compat_epoll_event __user *events,
 			int maxevents, int timeout,
 			const compat_sigset_t __user *sigmask,
 			compat_size_t sigsetsize);
@@ -576,7 +577,8 @@ extern ssize_t compat_rw_copy_check_uvector(int type,
 		const struct compat_iovec __user *uvector,
 		unsigned long nr_segs,
 		unsigned long fast_segs, struct iovec *fast_pointer,
-		struct iovec **ret_pointer);
+		struct iovec **ret_pointer,
+		int check_access);
 
 extern void __user *compat_alloc_user_space(unsigned long len);
 

@@ -51,10 +51,10 @@ xfs_swapext(
 {
 	xfs_inode_t     *ip, *tip;
 	struct file	*file, *tmp_file;
-	int		error = 0, fput_needed, fput_needed_tmp;
+	int		error = 0;
 
 	/* Pull information for the target fd */
-	file = fget_light((int)sxp->sx_fdtarget, &fput_needed);
+	file = fget((int)sxp->sx_fdtarget);
 	if (!file) {
 		error = XFS_ERROR(EINVAL);
 		goto out;
@@ -67,7 +67,7 @@ xfs_swapext(
 		goto out_put_file;
 	}
 
-	tmp_file = fget_light((int)sxp->sx_fdtmp, &fput_needed_tmp);
+	tmp_file = fget((int)sxp->sx_fdtmp);
 	if (!tmp_file) {
 		error = XFS_ERROR(EINVAL);
 		goto out_put_file;
@@ -107,9 +107,9 @@ xfs_swapext(
 	error = xfs_swap_extents(ip, tip, sxp);
 
  out_put_tmp_file:
-	fput_light(tmp_file, fput_needed_tmp);
+	fput(tmp_file);
  out_put_file:
-	fput_light(file, fput_needed);
+	fput(file);
  out:
 	return error;
 }

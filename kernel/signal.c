@@ -160,7 +160,7 @@ void recalc_sigpending(void)
 
 #define SYNCHRONOUS_MASK \
 	(sigmask(SIGSEGV) | sigmask(SIGBUS) | sigmask(SIGILL) | \
-	 sigmask(SIGTRAP) | sigmask(SIGFPE) | sigmask(SIGSYS))
+	 sigmask(SIGTRAP) | sigmask(SIGFPE))
 
 int next_signal(struct sigpending *pending, sigset_t *mask)
 {
@@ -1642,7 +1642,6 @@ bool do_notify_parent(struct task_struct *tsk, int sig)
 	unsigned long flags;
 	struct sighand_struct *psig;
 	bool autoreap = false;
-	cputime_t utime, stime;
 
 	BUG_ON(sig == -1);
 
@@ -1681,9 +1680,8 @@ bool do_notify_parent(struct task_struct *tsk, int sig)
 			task_cred_xxx(tsk->parent, user_ns));
 	rcu_read_unlock();
 
-	task_cputime(tsk, &utime, &stime);
-	info.si_utime = cputime_to_clock_t(utime + tsk->signal->utime);
-	info.si_stime = cputime_to_clock_t(stime + tsk->signal->stime);
+	info.si_utime = cputime_to_clock_t(tsk->utime + tsk->signal->utime);
+	info.si_stime = cputime_to_clock_t(tsk->stime + tsk->signal->stime);
 
 	info.si_status = tsk->exit_code & 0x7f;
 	if (tsk->exit_code & 0x80)
@@ -1747,7 +1745,6 @@ static void do_notify_parent_cldstop(struct task_struct *tsk,
 	unsigned long flags;
 	struct task_struct *parent;
 	struct sighand_struct *sighand;
-	cputime_t utime, stime;
 
 	if (for_ptracer) {
 		parent = tsk->parent;
@@ -1767,9 +1764,8 @@ static void do_notify_parent_cldstop(struct task_struct *tsk,
 			task_cred_xxx(parent, user_ns));
 	rcu_read_unlock();
 
-	task_cputime(tsk, &utime, &stime);
-	info.si_utime = cputime_to_clock_t(utime);
-	info.si_stime = cputime_to_clock_t(stime);
+	info.si_utime = cputime_to_clock_t(tsk->utime);
+	info.si_stime = cputime_to_clock_t(tsk->stime);
 
  	info.si_code = why;
  	switch (why) {
@@ -2216,7 +2212,7 @@ relock:
 	 * Now that we woke up, it's crucial if we're supposed to be
 	 * frozen that we freeze now before running anything substantial.
 	 */
-	try_to_freeze_nowarn();
+	try_to_freeze();
 
 	spin_lock_irq(&sighand->siglock);
 	/*
@@ -2713,13 +2709,6 @@ int copy_siginfo_to_user(siginfo_t __user *to, siginfo_t *from)
 		err |= __put_user(from->si_uid, &to->si_uid);
 		err |= __put_user(from->si_ptr, &to->si_ptr);
 		break;
-#ifdef __ARCH_SIGSYS
-	case __SI_SYS:
-		err |= __put_user(from->si_call_addr, &to->si_call_addr);
-		err |= __put_user(from->si_syscall, &to->si_syscall);
-		err |= __put_user(from->si_arch, &to->si_arch);
-		break;
-#endif
 	default: /* this is just in case for now ... */
 		err |= __put_user(from->si_pid, &to->si_pid);
 		err |= __put_user(from->si_uid, &to->si_uid);
@@ -3250,19 +3239,6 @@ SYSCALL_DEFINE0(pause)
 
 #endif
 
-int sigsuspend(sigset_t *set)
-{
-	sigdelsetmask(set, sigmask(SIGKILL)|sigmask(SIGSTOP));
-
-	current->saved_sigmask = current->blocked;
-	set_current_blocked(set);
-
-	current->state = TASK_INTERRUPTIBLE;
-	schedule();
-	set_restore_sigmask();
-	return -ERESTARTNOHAND;
-}
-
 #ifdef __ARCH_WANT_SYS_RT_SIGSUSPEND
 /**
  *  sys_rt_sigsuspend - replace the signal mask for a value with the
@@ -3280,7 +3256,15 @@ SYSCALL_DEFINE2(rt_sigsuspend, sigset_t __user *, unewset, size_t, sigsetsize)
 
 	if (copy_from_user(&newset, unewset, sizeof(newset)))
 		return -EFAULT;
-	return sigsuspend(&newset);
+	sigdelsetmask(&newset, sigmask(SIGKILL)|sigmask(SIGSTOP));
+
+	current->saved_sigmask = current->blocked;
+	set_current_blocked(&newset);
+
+	current->state = TASK_INTERRUPTIBLE;
+	schedule();
+	set_restore_sigmask();
+	return -ERESTARTNOHAND;
 }
 #endif /* __ARCH_WANT_SYS_RT_SIGSUSPEND */
 

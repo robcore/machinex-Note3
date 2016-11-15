@@ -382,12 +382,6 @@ static void wakeup_source_activate(struct wakeup_source *ws)
 {
 	unsigned int cec;
 
-	/*
-	 * active wakeup source should bring the system
-	 * out of PM_SUSPEND_FREEZE state
-	 */
-
-	freeze_wake();
 	ws->active = true;
 	ws->active_count++;
 	ws->last_time = ktime_get();
@@ -658,22 +652,6 @@ void pm_wakeup_event(struct device *dev, unsigned int msec)
 	spin_unlock_irqrestore(&dev->power.lock, flags);
 }
 EXPORT_SYMBOL_GPL(pm_wakeup_event);
-
-void pm_get_active_wakeup_sources(char *pending_wakeup_source, size_t max)
-{
-	struct wakeup_source *ws;
-	int len = 0;
-	rcu_read_lock();
-	len += snprintf(pending_wakeup_source, max, "Pending Wakeup Sources: ");
-	list_for_each_entry_rcu(ws, &wakeup_sources, entry) {
-		if (ws->active) {
-			len += snprintf(pending_wakeup_source + len, max,
-				"%s ", ws->name);
-		}
-	}
-	rcu_read_unlock();
-}
-EXPORT_SYMBOL_GPL(pm_get_active_wakeup_sources);
 
 /**
  * pm_wakeup_pending - Check if power transition in progress should be aborted.

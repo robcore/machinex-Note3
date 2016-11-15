@@ -39,6 +39,9 @@
 # error Invalid value of HZ.
 #endif
 
+/* LATCH is used in the interval timer and ftape setup. */
+#define LATCH  ((CLOCK_TICK_RATE + HZ/2) / HZ)	/* For divider */
+
 /* Suppose we want to divide two numbers NOM and DEN: NOM/DEN, then we can
  * improve accuracy by shifting LSH bits, hence calculating:
  *     (NOM << LSH) / DEN
@@ -51,19 +54,18 @@
 #define SH_DIV(NOM,DEN,LSH) (   (((NOM) / (DEN)) << (LSH))              \
                              + ((((NOM) % (DEN)) << (LSH)) + (DEN) / 2) / (DEN))
 
-extern int register_refined_jiffies(long clock_tick_rate);
+/* HZ is the requested value. ACTHZ is actual HZ ("<< 8" is for accuracy) */
+#define ACTHZ (SH_DIV (CLOCK_TICK_RATE, LATCH, 8))
 
-/* TICK_NSEC is the time between ticks in nsec assuming SHIFTED_HZ */
-#define TICK_NSEC ((NSEC_PER_SEC+HZ/2)/HZ)
+/* TICK_NSEC is the time between ticks in nsec assuming real ACTHZ */
+#define TICK_NSEC (SH_DIV (1000000UL * 1000, ACTHZ, 8))
 
 /* TICK_USEC is the time between ticks in usec assuming fake USER_HZ */
 #define TICK_USEC ((1000000UL + USER_HZ/2) / USER_HZ)
 
-/*
- * TICK_USEC_TO_NSEC is the time between ticks in nsec assuming SHIFTED_HZ and
- * a value TUSEC for TICK_USEC (can be set bij adjtimex)
- */
-#define TICK_USEC_TO_NSEC(TUSEC) (SH_DIV(TUSEC * USER_HZ * 1000, SHIFTED_HZ, 8))
+/* TICK_USEC_TO_NSEC is the time between ticks in nsec assuming real ACTHZ and	*/
+/* a value TUSEC for TICK_USEC (can be set bij adjtimex)		*/
+#define TICK_USEC_TO_NSEC(TUSEC) (SH_DIV (TUSEC * USER_HZ * 1000, ACTHZ, 8))
 
 /* some arch's have a small-data section that can be accessed register-relative
  * but that can only take up to, say, 4-byte variables. jiffies being part of
@@ -73,12 +75,11 @@ extern int register_refined_jiffies(long clock_tick_rate);
 
 /*
  * The 64-bit value is not atomic - you MUST NOT read it
- * without sampling the sequence number in jiffies_lock.
+ * without sampling the sequence number in xtime_lock.
  * get_jiffies_64() will do this for you as appropriate.
  */
 extern u64 __jiffy_data jiffies_64;
 extern unsigned long volatile __jiffy_data jiffies;
-extern seqlock_t jiffies_lock;
 
 #if (BITS_PER_LONG < 64)
 u64 get_jiffies_64(void);
@@ -292,138 +293,10 @@ extern unsigned long preset_lpj;
 /*
  * Convert various time units to each other:
  */
-
-/*
- * Avoid unnecessary multiplications/divisions in the
- * two most common HZ cases:
- */
-static __always_inline unsigned int
-__inline_jiffies_to_msecs(const unsigned long j)
-{
-#if HZ <= MSEC_PER_SEC && !(MSEC_PER_SEC % HZ)
-	return (MSEC_PER_SEC / HZ) * j;
-#elif HZ > MSEC_PER_SEC && !(HZ % MSEC_PER_SEC)
-	return (j + (HZ / MSEC_PER_SEC) - 1)/(HZ / MSEC_PER_SEC);
-#else
-# if BITS_PER_LONG == 32
-	return (HZ_TO_MSEC_MUL32 * j) >> HZ_TO_MSEC_SHR32;
-# else
-	return (j * HZ_TO_MSEC_NUM) / HZ_TO_MSEC_DEN;
-# endif
-#endif
-}
-extern unsigned int __jiffies_to_msecs(const unsigned long j);
-
-#define jiffies_to_msecs(x)			\
-	(__builtin_constant_p(x) ?		\
-	 __inline_jiffies_to_msecs(x) :		\
-	 __jiffies_to_msecs(x))
-
-static __always_inline unsigned int
-__inline_jiffies_to_usecs(const unsigned long j)
-{
-#if HZ <= USEC_PER_SEC && !(USEC_PER_SEC % HZ)
-	return (USEC_PER_SEC / HZ) * j;
-#elif HZ > USEC_PER_SEC && !(HZ % USEC_PER_SEC)
-	return (j + (HZ / USEC_PER_SEC) - 1)/(HZ / USEC_PER_SEC);
-#else
-# if BITS_PER_LONG == 32
-	return (HZ_TO_USEC_MUL32 * j) >> HZ_TO_USEC_SHR32;
-# else
-	return (j * HZ_TO_USEC_NUM) / HZ_TO_USEC_DEN;
-# endif
-#endif
-}
-extern unsigned int __jiffies_to_usecs(const unsigned long j);
-
-#define jiffies_to_usecs(x)			\
-	(__builtin_constant_p(x) ?		\
-	 __inline_jiffies_to_usecs(x) :		\
-	 __jiffies_to_usecs(x))
-
-/*
- * When we convert to jiffies then we interpret incoming values
- * the following way:
- *
- * - negative values mean 'infinite timeout' (MAX_JIFFY_OFFSET)
- *
- * - 'too large' values [that would result in larger than
- *   MAX_JIFFY_OFFSET values] mean 'infinite timeout' too.
- *
- * - all other values are converted to jiffies by either multiplying
- *   the input value by a factor or dividing it with a factor
- *
- * We must also be careful about 32-bit overflows.
- */
-static __always_inline unsigned long
-__inline_msecs_to_jiffies(const unsigned int m)
-{
-	/*
-	 * Negative value, means infinite timeout:
-	 */
-	if ((int)m < 0)
-		return MAX_JIFFY_OFFSET;
-
-#if HZ <= MSEC_PER_SEC && !(MSEC_PER_SEC % HZ)
-	/*
-	 * HZ is equal to or smaller than 1000, and 1000 is a nice
-	 * round multiple of HZ, divide with the factor between them,
-	 * but round upwards:
-	 */
-	return (m + (MSEC_PER_SEC / HZ) - 1) / (MSEC_PER_SEC / HZ);
-#elif HZ > MSEC_PER_SEC && !(HZ % MSEC_PER_SEC)
-	/*
-	 * HZ is larger than 1000, and HZ is a nice round multiple of
-	 * 1000 - simply multiply with the factor between them.
-	 *
-	 * But first make sure the multiplication result cannot
-	 * overflow:
-	 */
-	if (m > jiffies_to_msecs(MAX_JIFFY_OFFSET))
-		return MAX_JIFFY_OFFSET;
-
-	return m * (HZ / MSEC_PER_SEC);
-#else
-	/*
-	 * Generic case - multiply, round and divide. But first
-	 * check that if we are doing a net multiplication, that
-	 * we wouldn't overflow:
-	 */
-	if (HZ > MSEC_PER_SEC && m > jiffies_to_msecs(MAX_JIFFY_OFFSET))
-		return MAX_JIFFY_OFFSET;
-
-	return (MSEC_TO_HZ_MUL32 * m + MSEC_TO_HZ_ADJ32)
-		>> MSEC_TO_HZ_SHR32;
-#endif
-}
-extern unsigned long __msecs_to_jiffies(const unsigned int m);
-
-#define msecs_to_jiffies(x)			\
-	(__builtin_constant_p(x) ?		\
-	 __inline_msecs_to_jiffies(x) :		\
-	 __msecs_to_jiffies(x))
-
-static __always_inline unsigned long
-__inline_usecs_to_jiffies(const unsigned int u)
-{
-	if (u > jiffies_to_usecs(MAX_JIFFY_OFFSET))
-		return MAX_JIFFY_OFFSET;
-#if HZ <= USEC_PER_SEC && !(USEC_PER_SEC % HZ)
-	return (u + (USEC_PER_SEC / HZ) - 1) / (USEC_PER_SEC / HZ);
-#elif HZ > USEC_PER_SEC && !(HZ % USEC_PER_SEC)
-	return u * (HZ / USEC_PER_SEC);
-#else
-	return (USEC_TO_HZ_MUL32 * u + USEC_TO_HZ_ADJ32)
-		>> USEC_TO_HZ_SHR32;
-#endif
-}
-extern unsigned long __usecs_to_jiffies(const unsigned int u);
-
-#define usecs_to_jiffies(x)			\
-	(__builtin_constant_p(x) ?		\
-	 __inline_usecs_to_jiffies(x) :		\
-	 __usecs_to_jiffies(x))
-
+extern unsigned int jiffies_to_msecs(const unsigned long j);
+extern unsigned int jiffies_to_usecs(const unsigned long j);
+extern unsigned long msecs_to_jiffies(const unsigned int m);
+extern unsigned long usecs_to_jiffies(const unsigned int u);
 extern unsigned long timespec_to_jiffies(const struct timespec *value);
 extern void jiffies_to_timespec(const unsigned long jiffies,
 				struct timespec *value);

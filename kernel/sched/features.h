@@ -49,6 +49,13 @@ SCHED_FEAT(DOUBLE_TICK, false)
 SCHED_FEAT(LB_BIAS, true)
 
 /*
+ * Spin-wait on mutex acquisition when the mutex owner is running on
+ * another cpu -- assumes that when the owner is running, it will soon
+ * release the lock. Decreases scheduling overhead.
+ */
+SCHED_FEAT(OWNER_SPIN, true)
+
+/*
  * Decrement CPU power based on time not spent running tasks
  */
 SCHED_FEAT(NONTASK_POWER, true)
@@ -60,5 +67,5 @@ SCHED_FEAT(NONTASK_POWER, true)
 SCHED_FEAT(TTWU_QUEUE, true)
 
 SCHED_FEAT(FORCE_SD_OVERLAP, false)
-SCHED_FEAT(RT_RUNTIME_SHARE, false)
+SCHED_FEAT(RT_RUNTIME_SHARE, true)
 SCHED_FEAT(LB_MIN, false)

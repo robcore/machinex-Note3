@@ -56,7 +56,7 @@ extern int sb_prepare_remount_readonly(struct super_block *);
 
 extern void __init mnt_init(void);
 
-extern struct lglock vfsmount_lock;
+DECLARE_BRLOCK(vfsmount_lock);
 
 
 /*
@@ -97,7 +97,6 @@ extern struct file *do_file_open_root(struct dentry *, struct vfsmount *,
 
 extern long do_handle_open(int mountdirfd,
 			   struct file_handle __user *ufh, int open_flag);
-extern int open_check_o_direct(struct file *f);
 
 /*
  * inode.c

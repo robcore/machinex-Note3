@@ -16,21 +16,9 @@
 #include <linux/quotaops.h>
 #include <linux/backing-dev.h>
 #include "internal.h"
-#ifdef CONFIG_ASYNC_FSYNC
-#include <linux/statfs.h>
-#endif
 
 #define VALID_FLAGS (SYNC_FILE_RANGE_WAIT_BEFORE|SYNC_FILE_RANGE_WRITE| \
 			SYNC_FILE_RANGE_WAIT_AFTER)
-
-#ifdef CONFIG_ASYNC_FSYNC
-#define FLAG_ASYNC_FSYNC        0x1
-static struct workqueue_struct *fsync_workqueue = NULL;
-struct fsync_work {
-	struct work_struct work;
-	char pathname[256];
-};
-#endif
 
 /*
  * Do the filesystem syncing work. For simple filesystems
@@ -41,6 +29,16 @@ struct fsync_work {
  */
 static int __sync_filesystem(struct super_block *sb, int wait)
 {
+	/*
+	 * This should be safe, as we require bdi backing to actually
+	 * write out data in the first place
+	 */
+	if (sb->s_bdi == &noop_backing_dev_info)
+		return 0;
+
+	if (sb->s_qcop && sb->s_qcop->quota_sync)
+		sb->s_qcop->quota_sync(sb, -1, wait);
+
 	if (wait)
 		sync_inodes_sb(sb);
 	else
@@ -79,48 +77,29 @@ int sync_filesystem(struct super_block *sb)
 }
 EXPORT_SYMBOL_GPL(sync_filesystem);
 
-static void sync_inodes_one_sb(struct super_block *sb, void *arg)
+static void sync_one_sb(struct super_block *sb, void *arg)
 {
 	if (!(sb->s_flags & MS_RDONLY))
-		sync_inodes_sb(sb);
+		__sync_filesystem(sb, *(int *)arg);
 }
-
-static void sync_fs_one_sb(struct super_block *sb, void *arg)
+/*
+ * Sync all the data for all the filesystems (called by sys_sync() and
+ * emergency sync)
+ */
+static void sync_filesystems(int wait)
 {
-	if (!(sb->s_flags & MS_RDONLY) && sb->s_op->sync_fs)
-		sb->s_op->sync_fs(sb, *(int *)arg);
-}
-
-static void fdatawrite_one_bdev(struct block_device *bdev, void *arg)
-{
-	filemap_fdatawrite(bdev->bd_inode->i_mapping);
-}
-
-static void fdatawait_one_bdev(struct block_device *bdev, void *arg)
-{
-	filemap_fdatawait(bdev->bd_inode->i_mapping);
+	iterate_supers(sync_one_sb, &wait);
 }
 
 /*
- * Sync everything. We start by waking flusher threads so that most of
- * writeback runs on all devices in parallel. Then we sync all inodes reliably
- * which effectively also waits for all flusher threads to finish doing
- * writeback. At this point all data is on disk so metadata should be stable
- * and we tell filesystems to sync their metadata via ->sync_fs() calls.
- * Finally, we writeout all block devices because some filesystems (e.g. ext2)
- * just write metadata (such as inodes or bitmaps) to block device page cache
- * and do not sync it on their own in ->sync_fs().
+ * sync everything.  Start out by waking pdflush, because that writes back
+ * all queues in parallel.
  */
 static void do_sync(void)
 {
-	int nowait = 0, wait = 1;
-
 	wakeup_flusher_threads(0, WB_REASON_SYNC);
-	iterate_supers(sync_inodes_one_sb, NULL);
-	iterate_supers(sync_fs_one_sb, &nowait);
-	iterate_supers(sync_fs_one_sb, &wait);
-	iterate_bdevs(fdatawrite_one_bdev, NULL);
-	iterate_bdevs(fdatawait_one_bdev, NULL);
+	sync_filesystems(0);
+	sync_filesystems(1);
 	if (unlikely(laptop_mode))
 		laptop_sync_completion();
 	return;
@@ -182,18 +161,12 @@ SYSCALL_DEFINE0(sync)
 
 static void do_sync_work(struct work_struct *work)
 {
-	int nowait = 0;
-
 	/*
 	 * Sync twice to reduce the possibility we skipped some inodes / pages
 	 * because they were temporarily locked
 	 */
-	iterate_supers(sync_inodes_one_sb, &nowait);
-	iterate_supers(sync_fs_one_sb, &nowait);
-	iterate_bdevs(fdatawrite_one_bdev, NULL);
-	iterate_supers(sync_inodes_one_sb, &nowait);
-	iterate_supers(sync_fs_one_sb, &nowait);
-	iterate_bdevs(fdatawrite_one_bdev, NULL);
+	sync_filesystems(0);
+	sync_filesystems(0);
 	printk("Emergency Sync complete\n");
 	kfree(work);
 }
@@ -265,112 +238,15 @@ int vfs_fsync(struct file *file, int datasync)
 }
 EXPORT_SYMBOL(vfs_fsync);
 
-#ifdef CONFIG_ASYNC_FSYNC
-extern int emmc_perf_degr(void);
-#define LOW_STORAGE_THRESHOLD   786432
-int async_fsync(struct file *file, int fd)
-{
-	struct inode *inode = file->f_mapping->host;
-	struct super_block *sb = inode->i_sb;
-	struct kstatfs st;
-
-	if ((sb->fsync_flags & FLAG_ASYNC_FSYNC) == 0)
-		return 0;
-
-	if (!emmc_perf_degr())
-		return 0;
-
-	if (fd_statfs(fd, &st))
-		return 0;
-
-	if (st.f_bfree > LOW_STORAGE_THRESHOLD)
-		return 0;
-
-	return 1;
-}
-
-static int do_async_fsync(char *pathname)
-{
-	struct file *file;
-	int ret;
-	file = filp_open(pathname, O_RDWR, 0);
-	if (IS_ERR(file)) {
-		pr_debug("%s: can't open %s\n", __func__, pathname);
-		return -EBADF;
-	}
-	ret = vfs_fsync(file, 0);
-
-	filp_close(file, NULL);
-	return ret;
-}
-
-static void do_afsync_work(struct work_struct *work)
-{
-	struct fsync_work *fwork =
-		container_of(work, struct fsync_work, work);
-	int ret = -EBADF;
-
-	pr_debug("afsync: %s\n", fwork->pathname);
-	ret = do_async_fsync(fwork->pathname);
-	if (ret != 0 && ret != -EBADF)
-		pr_info("afsync return %d\n", ret);
-	else
-		pr_debug("afsync: %s done\n", fwork->pathname);
-	kfree(fwork);
-}
-#endif
-
 static int do_fsync(unsigned int fd, int datasync)
 {
 	struct file *file;
 	int ret = -EBADF;
-	int fput_needed;
-#ifdef CONFIG_ASYNC_FSYNC
-	struct fsync_work *fwork;
-#endif
 
-	file = fget_light(fd, &fput_needed);
-
+	file = fget(fd);
 	if (file) {
-		ktime_t fsync_t, fsync_diff;
-		char pathname[256], *path;
-		path = d_path(&(file->f_path), pathname, sizeof(pathname));
-		if (IS_ERR(path))
-			path = "(unknown)";
-#ifdef CONFIG_ASYNC_FSYNC
-		else if (async_fsync(file, fd)) {
-			if (!fsync_workqueue)
-				fsync_workqueue =
-					create_singlethread_workqueue("fsync");
-			if (!fsync_workqueue)
-				goto no_async;
-
-			if (IS_ERR(path))
-				goto no_async;
-
-			fwork = kmalloc(sizeof(*fwork), GFP_KERNEL);
-			if (fwork) {
-				strncpy(fwork->pathname, path,
-					sizeof(fwork->pathname) - 1);
-				INIT_WORK(&fwork->work, do_afsync_work);
-				queue_work(fsync_workqueue, &fwork->work);
-				fput(file);
-				return 0;
-			}
-		}
-no_async:
-#endif
-		fsync_t = ktime_get();
 		ret = vfs_fsync(file, datasync);
-		fput_light(file, fput_needed);
-		fsync_diff = ktime_sub(ktime_get(), fsync_t);
-		if (ktime_to_ms(fsync_diff) >= 5000) {
-                        pr_info("VFS: %s pid:%d(%s)(parent:%d/%s)\
-				takes %lld ms to fsync %s.\n", __func__,
-				current->pid, current->comm,
-				current->parent->pid, current->parent->comm,
-				ktime_to_ms(fsync_diff), path);
-		}
+		fput(file);
 	}
 	return ret;
 }

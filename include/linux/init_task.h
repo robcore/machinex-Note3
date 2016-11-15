@@ -10,9 +10,7 @@
 #include <linux/pid_namespace.h>
 #include <linux/user_namespace.h>
 #include <linux/securebits.h>
-#include <linux/rbtree.h>
 #include <net/net_namespace.h>
-#include <linux/sched/sysctl.h>
 
 #ifdef CONFIG_SMP
 # define INIT_PUSHABLE_TASKS(tsk)					\
@@ -146,22 +144,6 @@ extern struct task_group root_task_group;
 
 #define INIT_TASK_COMM "swapper"
 
-#if defined(CONFIG_CCSECURITY) && !defined(CONFIG_CCSECURITY_USE_EXTERNAL_TASK_SECURITY)
-#define INIT_CCSECURITY          \
-	.ccs_domain_info = NULL, \
-	.ccs_flags = 0,
-#else
-#define INIT_CCSECURITY
-#endif
-
-#ifdef CONFIG_RT_MUTEXES
-# define INIT_RT_MUTEXES(tsk)						\
-	.pi_waiters = RB_ROOT,						\
-	.pi_waiters_leftmost = NULL,
-#else
-# define INIT_RT_MUTEXES(tsk)
-#endif
-
 /*
  *  INIT_TASK is used to set up the first task table, touch at
  * your own risk!. Base=0, limit=0x1fffff (=2MB)
@@ -177,7 +159,6 @@ extern struct task_group root_task_group;
 	.normal_prio	= MAX_PRIO-20,					\
 	.policy		= SCHED_NORMAL,					\
 	.cpus_allowed	= CPU_MASK_ALL,					\
-	.nr_cpus_allowed= NR_CPUS,					\
 	.mm		= NULL,						\
 	.active_mm	= &init_mm,					\
 	.se		= {						\
@@ -186,6 +167,7 @@ extern struct task_group root_task_group;
 	.rt		= {						\
 		.run_list	= LIST_HEAD_INIT(tsk.rt.run_list),	\
 		.time_slice	= RR_TIMESLICE,				\
+		.nr_cpus_allowed = NR_CPUS,				\
 	},								\
 	.tasks		= LIST_HEAD_INIT(tsk.tasks),			\
 	INIT_PUSHABLE_TASKS(tsk)					\
@@ -230,8 +212,6 @@ extern struct task_group root_task_group;
 	INIT_TRACE_RECURSION						\
 	INIT_TASK_RCU_PREEMPT(tsk)					\
 	INIT_CPUSET_SEQ							\
-	INIT_CCSECURITY                                                 \
-	INIT_RT_MUTEXES(tsk)						\
 }
 
 

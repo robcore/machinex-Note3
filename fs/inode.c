@@ -104,7 +104,7 @@ int get_nr_dirty_inodes(void)
  * Handle nr_inode sysctl
  */
 #ifdef CONFIG_SYSCTL
-int proc_nr_inodes(struct ctl_table *table, int write,
+int proc_nr_inodes(ctl_table *table, int write,
 		   void __user *buffer, size_t *lenp, loff_t *ppos)
 {
 	inodes_stat.nr_inodes = get_nr_inodes();
@@ -486,7 +486,7 @@ void __remove_inode_hash(struct inode *inode)
 }
 EXPORT_SYMBOL(__remove_inode_hash);
 
-void clear_inode(struct inode *inode)
+void end_writeback(struct inode *inode)
 {
 	might_sleep();
 	/*
@@ -500,10 +500,11 @@ void clear_inode(struct inode *inode)
 	BUG_ON(!list_empty(&inode->i_data.private_list));
 	BUG_ON(!(inode->i_state & I_FREEING));
 	BUG_ON(inode->i_state & I_CLEAR);
+	inode_sync_wait(inode);
 	/* don't need i_lock here, no concurrent mods to i_state */
 	inode->i_state = I_FREEING | I_CLEAR;
 }
-EXPORT_SYMBOL(clear_inode);
+EXPORT_SYMBOL(end_writeback);
 
 /*
  * Free the inode passed in, removing it from the lists it is still connected
@@ -530,20 +531,12 @@ static void evict(struct inode *inode)
 
 	inode_sb_list_del(inode);
 
-	/*
-	 * Wait for flusher thread to be done with the inode so that filesystem
-	 * does not start destroying it while writeback is still running. Since
-	 * the inode has I_FREEING set, flusher thread won't start new work on
-	 * the inode.  We just have to wait for running writeback to finish.
-	 */
-	inode_wait_for_writeback(inode);
-
 	if (op->evict_inode) {
 		op->evict_inode(inode);
 	} else {
 		if (inode->i_data.nrpages)
 			truncate_inode_pages(&inode->i_data, 0);
-		clear_inode(inode);
+		end_writeback(inode);
 	}
 	if (S_ISBLK(inode->i_mode) && inode->i_bdev)
 		bd_forget(inode);
@@ -1739,9 +1732,11 @@ EXPORT_SYMBOL(inode_init_owner);
  */
 bool inode_owner_or_capable(const struct inode *inode)
 {
-	if (current_fsuid() == inode->i_uid)
+	struct user_namespace *ns = inode_userns(inode);
+
+	if (current_user_ns() == ns && current_fsuid() == inode->i_uid)
 		return true;
-	if (inode_capable(inode, CAP_FOWNER))
+	if (ns_capable(ns, CAP_FOWNER))
 		return true;
 	return false;
 }

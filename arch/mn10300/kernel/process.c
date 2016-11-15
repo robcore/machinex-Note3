@@ -211,14 +211,12 @@ void copy_segments(struct task_struct *p, struct mm_struct *new_mm)
 }
 
 /*
- * this gets called so that we can store lazy state into memory and copy the
- * current task into the new thread.
+ * this gets called before we allocate a new thread and copy the current task
+ * into it so that we can store lazy state into memory
  */
-int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
+void prepare_to_copy(struct task_struct *tsk)
 {
-	unlazy_fpu(src);
-	*dst = *src;
-	return 0;
+	unlazy_fpu(tsk);
 }
 
 /*

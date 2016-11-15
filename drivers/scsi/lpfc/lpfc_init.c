@@ -6407,7 +6407,7 @@ out_error:
  * we just use some constant number as place holder.
  *
  * Return codes
- *      0 - successful
+ *      0 - sucessful
  *      -ENOMEM - No availble memory
  *      -EIO - The mailbox failed to complete successfully.
  **/

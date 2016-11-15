@@ -38,7 +38,6 @@ config ARM
 	select DCACHE_WORD_ACCESS if (CPU_V6 || CPU_V6K || CPU_V7) && !CPU_BIG_ENDIAN && MMU
 	select GENERIC_PCI_IOMAP
 	select HAVE_BPF_JIT if NET
-	select GENERIC_SMP_IDLE_THREAD
 	select GENERIC_STRNCPY_FROM_USER
 	select GENERIC_STRNLEN_USER
 	help
@@ -1571,6 +1570,8 @@ source "drivers/pcmcia/Kconfig"
 endmenu
 
 menu "Kernel Features"
+
+source "kernel/time/Kconfig"
 
 config HAVE_SMP
 	bool

@@ -44,6 +44,7 @@
 #include <linux/signal.h>
 #include <linux/poll.h>
 #include <linux/mm.h>
+#include <linux/eventpoll.h>
 #include <linux/fs_struct.h>
 #include <linux/slab.h>
 #include <linux/pagemap.h>
@@ -531,7 +532,7 @@ out:
 ssize_t compat_rw_copy_check_uvector(int type,
 		const struct compat_iovec __user *uvector, unsigned long nr_segs,
 		unsigned long fast_segs, struct iovec *fast_pointer,
-		struct iovec **ret_pointer)
+		struct iovec **ret_pointer, int check_access)
 {
 	compat_ssize_t tot_len;
 	struct iovec *iov = *ret_pointer = fast_pointer;
@@ -582,7 +583,7 @@ ssize_t compat_rw_copy_check_uvector(int type,
 		}
 		if (len < 0)	/* size_t not fitting in compat_ssize_t .. */
 			goto out;
-		if (type >= 0 &&
+		if (check_access &&
 		    !access_ok(vrfy_dir(type), compat_ptr(buf), len)) {
 			ret = -EFAULT;
 			goto out;
@@ -874,12 +875,12 @@ asmlinkage long compat_sys_old_readdir(unsigned int fd,
 {
 	int error;
 	struct file *file;
-	int fput_needed;
 	struct compat_readdir_callback buf;
 
-	file = fget_light(fd, &fput_needed);
+	error = -EBADF;
+	file = fget(fd);
 	if (!file)
-		return -EBADF;
+		goto out;
 
 	buf.result = 0;
 	buf.dirent = dirent;
@@ -888,7 +889,8 @@ asmlinkage long compat_sys_old_readdir(unsigned int fd,
 	if (buf.result)
 		error = buf.result;
 
-	fput_light(file, fput_needed);
+	fput(file);
+out:
 	return error;
 }
 
@@ -955,15 +957,16 @@ asmlinkage long compat_sys_getdents(unsigned int fd,
 	struct file * file;
 	struct compat_linux_dirent __user * lastdirent;
 	struct compat_getdents_callback buf;
-	int fput_needed;
 	int error;
 
+	error = -EFAULT;
 	if (!access_ok(VERIFY_WRITE, dirent, count))
-		return -EFAULT;
+		goto out;
 
-	file = fget_light(fd, &fput_needed);
+	error = -EBADF;
+	file = fget(fd);
 	if (!file)
-		return -EBADF;
+		goto out;
 
 	buf.current_dir = dirent;
 	buf.previous = NULL;
@@ -980,7 +983,8 @@ asmlinkage long compat_sys_getdents(unsigned int fd,
 		else
 			error = count - buf.count;
 	}
-	fput_light(file, fput_needed);
+	fput(file);
+out:
 	return error;
 }
 
@@ -1041,15 +1045,16 @@ asmlinkage long compat_sys_getdents64(unsigned int fd,
 	struct file * file;
 	struct linux_dirent64 __user * lastdirent;
 	struct compat_getdents_callback64 buf;
-	int fput_needed;
 	int error;
 
+	error = -EFAULT;
 	if (!access_ok(VERIFY_WRITE, dirent, count))
-		return -EFAULT;
+		goto out;
 
-	file = fget_light(fd, &fput_needed);
+	error = -EBADF;
+	file = fget(fd);
 	if (!file)
-		return -EBADF;
+		goto out;
 
 	buf.current_dir = dirent;
 	buf.previous = NULL;
@@ -1067,7 +1072,8 @@ asmlinkage long compat_sys_getdents64(unsigned int fd,
 		else
 			error = count - buf.count;
 	}
-	fput_light(file, fput_needed);
+	fput(file);
+out:
 	return error;
 }
 #endif /* ! __ARCH_OMIT_COMPAT_SYS_GETDENTS64 */
@@ -1100,10 +1106,12 @@ static ssize_t compat_do_readv_writev(int type, struct file *file,
 	fnv = NULL;
 	if (type == READ) {
 		fn = file->f_op->read;
-		fnv = file->f_op->aio_read;
+		if (file->f_op->aio_read || file->f_op->read_iter)
+			fnv = do_aio_read;
 	} else {
 		fn = (io_fn_t)file->f_op->write;
-		fnv = file->f_op->aio_write;
+		if (file->f_op->aio_write || file->f_op->write_iter)
+			fnv = do_aio_write;
 	}
 
 	if (fnv)
@@ -1546,6 +1554,7 @@ asmlinkage long compat_sys_old_select(struct compat_sel_arg_struct __user *arg)
 				 compat_ptr(a.exp), compat_ptr(a.tvp));
 }
 
+#ifdef HAVE_SET_RESTORE_SIGMASK
 static long do_compat_pselect(int n, compat_ulong_t __user *inp,
 	compat_ulong_t __user *outp, compat_ulong_t __user *exp,
 	struct compat_timespec __user *tsp, compat_sigset_t __user *sigmask,
@@ -1668,6 +1677,57 @@ asmlinkage long compat_sys_ppoll(struct pollfd __user *ufds,
 
 	return ret;
 }
+#endif /* HAVE_SET_RESTORE_SIGMASK */
+
+#ifdef CONFIG_EPOLL
+
+#ifdef HAVE_SET_RESTORE_SIGMASK
+asmlinkage long compat_sys_epoll_pwait(int epfd,
+			struct compat_epoll_event __user *events,
+			int maxevents, int timeout,
+			const compat_sigset_t __user *sigmask,
+			compat_size_t sigsetsize)
+{
+	long err;
+	compat_sigset_t csigmask;
+	sigset_t ksigmask, sigsaved;
+
+	/*
+	 * If the caller wants a certain signal mask to be set during the wait,
+	 * we apply it here.
+	 */
+	if (sigmask) {
+		if (sigsetsize != sizeof(compat_sigset_t))
+			return -EINVAL;
+		if (copy_from_user(&csigmask, sigmask, sizeof(csigmask)))
+			return -EFAULT;
+		sigset_from_compat(&ksigmask, &csigmask);
+		sigdelsetmask(&ksigmask, sigmask(SIGKILL) | sigmask(SIGSTOP));
+		sigprocmask(SIG_SETMASK, &ksigmask, &sigsaved);
+	}
+
+	err = sys_epoll_wait(epfd, events, maxevents, timeout);
+
+	/*
+	 * If we changed the signal mask, we need to restore the original one.
+	 * In case we've got a signal while waiting, we do not restore the
+	 * signal mask yet, and we allow do_signal() to deliver the signal on
+	 * the way back to userspace, before the signal mask is restored.
+	 */
+	if (sigmask) {
+		if (err == -EINTR) {
+			memcpy(&current->saved_sigmask, &sigsaved,
+			       sizeof(sigsaved));
+			set_restore_sigmask();
+		} else
+			sigprocmask(SIG_SETMASK, &sigsaved, NULL);
+	}
+
+	return err;
+}
+#endif /* HAVE_SET_RESTORE_SIGMASK */
+
+#endif /* CONFIG_EPOLL */
 
 #ifdef CONFIG_SIGNALFD
 
@@ -1698,6 +1758,47 @@ asmlinkage long compat_sys_signalfd(int ufd,
 	return compat_sys_signalfd4(ufd, sigmask, sigsetsize, 0);
 }
 #endif /* CONFIG_SIGNALFD */
+
+#ifdef CONFIG_TIMERFD
+
+asmlinkage long compat_sys_timerfd_settime(int ufd, int flags,
+				   const struct compat_itimerspec __user *utmr,
+				   struct compat_itimerspec __user *otmr)
+{
+	int error;
+	struct itimerspec t;
+	struct itimerspec __user *ut;
+
+	if (get_compat_itimerspec(&t, utmr))
+		return -EFAULT;
+	ut = compat_alloc_user_space(2 * sizeof(struct itimerspec));
+	if (copy_to_user(&ut[0], &t, sizeof(t)))
+		return -EFAULT;
+	error = sys_timerfd_settime(ufd, flags, &ut[0], &ut[1]);
+	if (!error && otmr)
+		error = (copy_from_user(&t, &ut[1], sizeof(struct itimerspec)) ||
+			 put_compat_itimerspec(otmr, &t)) ? -EFAULT: 0;
+
+	return error;
+}
+
+asmlinkage long compat_sys_timerfd_gettime(int ufd,
+				   struct compat_itimerspec __user *otmr)
+{
+	int error;
+	struct itimerspec t;
+	struct itimerspec __user *ut;
+
+	ut = compat_alloc_user_space(sizeof(struct itimerspec));
+	error = sys_timerfd_gettime(ufd, ut);
+	if (!error)
+		error = (copy_from_user(&t, ut, sizeof(struct itimerspec)) ||
+			 put_compat_itimerspec(otmr, &t)) ? -EFAULT: 0;
+
+	return error;
+}
+
+#endif /* CONFIG_TIMERFD */
 
 #ifdef CONFIG_FHANDLE
 /*
