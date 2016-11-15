@@ -570,9 +570,8 @@ mext_calc_swap_extents(struct ext4_extent *tmp_dext,
 	diff = donor_off - le32_to_cpu(tmp_dext->ee_block);
 
 	ext4_ext_store_pblock(tmp_dext, ext4_ext_pblock(tmp_dext) + diff);
-	tmp_dext->ee_block =
-			cpu_to_le32(le32_to_cpu(tmp_dext->ee_block) + diff);
-	tmp_dext->ee_len = cpu_to_le16(le16_to_cpu(tmp_dext->ee_len) - diff);
+	le32_add_cpu(&tmp_dext->ee_block, diff);
+	le16_add_cpu(&tmp_dext->ee_len, -diff);
 
 	if (max_count < ext4_ext_get_actual_len(tmp_dext))
 		tmp_dext->ee_len = cpu_to_le16(max_count);
@@ -1151,6 +1150,12 @@ ext4_move_extents(struct file *o_filp, struct file *d_filp,
 	/* Protect orig and donor inodes against a truncate */
 	mext_inode_double_lock(orig_inode, donor_inode);
 
+	/* Wait for all existing dio workers */
+	ext4_inode_block_unlocked_dio(orig_inode);
+	ext4_inode_block_unlocked_dio(donor_inode);
+	inode_dio_wait(orig_inode);
+	inode_dio_wait(donor_inode);
+
 	/* Protect extent tree against block allocations via delalloc */
 	double_down_write_data_sem(orig_inode, donor_inode);
 	/* Check the filesystem environment whether move_extent can be done */
@@ -1349,6 +1354,8 @@ out:
 		kfree(holecheck_path);
 	}
 	double_up_write_data_sem(orig_inode, donor_inode);
+	ext4_inode_resume_unlocked_dio(orig_inode);
+	ext4_inode_resume_unlocked_dio(donor_inode);
 	mext_inode_double_unlock(orig_inode, donor_inode);
 
 	return ret;

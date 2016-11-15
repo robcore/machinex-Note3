@@ -23,7 +23,7 @@
 const struct file_operations generic_ro_fops = {
 	.llseek		= generic_file_llseek,
 	.read		= do_sync_read,
-	.read_iter	= generic_file_read_iter,
+	.aio_read	= generic_file_aio_read,
 	.mmap		= generic_file_readonly_mmap,
 	.splice_read	= generic_file_splice_read,
 };
@@ -55,10 +55,11 @@ static loff_t lseek_execute(struct file *file, struct inode *inode,
  * @file:	file structure to seek on
  * @offset:	file offset to seek to
  * @origin:	type of seek
- * @size:	max size of file system
+ * @size:	max size of this file in file system
+ * @eof:	offset used for SEEK_END position
  *
  * This is a variant of generic_file_llseek that allows passing in a custom
- * file size.
+ * maximum file size and a custom EOF position, for e.g. hashed directories
  *
  * Synchronization:
  * SEEK_SET and SEEK_END are unsynchronized (but atomic on 64bit platforms)
@@ -67,13 +68,13 @@ static loff_t lseek_execute(struct file *file, struct inode *inode,
  */
 loff_t
 generic_file_llseek_size(struct file *file, loff_t offset, int origin,
-		loff_t maxsize)
+		loff_t maxsize, loff_t eof)
 {
 	struct inode *inode = file->f_mapping->host;
 
 	switch (origin) {
 	case SEEK_END:
-		offset += i_size_read(inode);
+		offset += eof;
 		break;
 	case SEEK_CUR:
 		/*
@@ -99,7 +100,7 @@ generic_file_llseek_size(struct file *file, loff_t offset, int origin,
 		 * In the generic case the entire file is data, so as long as
 		 * offset isn't at the end of the file then the offset is data.
 		 */
-		if (offset >= i_size_read(inode))
+		if (offset >= eof)
 			return -ENXIO;
 		break;
 	case SEEK_HOLE:
@@ -107,9 +108,9 @@ generic_file_llseek_size(struct file *file, loff_t offset, int origin,
 		 * There is a virtual hole at the end of the file, so as long as
 		 * offset isn't i_size or larger, return i_size.
 		 */
-		if (offset >= i_size_read(inode))
+		if (offset >= eof)
 			return -ENXIO;
-		offset = i_size_read(inode);
+		offset = eof;
 		break;
 	}
 
@@ -132,7 +133,8 @@ loff_t generic_file_llseek(struct file *file, loff_t offset, int origin)
 	struct inode *inode = file->f_mapping->host;
 
 	return generic_file_llseek_size(file, offset, origin,
-					inode->i_sb->s_maxbytes);
+					inode->i_sb->s_maxbytes,
+					i_size_read(inode));
 }
 EXPORT_SYMBOL(generic_file_llseek);
 
@@ -335,29 +337,6 @@ static void wait_on_retry_sync_kiocb(struct kiocb *iocb)
 	__set_current_state(TASK_RUNNING);
 }
 
-ssize_t do_aio_read(struct kiocb *kiocb, const struct iovec *iov,
-		    unsigned long nr_segs, loff_t pos)
-{
-	struct file *file = kiocb->ki_filp;
-
-	if (file->f_op->read_iter) {
-		size_t count;
-		struct iov_iter iter;
-		int ret;
-
-		count = 0;
-		ret = generic_segment_checks(iov, &nr_segs, &count,
-					     VERIFY_WRITE);
-		if (ret)
-			return ret;
-
-		iov_iter_init(&iter, iov, nr_segs, count, 0);
-		return file->f_op->read_iter(kiocb, &iter, pos);
-	}
-
-	return file->f_op->aio_read(kiocb, iov, nr_segs, pos);
-}
-
 ssize_t do_sync_read(struct file *filp, char __user *buf, size_t len, loff_t *ppos)
 {
 	struct iovec iov = { .iov_base = buf, .iov_len = len };
@@ -370,7 +349,7 @@ ssize_t do_sync_read(struct file *filp, char __user *buf, size_t len, loff_t *pp
 	kiocb.ki_nbytes = len;
 
 	for (;;) {
-		ret = do_aio_read(&kiocb, &iov, 1, kiocb.ki_pos);
+		ret = filp->f_op->aio_read(&kiocb, &iov, 1, kiocb.ki_pos);
 		if (ret != -EIOCBRETRY)
 			break;
 		wait_on_retry_sync_kiocb(&kiocb);
@@ -414,29 +393,6 @@ ssize_t vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos)
 
 EXPORT_SYMBOL(vfs_read);
 
-ssize_t do_aio_write(struct kiocb *kiocb, const struct iovec *iov,
-		     unsigned long nr_segs, loff_t pos)
-{
-	struct file *file = kiocb->ki_filp;
-
-	if (file->f_op->write_iter) {
-		size_t count;
-		struct iov_iter iter;
-		int ret;
-
-		count = 0;
-		ret = generic_segment_checks(iov, &nr_segs, &count,
-					     VERIFY_READ);
-		if (ret)
-			return ret;
-
-		iov_iter_init(&iter, iov, nr_segs, count, 0);
-		return file->f_op->write_iter(kiocb, &iter, pos);
-	}
-
-	return file->f_op->aio_write(kiocb, iov, nr_segs, pos);
-}
-
 ssize_t do_sync_write(struct file *filp, const char __user *buf, size_t len, loff_t *ppos)
 {
 	struct iovec iov = { .iov_base = (void __user *)buf, .iov_len = len };
@@ -449,7 +405,7 @@ ssize_t do_sync_write(struct file *filp, const char __user *buf, size_t len, lof
 	kiocb.ki_nbytes = len;
 
 	for (;;) {
-		ret = do_aio_write(&kiocb, &iov, 1, kiocb.ki_pos);
+		ret = filp->f_op->aio_write(&kiocb, &iov, 1, kiocb.ki_pos);
 		if (ret != -EIOCBRETRY)
 			break;
 		wait_on_retry_sync_kiocb(&kiocb);
@@ -780,12 +736,10 @@ static ssize_t do_readv_writev(int type, struct file *file,
 	fnv = NULL;
 	if (type == READ) {
 		fn = file->f_op->read;
-		if (file->f_op->aio_read || file->f_op->read_iter)
-			fnv = do_aio_read;
+		fnv = file->f_op->aio_read;
 	} else {
 		fn = (io_fn_t)file->f_op->write;
-		if (file->f_op->aio_write || file->f_op->write_iter)
-			fnv = do_aio_write;
+		fnv = file->f_op->aio_write;
 	}
 
 	if (fnv)
