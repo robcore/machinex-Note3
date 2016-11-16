@@ -649,7 +649,7 @@ static int drv2604_vibrator_suspend(struct i2c_client *client,pm_message_t mesg)
                         gpio_set_value(vibrator_drvdata.motor_en, VIBRATION_OFF);
                         drv2604_enabled = 0;
                 }
-        DbgOut((KERN_ERR "[VIBTONZ] drv2604_early_suspend \n"));
+        DbgOut((KERN_ERR "[VIBTONZ] drv2604_power_suspend \n"));
         }
         return ret;
 

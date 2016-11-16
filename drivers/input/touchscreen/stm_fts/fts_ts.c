@@ -57,13 +57,13 @@
 #ifdef CONFIG_OF
 #ifndef USE_OPEN_CLOSE
 #define USE_OPEN_CLOSE
-#undef CONFIG_HAS_EARLYSUSPEND
+#undef CONFIG_POWERSUSPEND
 #undef CONFIG_PM
 #endif
 #endif
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-#include <linux/earlysuspend.h>
+#ifdef CONFIG_POWERSUSPEND
+#include <linux/powersuspend.h>
 #endif
 #include <linux/input/mt.h>
 #include "fts_ts.h"
@@ -95,7 +95,7 @@ static int fts_start_device(struct fts_ts_info *info);
 static int fts_irq_enable(struct fts_ts_info *info, bool enable);
 
 
-#if (!defined(CONFIG_HAS_EARLYSUSPEND)) && (!defined(CONFIG_PM)) && !defined(USE_OPEN_CLOSE)
+#if (!defined(CONFIG_POWERSUSPEND)) && (!defined(CONFIG_PM)) && !defined(USE_OPEN_CLOSE)
 static int fts_suspend(struct i2c_client *client, pm_message_t mesg);
 static int fts_resume(struct i2c_client *client);
 #endif
@@ -127,18 +127,18 @@ struct fts_touchkey fts_touchkeys[] = {
 };
 #endif // FTS_SUPPORT_TOUCH_KEY
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void fts_early_suspend(struct early_suspend *h)
+#ifdef CONFIG_POWERSUSPEND
+static void fts_power_suspend(struct power_suspend *h)
 {
 	struct fts_ts_info *info;
-	info = container_of(h, struct fts_ts_info, early_suspend);
+	info = container_of(h, struct fts_ts_info, power_suspend);
 	fts_suspend(info->client, PMSG_SUSPEND);
 }
 
-static void fts_late_resume(struct early_suspend *h)
+static void fts_power_resume(struct power_suspend *h)
 {
 	struct fts_ts_info *info;
-	info = container_of(h, struct fts_ts_info, early_suspend);
+	info = container_of(h, struct fts_ts_info, power_suspend);
 	fts_resume(info->client);
 }
 #endif
@@ -1703,11 +1703,11 @@ static int fts_probe(struct i2c_client *client, const struct i2c_device_id *idp)
 	fts_init_dvfs(info);
 #endif
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	info->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
-	info->early_suspend.suspend = fts_early_suspend;
-	info->early_sfts_start_deviceuspend.resume = fts_late_resume;
-	register_early_suspend(&info->early_suspend);
+#ifdef CONFIG_POWERSUSPEND
+	info->power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
+	info->power_suspend.suspend = fts_power_suspend;
+	info->early_sfts_start_deviceuspend.resume = fts_power_resume;
+	register_power_suspend(&info->power_suspend);
 #endif
 
 #ifdef FTS_SUPPORT_TA_MODE
@@ -1819,8 +1819,8 @@ static int fts_remove(struct i2c_client *client)
 
 	tsp_debug_info(true, &info->client->dev, "FTS removed \n");
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	unregister_early_suspend(&info->early_suspend);
+#ifdef CONFIG_POWERSUSPEND
+	unregister_power_suspend(&info->power_suspend);
 #endif
 
 	fts_interrupt_set(info, INT_DISABLE);
@@ -2266,7 +2266,7 @@ static int fts_pm_resume(struct device *dev)
 }
 #endif
 
-#if (!defined(CONFIG_HAS_EARLYSUSPEND)) && (!defined(CONFIG_PM)) && !defined(USE_OPEN_CLOSE)
+#if (!defined(CONFIG_POWERSUSPEND)) && (!defined(CONFIG_PM)) && !defined(USE_OPEN_CLOSE)
 static int fts_suspend(struct i2c_client *client, pm_message_t mesg)
 {
 	struct fts_ts_info *info = i2c_get_clientdata(client);
@@ -2325,7 +2325,7 @@ static struct i2c_driver fts_i2c_driver = {
 		   },
 	.probe = fts_probe,
 	.remove = fts_remove,
-#if (!defined(CONFIG_HAS_EARLYSUSPEND)) && (!defined(CONFIG_PM)) && !defined(USE_OPEN_CLOSE)
+#if (!defined(CONFIG_POWERSUSPEND)) && (!defined(CONFIG_PM)) && !defined(USE_OPEN_CLOSE)
 	.suspend = fts_suspend,
 	.resume = fts_resume,
 #endif

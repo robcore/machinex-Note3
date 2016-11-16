@@ -4927,7 +4927,7 @@ int cyttsp5_core_resume(struct device *dev)
 #endif
 
 const struct dev_pm_ops cyttsp5_pm_ops = {
-#if !defined(CONFIG_FB) && !defined(CONFIG_HAS_EARLYSUSPEND)
+#if !defined(CONFIG_FB) && !defined(CONFIG_POWERSUSPEND)
 	SET_SYSTEM_SLEEP_PM_OPS(cyttsp5_core_suspend, cyttsp5_core_resume)
 #endif	
 	SET_RUNTIME_PM_OPS(cyttsp5_core_rt_suspend, cyttsp5_core_rt_resume,

@@ -16,7 +16,7 @@
 //#define ISP_VERY_VERBOSE_DEBUG
 
 #include <linux/delay.h>
-#include <linux/earlysuspend.h>
+#include <linux/powersuspend.h>
 #include <linux/firmware.h>
 #include <linux/of_gpio.h>
 #include <linux/gpio.h>
@@ -151,7 +151,7 @@ struct tc300k_data {
 	struct input_dev		*input_dev;
 	char				phys[32];
 	struct tc300k_platform_data	*pdata;
-	struct early_suspend		early_suspend;
+	struct power_suspend		power_suspend;
 	struct mutex			lock;
 	struct fw_image			*fw_img;
 	u8		suspend_type;
@@ -199,9 +199,9 @@ struct tc300k_data {
 };
 
 static void tc300k_destroy_interface(struct tc300k_data *data);
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void tc300k_early_suspend(struct early_suspend *h);
-static void tc300k_late_resume(struct early_suspend *h);
+#ifdef CONFIG_POWERSUSPEND
+static void tc300k_power_suspend(struct power_suspend *h);
+static void tc300k_power_resume(struct power_suspend *h);
 #endif 
 #ifdef USE_OPEN_CLOSE
 static int tc300k_input_open(struct input_dev *dev);
@@ -2184,11 +2184,11 @@ static int __devinit tc300k_probe(struct i2c_client *client,
 		break;
 	}
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	data->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
-	data->early_suspend.suspend = tc300k_early_suspend;
-	data->early_suspend.resume = tc300k_late_resume;
-	register_early_suspend(&data->early_suspend);
+#ifdef CONFIG_POWERSUSPEND
+	data->power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
+	data->power_suspend.suspend = tc300k_power_suspend;
+	data->power_suspend.resume = tc300k_power_resume;
+	register_power_suspend(&data->power_suspend);
 #endif
 
 	data->led_wq = create_singlethread_workqueue(client->name);
@@ -2242,8 +2242,8 @@ static int __devexit tc300k_remove(struct i2c_client *client)
 {
 	struct tc300k_data *data = i2c_get_clientdata(client);
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	unregister_early_suspend(&data->early_suspend);
+#ifdef CONFIG_POWERSUSPEND
+	unregister_power_suspend(&data->power_suspend);
 #endif
 	free_irq(client->irq, data);
 	gpio_free(data->pdata->gpio_int);
@@ -2257,7 +2257,7 @@ static int __devexit tc300k_remove(struct i2c_client *client)
 	return 0;
 }
 
-#if defined(CONFIG_PM) || defined(CONFIG_HAS_EARLYSUSPEND)
+#if defined(CONFIG_PM) || defined(CONFIG_POWERSUSPEND)
 static int tc300k_suspend(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
@@ -2381,28 +2381,28 @@ static void tc300k_input_close(struct input_dev *dev)
 }
 #endif
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void tc300k_early_suspend(struct early_suspend *h)
+#ifdef CONFIG_POWERSUSPEND
+static void tc300k_power_suspend(struct power_suspend *h)
 {
 	struct tc300k_data *data;
 	pr_info("tc300k early suspend\n");
-	data = container_of(h, struct tc300k_data, early_suspend);
+	data = container_of(h, struct tc300k_data, power_suspend);
 	tc300k_suspend(&data->client->dev);
 	pr_info("tc300k early suspend 2\n");
 }
 
-static void tc300k_late_resume(struct early_suspend *h)
+static void tc300k_power_resume(struct power_suspend *h)
 {
 	struct tc300k_data *data;
-	pr_info("tc300k late_resume\n");
-	data = container_of(h, struct tc300k_data, early_suspend);
+	pr_info("tc300k power_resume\n");
+	data = container_of(h, struct tc300k_data, power_suspend);
 	tc300k_resume(&data->client->dev);
-	pr_info("tc300k late_resume 2\n");
+	pr_info("tc300k power_resume 2\n");
 }
 #endif
 
 #if !defined(USE_OPEN_CLOSE)
-#if defined(CONFIG_PM) || defined(CONFIG_HAS_EARLYSUSPEND)
+#if defined(CONFIG_PM) || defined(CONFIG_POWERSUSPEND)
 static const struct dev_pm_ops tc300k_pm_ops = {
 	.suspend	= tc300k_suspend,
 	.resume 	= tc300k_resume,
@@ -2431,7 +2431,7 @@ static struct i2c_driver tc300k_driver = {
 	.remove		= tc300k_remove,
 	.driver = {
 		.name	= TC300K_DEVICE,
-#if defined(CONFIG_PM) && !defined(CONFIG_HAS_EARLYSUSPEND) && !defined(USE_OPEN_CLOSE)
+#if defined(CONFIG_PM) && !defined(CONFIG_POWERSUSPEND) && !defined(USE_OPEN_CLOSE)
 		.pm	= &tc300k_pm_ops,
 #endif
 #ifdef CONFIG_OF

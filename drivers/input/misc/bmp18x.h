@@ -61,8 +61,8 @@ struct bmp18x_data {
 	struct	mutex lock;
 	struct	bmp18x_calibration_data calibration;
 	struct	sensors_classdev cdev;
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	struct	early_suspend early_suspend;
+#ifdef CONFIG_POWERSUSPEND
+	struct	power_suspend power_suspend;
 #endif
 	struct	input_dev	*input;
 	struct	delayed_work work;

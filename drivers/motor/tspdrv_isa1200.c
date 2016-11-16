@@ -49,7 +49,7 @@
 #include "tspdrv_isa1200.h"
 #include "ImmVibeSPI_isa1200.c"
 #include <linux/i2c.h>
-#include <linux/earlysuspend.h>
+#include <linux/powersuspend.h>
 #if defined(VIBE_DEBUG) && defined(VIBE_RECORD)
 #include <tspdrvRecorder.c>
 #endif
@@ -639,7 +639,7 @@ static int isa1200_vibrator_suspend(struct i2c_client *client,pm_message_t mesg)
 			gpio_set_value(vibrator_drvdata.motor_en, VIBRATION_OFF);
 			isa1200_enabled = 0;
 		}
-	DbgOut((KERN_ERR "[VIBTONZ] isa1200_early_suspend \n"));
+	DbgOut((KERN_ERR "[VIBTONZ] isa1200_power_suspend \n"));
 	}
 	return ret;
 

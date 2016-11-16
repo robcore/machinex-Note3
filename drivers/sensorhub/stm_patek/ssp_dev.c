@@ -20,9 +20,9 @@
 #include <mach/sec_debug.h>
 #endif
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void ssp_early_suspend(struct early_suspend *handler);
-static void ssp_late_resume(struct early_suspend *handler);
+#ifdef CONFIG_POWERSUSPEND
+static void ssp_power_suspend(struct power_suspend *handler);
+static void ssp_power_resume(struct power_suspend *handler);
 #endif
 
 #define NORMAL_SENSOR_STATE_K	0x3FEFF
@@ -625,10 +625,10 @@ static int ssp_probe(struct spi_device *spi_dev)
 		}
 	}
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	data->early_suspend.suspend = ssp_early_suspend;
-	data->early_suspend.resume = ssp_late_resume;
-	register_early_suspend(&data->early_suspend);
+#ifdef CONFIG_POWERSUSPEND
+	data->power_suspend.suspend = ssp_power_suspend;
+	data->power_suspend.resume = ssp_power_resume;
+	register_power_suspend(&data->power_suspend);
 #endif
 #ifdef CONFIG_DUAL_LCD
 	/* if read gpio , 0: close, 1:open so flip_status 0:open, 1:close*/
@@ -706,8 +706,8 @@ static void ssp_shutdown(struct spi_device *spi_dev)
 	ssp_enable(data, false);
 	clean_pending_list(data);
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	unregister_early_suspend(&data->early_suspend);
+#ifdef CONFIG_POWERSUSPEND
+	unregister_power_suspend(&data->power_suspend);
 #endif
 
 	free_irq(data->iIrq, data);
@@ -739,11 +739,11 @@ exit:
 	kfree(data);
 }
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void ssp_early_suspend(struct early_suspend *handler)
+#ifdef CONFIG_POWERSUSPEND
+static void ssp_power_suspend(struct power_suspend *handler)
 {
 	struct ssp_data *data;
-	data = container_of(handler, struct ssp_data, early_suspend);
+	data = container_of(handler, struct ssp_data, power_suspend);
 
 	func_dbg();
 	disable_debug_timer(data);
@@ -759,10 +759,10 @@ static void ssp_early_suspend(struct early_suspend *handler)
 #endif
 }
 
-static void ssp_late_resume(struct early_suspend *handler)
+static void ssp_power_resume(struct power_suspend *handler)
 {
 	struct ssp_data *data;
-	data = container_of(handler, struct ssp_data, early_suspend);
+	data = container_of(handler, struct ssp_data, power_suspend);
 
 	func_dbg();
 	enable_debug_timer(data);
@@ -778,7 +778,7 @@ static void ssp_late_resume(struct early_suspend *handler)
 #endif
 }
 
-#else /* CONFIG_HAS_EARLYSUSPEND */
+#else /* CONFIG_POWERSUSPEND */
 
 static int ssp_suspend(struct device *dev)
 {
@@ -817,7 +817,7 @@ static const struct dev_pm_ops ssp_pm_ops = {
 	.suspend = ssp_suspend,
 	.resume = ssp_resume
 };
-#endif /* CONFIG_HAS_EARLYSUSPEND */
+#endif /* CONFIG_POWERSUSPEND */
 
 static const struct spi_device_id ssp_id[] = {
 	{"ssp", 0},
@@ -839,7 +839,7 @@ static struct spi_driver ssp_driver = {
 	.shutdown = ssp_shutdown,
 	.id_table = ssp_id,
 	.driver = {
-#ifndef CONFIG_HAS_EARLYSUSPEND
+#ifndef CONFIG_POWERSUSPEND
 		   .pm = &ssp_pm_ops,
 #endif
 		   .owner = THIS_MODULE,

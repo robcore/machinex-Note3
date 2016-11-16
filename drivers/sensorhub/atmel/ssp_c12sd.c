@@ -32,17 +32,17 @@
 #include <linux/gpio_event.h>
 #include <linux/device.h>
 #include <linux/slab.h>
-#include <linux/earlysuspend.h>
+#include <linux/powersuspend.h>
 #include <linux/sensor/guva_c12sd.h>
 #include "ssp.h"
 
 #define VENDOR_NAME	"GENICOM"
 #define CHIP_NAME	"GUVA-C12SD"
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
+#ifdef CONFIG_POWERSUSPEND
 /* early suspend */
-static void ssp_early_suspend(struct early_suspend *handler);
-static void ssp_late_resume(struct early_suspend *handler);
+static void ssp_power_suspend(struct power_suspend *handler);
+static void ssp_power_resume(struct power_suspend *handler);
 #endif
 
 struct uv_info {
@@ -54,8 +54,8 @@ struct uv_info {
 	struct mutex power_lock;
 	struct mutex read_lock;
 	struct input_dev *uv_input_dev;
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	struct early_suspend early_suspend;
+#ifdef CONFIG_POWERSUSPEND
+	struct power_suspend power_suspend;
 #endif
 	ktime_t uv_poll_delay;
 	int uv_raw_data;
@@ -353,10 +353,10 @@ static int uv_probe(struct platform_device *pdev)
 		goto err_uv_input__sysfs_create_link;
 	}
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	uv->early_suspend.suspend = ssp_early_suspend;
-	uv->early_suspend.resume = ssp_late_resume;
-	register_early_suspend(&uv->early_suspend);
+#ifdef CONFIG_POWERSUSPEND
+	uv->power_suspend.suspend = ssp_power_suspend;
+	uv->power_suspend.resume = ssp_power_resume;
+	register_power_suspend(&uv->power_suspend);
 #endif
 
 	platform_set_drvdata(pdev, uv);
@@ -391,8 +391,8 @@ static int uv_remove(struct platform_device *pdev)
 	}
 	destroy_workqueue(uv->uv_wq);
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	unregister_early_suspend(&uv->early_suspend);
+#ifdef CONFIG_POWERSUSPEND
+	unregister_power_suspend(&uv->power_suspend);
 #endif
 	sensors_unregister(uv->uv_dev, uv_sensor_attrs);
 	sysfs_remove_group(&uv->uv_input_dev->dev.kobj,
@@ -408,12 +408,12 @@ static int uv_remove(struct platform_device *pdev)
 	return 0;
 }
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
+#ifdef CONFIG_POWERSUSPEND
 /* early suspend */
-static void ssp_early_suspend(struct early_suspend *handler)
+static void ssp_power_suspend(struct power_suspend *handler)
 {
 	struct uv_info *uv;
-	uv = container_of(handler, struct uv_info, early_suspend);
+	uv = container_of(handler, struct uv_info, power_suspend);
 
 	if (uv->onoff) {
 		hrtimer_cancel(&uv->uv_timer);
@@ -424,10 +424,10 @@ static void ssp_early_suspend(struct early_suspend *handler)
 	pr_err("%s, enabled = %d\n", __func__, uv->onoff);
 }
 
-static void ssp_late_resume(struct early_suspend *handler)
+static void ssp_power_resume(struct power_suspend *handler)
 {
 	struct uv_info *uv;
-	uv = container_of(handler, struct uv_info, early_suspend);
+	uv = container_of(handler, struct uv_info, power_suspend);
 
 	if (uv->onoff) {
 		if (uv->pdata->power_on)
@@ -477,8 +477,8 @@ static void uv_shutdown(struct platform_device *pdev)
 		cancel_work_sync(&uv->work_uv);
 	}
 	destroy_workqueue(uv->uv_wq);
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	unregister_early_suspend(&uv->early_suspend);
+#ifdef CONFIG_POWERSUSPEND
+	unregister_power_suspend(&uv->power_suspend);
 #endif
 	sensors_unregister(uv->uv_dev, uv_sensor_attrs);
 	sysfs_remove_group(&uv->uv_input_dev->dev.kobj,
@@ -495,7 +495,7 @@ static void uv_shutdown(struct platform_device *pdev)
 static struct platform_driver uv_driver = {
 	.probe      = uv_probe,
 	.remove     = uv_remove,
-#ifndef CONFIG_HAS_EARLYSUSPEND
+#ifndef CONFIG_POWERSUSPEND
 	.suspend    = uv_suspend,
 	.resume     = uv_resume,
 #endif

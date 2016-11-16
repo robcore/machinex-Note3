@@ -21,10 +21,10 @@
 #include <linux/delay.h>
 #include <linux/slab.h>
 #include <linux/regulator/consumer.h>
-#undef CONFIG_HAS_EARLYSUSPEND
+#undef CONFIG_POWERSUSPEND
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-#include <linux/earlysuspend.h>
+#ifdef CONFIG_POWERSUSPEND
+#include <linux/powersuspend.h>
 #endif
 #include <linux/err.h>
 #include <linux/of_gpio.h>
@@ -70,8 +70,8 @@
 
 static struct i2c_driver hscd_driver;
 static struct i2c_client *this_client;
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static struct early_suspend hscd_early_suspend_handler;
+#ifdef CONFIG_POWERSUSPEND
+static struct power_suspend hscd_power_suspend_handler;
 #endif
 
 struct hscd_power_data {
@@ -703,8 +703,8 @@ static int __devexit hscd_remove(struct i2c_client *client)
 	alps_info("is called\n");
 
 	hscd_activate(0, 0, atomic_read(&delay));
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	unregister_early_suspend(&hscd_early_suspend_handler);
+#ifdef CONFIG_POWERSUSPEND
+	unregister_power_suspend(&hscd_power_suspend_handler);
 #endif
 
 	if (hscd_power.regulator_vdd) {
@@ -749,8 +749,8 @@ static int hscd_resume(struct i2c_client *client)
 	return 0;
 }
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void hscd_early_suspend(struct early_suspend *handler)
+#ifdef CONFIG_POWERSUSPEND
+static void hscd_power_suspend(struct power_suspend *handler)
 {
 
 	alps_info("is called\n");
@@ -758,7 +758,7 @@ static void hscd_early_suspend(struct early_suspend *handler)
 	hscd_suspend(this_client, PMSG_SUSPEND);
 }
 
-static void hscd_early_resume(struct early_suspend *handler)
+static void hscd_early_resume(struct power_suspend *handler)
 {
 	alps_info("is called\n");
 
@@ -792,9 +792,9 @@ static struct i2c_driver hscd_driver = {
 	.resume   = hscd_resume,
 };
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static struct early_suspend hscd_early_suspend_handler = {
-	.suspend = hscd_early_suspend,
+#ifdef CONFIG_POWERSUSPEND
+static struct power_suspend hscd_power_suspend_handler = {
+	.suspend = hscd_power_suspend,
 	.resume  = hscd_early_resume,
 };
 #endif

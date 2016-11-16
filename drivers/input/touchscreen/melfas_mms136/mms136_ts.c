@@ -9,7 +9,7 @@
 #include <linux/firmware.h>
 #include <linux/delay.h>
 #include <linux/gpio.h>
-#include <linux/earlysuspend.h>
+#include <linux/powersuspend.h>
 #include <linux/i2c.h>
 #include <linux/irq.h>
 #include <linux/interrupt.h>
@@ -222,7 +222,7 @@ struct mms_ts_info {
 
 	char 				*fw_name;
 	//struct completion 		init_done;
-	struct early_suspend		early_suspend;
+	struct power_suspend		power_suspend;
 	
 #if TOUCH_BOOSTER
 		struct delayed_work work_dvfs_off;
@@ -279,9 +279,9 @@ static int esd_cnt;
 
 #define USE_OPEN_CLOSE
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void mms_ts_early_suspend(struct early_suspend *h);
-static void mms_ts_late_resume(struct early_suspend *h);
+#ifdef CONFIG_POWERSUSPEND
+static void mms_ts_power_suspend(struct power_suspend *h);
+static void mms_ts_power_resume(struct power_suspend *h);
 #endif
 
 
@@ -2776,11 +2776,11 @@ int __devinit mms_ts_probe(struct i2c_client *client,
 
 	enable_irq(info->irq);
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	info->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN +1;
-	info->early_suspend.suspend = mms_ts_early_suspend;
-	info->early_suspend.resume = mms_ts_late_resume;
-	register_early_suspend(&info->early_suspend);
+#ifdef CONFIG_POWERSUSPEND
+	info->power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN +1;
+	info->power_suspend.suspend = mms_ts_power_suspend;
+	info->power_suspend.resume = mms_ts_power_resume;
+	register_power_suspend(&info->power_suspend);
 #endif
 
 	if (alloc_chrdev_region(&info->mms_dev, 0, 1, "mms_ts")) {
@@ -2879,7 +2879,7 @@ static int __devexit mms_ts_remove(struct i2c_client *client)
 	sysfs_remove_bin_file(&client->dev.kobj, &bin_attr);
 	sysfs_remove_bin_file(&client->dev.kobj, &bin_attr_data);
 	input_unregister_device(info->input_dev);
-	unregister_early_suspend(&info->early_suspend);
+	unregister_power_suspend(&info->power_suspend);
 	
 	device_destroy(info->class, info->mms_dev);
 	class_destroy(info->class);
@@ -2891,7 +2891,7 @@ static int __devexit mms_ts_remove(struct i2c_client *client)
 	return 0;
 }
 
-#if (defined(CONFIG_PM) || defined(CONFIG_HAS_EARLYSUSPEND)) && !defined(USE_OPEN_CLOSE)
+#if (defined(CONFIG_PM) || defined(CONFIG_POWERSUSPEND)) && !defined(USE_OPEN_CLOSE)
 static int mms_ts_suspend(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
@@ -2925,23 +2925,23 @@ static int mms_ts_resume(struct device *dev)
 }
 #endif
 
-#if defined(CONFIG_HAS_EARLYSUSPEND)  && !defined(USE_OPEN_CLOSE)
-static void mms_ts_early_suspend(struct early_suspend *h)
+#if defined(CONFIG_POWERSUSPEND)  && !defined(USE_OPEN_CLOSE)
+static void mms_ts_power_suspend(struct power_suspend *h)
 {
 	struct mms_ts_info *info;
-	info = container_of(h, struct mms_ts_info, early_suspend);
+	info = container_of(h, struct mms_ts_info, power_suspend);
 	mms_ts_suspend(&info->client->dev);
 }
 
-static void mms_ts_late_resume(struct early_suspend *h)
+static void mms_ts_power_resume(struct power_suspend *h)
 {
 	struct mms_ts_info *info;
-	info = container_of(h, struct mms_ts_info, early_suspend);
+	info = container_of(h, struct mms_ts_info, power_suspend);
 	mms_ts_resume(&info->client->dev);
 }
 #endif
 
-#if defined(CONFIG_PM) && !defined(CONFIG_HAS_EARLYSUSPEND) && !defined(USE_OPEN_CLOSE)
+#if defined(CONFIG_PM) && !defined(CONFIG_POWERSUSPEND) && !defined(USE_OPEN_CLOSE)
 static const struct dev_pm_ops mms_ts_pm_ops = {
 	.suspend	= mms_ts_suspend,
 	.resume		= mms_ts_resume,
@@ -2971,7 +2971,7 @@ static struct i2c_driver mms_ts_driver = {
 #ifdef CONFIG_OF
 		   .of_match_table = mms_match_table,
 #endif
-#if defined(CONFIG_PM) && !defined(CONFIG_HAS_EARLYSUSPEND) && !defined(USE_OPEN_CLOSE)
+#if defined(CONFIG_PM) && !defined(CONFIG_POWERSUSPEND) && !defined(USE_OPEN_CLOSE)
 				.pm	= &mms_ts_pm_ops,
 #endif
 	},

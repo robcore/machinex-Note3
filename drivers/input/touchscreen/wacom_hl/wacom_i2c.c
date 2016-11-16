@@ -21,8 +21,8 @@
 #include <linux/input.h>
 #include <linux/i2c.h>
 #include "wacom.h"
-#ifdef CONFIG_HAS_EARLYSUSPEND
-#include <linux/earlysuspend.h>
+#ifdef CONFIG_POWERSUSPEND
+#include <linux/powersuspend.h>
 #endif
 #include <linux/uaccess.h>
 #include <linux/firmware.h>
@@ -35,7 +35,7 @@
 #ifdef CONFIG_OF
 #define WACOM_OPEN_CLOSE
 #undef CONFIG_PM
-#undef CONFIG_HAS_EARLYSUSPEND
+#undef CONFIG_POWERSUSPEND
 #endif
 
 #define WACOM_FW_PATH "/sdcard/firmware/wacom_firm.bin"
@@ -365,19 +365,19 @@ static int wacom_i2c_remove(struct i2c_client *client)
 
 	return 0;
 }
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void wacom_i2c_early_suspend(struct early_suspend *h)
+#ifdef CONFIG_POWERSUSPEND
+static void wacom_i2c_power_suspend(struct power_suspend *h)
 {
 	struct wacom_i2c *wac_i2c =
-	    container_of(h, struct wacom_i2c, early_suspend);
+	    container_of(h, struct wacom_i2c, power_suspend);
 	printk(KERN_DEBUG "epen:%s.\n", __func__);
 	wacom_power_off(wac_i2c);
 }
 
-static void wacom_i2c_late_resume(struct early_suspend *h)
+static void wacom_i2c_power_resume(struct power_suspend *h)
 {
 	struct wacom_i2c *wac_i2c =
-		container_of(h, struct wacom_i2c, early_suspend);
+		container_of(h, struct wacom_i2c, power_suspend);
 
 	printk(KERN_DEBUG "epen:%s.\n", __func__);
 	wacom_power_on(wac_i2c);
@@ -476,7 +476,7 @@ static void wacom_i2c_block_softkey_work(struct work_struct *work)
 	wac_i2c->block_softkey = false;
 }
 #endif
-#ifdef CONFIG_HAS_EARLYSUSPEND
+#ifdef CONFIG_POWERSUSPEND
 #define wacom_i2c_suspend	NULL
 #define wacom_i2c_resume	NULL
 
@@ -1596,11 +1596,11 @@ static int wacom_i2c_probe(struct i2c_client *client, const struct i2c_device_id
 		goto err_register_device;
 	}
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	wac_i2c->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
-	wac_i2c->early_suspend.suspend = wacom_i2c_early_suspend;
-	wac_i2c->early_suspend.resume = wacom_i2c_late_resume;
-	register_early_suspend(&wac_i2c->early_suspend);
+#ifdef CONFIG_POWERSUSPEND
+	wac_i2c->power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
+	wac_i2c->power_suspend.suspend = wacom_i2c_power_suspend;
+	wac_i2c->power_suspend.resume = wacom_i2c_power_resume;
+	register_power_suspend(&wac_i2c->power_suspend);
 #endif
 
 	wac_i2c->dev = device_create(sec_class, NULL, 0, NULL, "sec_epen");

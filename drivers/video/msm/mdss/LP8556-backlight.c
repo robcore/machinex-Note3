@@ -26,7 +26,7 @@
 #include <linux/platform_device.h>
 #include <linux/gpio.h>
 #include <linux/miscdevice.h>
-#include <linux/earlysuspend.h>
+#include <linux/powersuspend.h>
 #include <linux/regulator/consumer.h>
 #include <asm/mach-types.h>
 #include <linux/device.h>

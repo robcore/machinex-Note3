@@ -22,8 +22,8 @@
 #include <linux/pwm.h>
 #include <linux/err.h>
 #include <linux/lcd.h>
-#ifdef CONFIG_HAS_EARLYSUSPEND
-#include <linux/earlysuspend.h>
+#ifdef CONFIG_POWERSUSPEND
+#include <linux/powersuspend.h>
 #endif
 
 #include "mdss_dsi.h"
@@ -3489,15 +3489,15 @@ error:
 	return -EINVAL;
 }
 
-#if defined(CONFIG_HAS_EARLYSUSPEND)
-static void mipi_samsung_disp_early_suspend(struct early_suspend *h)
+#if defined(CONFIG_POWERSUSPEND)
+static void mipi_samsung_disp_power_suspend(struct power_suspend *h)
 {
 	msd.mfd->resume_state = MIPI_SUSPEND_STATE;
 
 	LCD_DEBUG("------");
 }
 
-static void mipi_samsung_disp_late_resume(struct early_suspend *h)
+static void mipi_samsung_disp_power_resume(struct power_suspend *h)
 {
 
 	msd.mfd->resume_state = MIPI_RESUME_STATE;
@@ -6055,11 +6055,11 @@ int mdss_dsi_panel_init(struct device_node *node, struct mdss_dsi_ctrl_pdata *ct
 	init_mdnie_class();
 #endif
 
-#if defined(CONFIG_HAS_EARLYSUSPEND)
-	msd.early_suspend.suspend = mipi_samsung_disp_early_suspend;
-	msd.early_suspend.resume = mipi_samsung_disp_late_resume;
-	msd.early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN-1;
-	register_early_suspend(&msd.early_suspend);
+#if defined(CONFIG_POWERSUSPEND)
+	msd.power_suspend.suspend = mipi_samsung_disp_power_suspend;
+	msd.power_suspend.resume = mipi_samsung_disp_power_resume;
+	msd.power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN-1;
+	register_power_suspend(&msd.power_suspend);
 #endif
 
 	pr_debug("%s : --\n",__func__);

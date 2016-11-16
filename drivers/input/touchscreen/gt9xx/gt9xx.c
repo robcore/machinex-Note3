@@ -87,9 +87,9 @@ static int fb_notifier_callback(struct notifier_block *self,
 				unsigned long event, void *data);
 static int goodix_ts_suspend(struct device *dev);
 static int goodix_ts_resume(struct device *dev);
-#elif defined(CONFIG_HAS_EARLYSUSPEND)
-static void goodix_ts_early_suspend(struct early_suspend *h);
-static void goodix_ts_late_resume(struct early_suspend *h);
+#elif defined(CONFIG_POWERSUSPEND)
+static void goodix_ts_power_suspend(struct power_suspend *h);
+static void goodix_ts_power_resume(struct power_suspend *h);
 #endif
 
 #if GTP_ESD_PROTECT
@@ -665,7 +665,7 @@ void gtp_reset_guitar(struct goodix_ts_data *ts, int ms)
 #endif
 }
 
-#if defined(CONFIG_HAS_EARLYSUSPEND) || defined(CONFIG_FB)
+#if defined(CONFIG_POWERSUSPEND) || defined(CONFIG_FB)
 /*******************************************************
 Function:
 	Enter doze mode for sliding wakeup.
@@ -839,7 +839,7 @@ err_retry:
 	}
 	return ret;
 }
-#endif /* !CONFIG_HAS_EARLYSUSPEND && !CONFIG_FB*/
+#endif /* !CONFIG_POWERSUSPEND && !CONFIG_FB*/
 
 /*******************************************************
 Function:
@@ -2059,11 +2059,11 @@ static int goodix_ts_probe(struct i2c_client *client,
 		dev_err(&ts->client->dev,
 			"Unable to register fb_notifier: %d\n",
 			ret);
-#elif defined(CONFIG_HAS_EARLYSUSPEND)
-	ts->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
-	ts->early_suspend.suspend = goodix_ts_early_suspend;
-	ts->early_suspend.resume = goodix_ts_late_resume;
-	register_early_suspend(&ts->early_suspend);
+#elif defined(CONFIG_POWERSUSPEND)
+	ts->power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
+	ts->power_suspend.suspend = goodix_ts_power_suspend;
+	ts->power_suspend.resume = goodix_ts_power_resume;
+	register_power_suspend(&ts->power_suspend);
 #endif
 
 	ts->goodix_wq = create_singlethread_workqueue("goodix_wq");
@@ -2115,8 +2115,8 @@ exit_free_irq:
 	if (fb_unregister_client(&ts->fb_notif))
 		dev_err(&client->dev,
 			"Error occurred while unregistering fb_notifier.\n");
-#elif defined(CONFIG_HAS_EARLYSUSPEND)
-	unregister_early_suspend(&ts->early_suspend);
+#elif defined(CONFIG_POWERSUSPEND)
+	unregister_power_suspend(&ts->power_suspend);
 #endif
 	if (ts->use_irq)
 		free_irq(client->irq, ts);
@@ -2165,8 +2165,8 @@ static int goodix_ts_remove(struct i2c_client *client)
 	if (fb_unregister_client(&ts->fb_notif))
 		dev_err(&client->dev,
 			"Error occurred while unregistering fb_notifier.\n");
-#elif defined(CONFIG_HAS_EARLYSUSPEND)
-	unregister_early_suspend(&ts->early_suspend);
+#elif defined(CONFIG_POWERSUSPEND)
+	unregister_power_suspend(&ts->power_suspend);
 #endif
 	mutex_destroy(&ts->lock);
 
@@ -2208,12 +2208,12 @@ static int goodix_ts_remove(struct i2c_client *client)
 	return 0;
 }
 
-#if defined(CONFIG_HAS_EARLYSUSPEND) || defined(CONFIG_FB)
+#if defined(CONFIG_POWERSUSPEND) || defined(CONFIG_FB)
 /*******************************************************
 Function:
 	Early suspend function.
 Input:
-	h: early_suspend struct.
+	h: power_suspend struct.
 Output:
 	None.
 *******************************************************/
@@ -2269,7 +2269,7 @@ static int goodix_ts_suspend(struct device *dev)
 Function:
 	Late resume function.
 Input:
-	h: early_suspend struct.
+	h: power_suspend struct.
 Output:
 	None.
 *******************************************************/
@@ -2324,20 +2324,20 @@ static int fb_notifier_callback(struct notifier_block *self,
 
 	return 0;
 }
-#elif defined(CONFIG_HAS_EARLYSUSPEND)
+#elif defined(CONFIG_POWERSUSPEND)
 /*******************************************************
 Function:
 	Early suspend function.
 Input:
-	h: early_suspend struct.
+	h: power_suspend struct.
 Output:
 	None.
 *******************************************************/
-static void goodix_ts_early_suspend(struct early_suspend *h)
+static void goodix_ts_power_suspend(struct power_suspend *h)
 {
 	struct goodix_ts_data *ts;
 
-	ts = container_of(h, struct goodix_ts_data, early_suspend);
+	ts = container_of(h, struct goodix_ts_data, power_suspend);
 	goodix_ts_suspend(&ts->client->dev);
 	return;
 }
@@ -2346,20 +2346,20 @@ static void goodix_ts_early_suspend(struct early_suspend *h)
 Function:
 	Late resume function.
 Input:
-	h: early_suspend struct.
+	h: power_suspend struct.
 Output:
 	None.
 *******************************************************/
-static void goodix_ts_late_resume(struct early_suspend *h)
+static void goodix_ts_power_resume(struct power_suspend *h)
 {
 	struct goodix_ts_data *ts;
 
-	ts = container_of(h, struct goodix_ts_data, early_suspend);
-	goodix_ts_late_resume(ts);
+	ts = container_of(h, struct goodix_ts_data, power_suspend);
+	goodix_ts_power_resume(ts);
 	return;
 }
 #endif
-#endif /* !CONFIG_HAS_EARLYSUSPEND && !CONFIG_FB*/
+#endif /* !CONFIG_POWERSUSPEND && !CONFIG_FB*/
 
 #if GTP_ESD_PROTECT
 /*******************************************************
@@ -2492,7 +2492,7 @@ static void gtp_esd_check_func(struct work_struct *work)
 }
 #endif
 
-#if (!defined(CONFIG_FB) && !defined(CONFIG_HAS_EARLYSUSPEND))
+#if (!defined(CONFIG_FB) && !defined(CONFIG_POWERSUSPEND))
 static const struct dev_pm_ops goodix_ts_dev_pm_ops = {
 	.suspend = goodix_ts_suspend,
 	.resume = goodix_ts_resume,
@@ -2515,9 +2515,9 @@ static struct of_device_id goodix_match_table[] = {
 static struct i2c_driver goodix_ts_driver = {
 	.probe      = goodix_ts_probe,
 	.remove     = goodix_ts_remove,
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	.suspend    = goodix_ts_early_suspend,
-	.resume     = goodix_ts_late_resume,
+#ifdef CONFIG_POWERSUSPEND
+	.suspend    = goodix_ts_power_suspend,
+	.resume     = goodix_ts_power_resume,
 #endif
 	.id_table   = goodix_ts_id,
 	.driver = {

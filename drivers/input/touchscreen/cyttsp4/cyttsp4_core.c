@@ -4648,8 +4648,8 @@ static void cyttsp4_del_core(struct device *dev)
 	return;
 }
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void cyttsp4_early_suspend(struct early_suspend *h)
+#ifdef CONFIG_POWERSUSPEND
+static void cyttsp4_power_suspend(struct power_suspend *h)
 {
 	struct cyttsp4_core_data *cd =
 		container_of(h, struct cyttsp4_core_data, es);
@@ -4661,7 +4661,7 @@ static void cyttsp4_early_suspend(struct early_suspend *h)
 	}
 }
 
-static void cyttsp4_late_resume(struct early_suspend *h)
+static void cyttsp4_power_resume(struct power_suspend *h)
 {
 	struct cyttsp4_core_data *cd =
 		container_of(h, struct cyttsp4_core_data, es);
@@ -4673,13 +4673,13 @@ static void cyttsp4_late_resume(struct early_suspend *h)
 	}
 }
 
-static void cyttsp4_setup_early_suspend(struct cyttsp4_core_data *cd)
+static void cyttsp4_setup_power_suspend(struct cyttsp4_core_data *cd)
 {
 	cd->es.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
-	cd->es.suspend = cyttsp4_early_suspend;
-	cd->es.resume = cyttsp4_late_resume;
+	cd->es.suspend = cyttsp4_power_suspend;
+	cd->es.resume = cyttsp4_power_resume;
 
-	register_early_suspend(&cd->es);
+	register_power_suspend(&cd->es);
 }
 #endif
 
@@ -4895,8 +4895,8 @@ int cyttsp4_probe(const struct cyttsp4_bus_ops *ops, struct device *dev,
 		goto error_startup_device_access;
 	}
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	cyttsp4_setup_early_suspend(cd);
+#ifdef CONFIG_POWERSUSPEND
+	cyttsp4_setup_power_suspend(cd);
 #endif
 
 	dev_dbg(dev, "%s done\n",__func__);
@@ -4955,8 +4955,8 @@ int cyttsp4_release(struct cyttsp4_core_data *cd)
 	cyttsp4_mt_release(dev);
 	cyttsp4_loader_release(dev);
 	
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	unregister_early_suspend(&cd->es);
+#ifdef CONFIG_POWERSUSPEND
+	unregister_power_suspend(&cd->es);
 #endif
 	/*
 	 * Suspend the device before freeing the startup_work and stopping

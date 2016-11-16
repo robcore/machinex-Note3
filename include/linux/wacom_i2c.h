@@ -15,8 +15,8 @@
 #include <linux/delay.h>
 #include <linux/wakelock.h>
 #include <linux/cpufreq.h>
-#ifdef CONFIG_HAS_EARLYSUSPEND
-#include <linux/earlysuspend.h>
+#ifdef CONFIG_POWERSUSPEND
+#include <linux/powersuspend.h>
 #endif
 
 /* WACOM NOISE from LCD OSC.
@@ -220,8 +220,8 @@ struct wacom_i2c {
 	struct i2c_client *client;
 	struct i2c_client *client_boot;
 	struct input_dev *input_dev;
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	struct early_suspend early_suspend;
+#ifdef CONFIG_POWERSUSPEND
+	struct power_suspend power_suspend;
 #endif
 	struct mutex lock;
 #if defined(CONFIG_SEC_LT03_PROJECT) || defined(CONFIG_SEC_VIENNA_PROJECT)

@@ -112,8 +112,8 @@ struct mipi_samsung_driver_data {
 
 	struct mutex lock;
 
-#if defined(CONFIG_HAS_EARLYSUSPEND)
-	struct early_suspend early_suspend;
+#if defined(CONFIG_POWERSUSPEND)
+	struct power_suspend power_suspend;
 #endif
 	char panel_name[MAX_PANEL_NAME_SIZE];
 	int panel;

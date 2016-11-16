@@ -32,8 +32,8 @@
 #include <asm/unaligned.h>
 #include <linux/delay.h>
 #include <linux/device.h>
-#ifdef CONFIG_HAS_EARLYSUSPEND
-#include <linux/earlysuspend.h>
+#ifdef CONFIG_POWERSUSPEND
+#include <linux/powersuspend.h>
 #endif
 #include <linux/gpio.h>
 #include <linux/input.h>
@@ -960,8 +960,8 @@ struct cyttsp4_core_data {
 	struct work_struct watchdog_work;
 	struct timer_list watchdog_timer;
 	u8 wr_buf[CY_DEFAULT_ADAP_MAX_XFER];
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	struct early_suspend es;
+#ifdef CONFIG_POWERSUSPEND
+	struct power_suspend es;
 #endif
 #ifdef VERBOSE_DEBUG
 	u8 pr_buf[CY_MAX_PRBUF_SIZE];

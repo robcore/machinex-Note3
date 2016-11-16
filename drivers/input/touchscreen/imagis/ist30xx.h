@@ -310,12 +310,12 @@ struct ist30xx_dt_data {
 	int touch_en_gpio;
 };
 
-#include <linux/earlysuspend.h>
+#include <linux/powersuspend.h>
 struct ist30xx_data {
 	struct i2c_client *	client;
 	struct input_dev *	input_dev;
 	struct ist30xx_dt_data	*dt_data;
-	struct early_suspend	early_suspend;
+	struct power_suspend	power_suspend;
 	struct ist30xx_status	status;
 	struct ist30xx_fw	fw;
 	struct ist30xx_tags	tags;

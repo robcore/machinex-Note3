@@ -25,8 +25,8 @@
 #include <linux/gpio.h>
 #include <linux/miscdevice.h>
 #include <linux/uaccess.h>
-#ifdef CONFIG_HAS_EARLYSUSPEND
-#include <linux/earlysuspend.h>
+#ifdef CONFIG_POWERSUSPEND
+#include <linux/powersuspend.h>
 #endif
 #include <linux/io.h>
 #include <linux/regulator/consumer.h>
@@ -1581,14 +1581,14 @@ static void touchkey_input_close(struct input_dev *dev)
 }
 
 #if defined(CONFIG_PM) && !defined(USE_OPEN_CLOSE)
-#ifdef CONFIG_HAS_EARLYSUSPEND
+#ifdef CONFIG_POWERSUSPEND
 #define touchkey_suspend	NULL
 #define touchkey_resume	NULL
 
-static int sec_touchkey_early_suspend(struct early_suspend *h)
+static int sec_touchkey_power_suspend(struct power_suspend *h)
 {
 	struct touchkey_i2c *tkey_i2c =
-		container_of(h, struct touchkey_i2c, early_suspend);
+		container_of(h, struct touchkey_i2c, power_suspend);
 
 	touchkey_stop(tkey_i2c);
 
@@ -1597,10 +1597,10 @@ static int sec_touchkey_early_suspend(struct early_suspend *h)
 	return 0;
 }
 
-static int sec_touchkey_late_resume(struct early_suspend *h)
+static int sec_touchkey_power_resume(struct power_suspend *h)
 {
 	struct touchkey_i2c *tkey_i2c =
-		container_of(h, struct touchkey_i2c, early_suspend);
+		container_of(h, struct touchkey_i2c, power_suspend);
 
 	dev_dbg(&tkey_i2c->client->dev, "%s\n", __func__);
 
@@ -2777,12 +2777,12 @@ static int i2c_touchkey_probe(struct i2c_client *client,
 	}
 #endif
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	tkey_i2c->early_suspend.suspend =
-		(void *)sec_touchkey_early_suspend;
-	tkey_i2c->early_suspend.resume =
-		(void *)sec_touchkey_late_resume;
-	register_early_suspend(&tkey_i2c->early_suspend);
+#ifdef CONFIG_POWERSUSPEND
+	tkey_i2c->power_suspend.suspend =
+		(void *)sec_touchkey_power_suspend;
+	tkey_i2c->power_suspend.resume =
+		(void *)sec_touchkey_power_resume;
+	register_power_suspend(&tkey_i2c->power_suspend);
 #endif
 
 /*	touchkey_stop(tkey_i2c); */
@@ -2865,7 +2865,7 @@ struct i2c_driver touchkey_i2c_driver = {
 		.of_match_table = cypress_match_table,
 		#endif
 		
-		#if defined(CONFIG_PM) && !defined(CONFIG_HAS_EARLYSUSPEND) && !defined(USE_OPEN_CLOSE)
+		#if defined(CONFIG_PM) && !defined(CONFIG_POWERSUSPEND) && !defined(USE_OPEN_CLOSE)
 		.pm = &touchkey_pm_ops,
 		#endif
 	},

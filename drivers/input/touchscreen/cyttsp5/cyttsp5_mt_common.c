@@ -888,8 +888,8 @@ static void cyttsp5_mt_close(struct input_dev *input)
 	cyttsp5_core_suspend(dev);
 }
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void cyttsp5_mt_early_suspend(struct early_suspend *h)
+#ifdef CONFIG_POWERSUSPEND
+static void cyttsp5_mt_power_suspend(struct power_suspend *h)
 {
 	struct cyttsp5_mt_data *md =
 		container_of(h, struct cyttsp5_mt_data, es);
@@ -903,7 +903,7 @@ static void cyttsp5_mt_early_suspend(struct early_suspend *h)
 	mutex_unlock(&md->mt_lock);
 }
 
-static void cyttsp5_mt_late_resume(struct early_suspend *h)
+static void cyttsp5_mt_power_resume(struct power_suspend *h)
 {
 	struct cyttsp5_mt_data *md =
 		container_of(h, struct cyttsp5_mt_data, es);
@@ -917,13 +917,13 @@ static void cyttsp5_mt_late_resume(struct early_suspend *h)
 	mutex_unlock(&md->mt_lock);
 }
 
-static void cyttsp5_setup_early_suspend(struct cyttsp5_mt_data *md)
+static void cyttsp5_setup_power_suspend(struct cyttsp5_mt_data *md)
 {
 	md->es.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
-	md->es.suspend = cyttsp5_mt_early_suspend;
-	md->es.resume = cyttsp5_mt_late_resume;
+	md->es.suspend = cyttsp5_mt_power_suspend;
+	md->es.resume = cyttsp5_mt_power_resume;
 
-	register_early_suspend(&md->es);
+	register_power_suspend(&md->es);
 }
 #endif
 
@@ -1103,8 +1103,8 @@ int cyttsp5_mt_probe(struct device *dev)
 			CY_MODULE_MT, cyttsp5_setup_input_attention, 0);
 	}
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	cyttsp5_setup_early_suspend(md);
+#ifdef CONFIG_POWERSUSPEND
+	cyttsp5_setup_power_suspend(md);
 #endif
 
 	dev_dbg(dev, "%s:done\n", __func__);
@@ -1124,7 +1124,7 @@ int cyttsp5_mt_release(struct device *dev)
 	struct cyttsp5_core_data *cd = dev_get_drvdata(dev);
 	struct cyttsp5_mt_data *md = &cd->md;
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
+#ifdef CONFIG_POWERSUSPEND
 	/*
 	 * This check is to prevent pm_runtime usage_count drop below zero
 	 * because of removing the module while in suspended state
@@ -1132,7 +1132,7 @@ int cyttsp5_mt_release(struct device *dev)
 	/*if (md->is_suspended)
 		pm_runtime_get_noresume(dev);*/
 
-	unregister_early_suspend(&md->es);
+	unregister_power_suspend(&md->es);
 #endif
 
 	if (md->input_device_registered) {

@@ -1112,13 +1112,13 @@ irq_ic_err:
 
 
 #ifdef CONFIG_PM
-#ifdef CONFIG_HAS_EARLYSUSPEND
+#ifdef CONFIG_POWERSUSPEND
 #define ist30xx_suspend NULL
 #define ist30xx_resume  NULL
-static void ist30xx_early_suspend(struct early_suspend *h)
+static void ist30xx_power_suspend(struct power_suspend *h)
 {
 	struct ist30xx_data *data = container_of(h, struct ist30xx_data,
-						 early_suspend);
+						 power_suspend);
 	tsp_info("%s\n", __func__);
 #if IST30XX_EVENT_MODE
 	del_timer_sync(&event_timer);
@@ -1130,10 +1130,10 @@ static void ist30xx_early_suspend(struct early_suspend *h)
 	clear_input_data(data);
 	mutex_unlock(&ist30xx_mutex);
 }
-static void ist30xx_late_resume(struct early_suspend *h)
+static void ist30xx_power_resume(struct power_suspend *h)
 {
 	struct ist30xx_data *data = container_of(h, struct ist30xx_data,
-						 early_suspend);
+						 power_suspend);
 	tsp_info("%s\n", __func__);
 
 	mutex_lock(&ist30xx_mutex);
@@ -1161,7 +1161,7 @@ static int ist30xx_resume(struct device *dev)
 	tsp_info("%s\n", __func__);
 	return ist30xx_internal_resume(data);
 }
-#endif // CONFIG_HAS_EARLYSUSPEND
+#endif // CONFIG_POWERSUSPEND
 #endif
 
 #if defined(USE_OPEN_CLOSE)
@@ -1769,11 +1769,11 @@ static int ist30xx_probe(struct i2c_client *		client,
 		ist30xx_noise_mode = 0;
 
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	data->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
-	data->early_suspend.suspend = ist30xx_early_suspend;
-	data->early_suspend.resume = ist30xx_late_resume;
-	register_early_suspend(&data->early_suspend);
+#ifdef CONFIG_POWERSUSPEND
+	data->power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
+	data->power_suspend.suspend = ist30xx_power_suspend;
+	data->power_suspend.resume = ist30xx_power_resume;
+	register_power_suspend(&data->power_suspend);
 #endif
 #if defined(USE_OPEN_CLOSE)
 	input_dev->open = imagis_ts_open;
@@ -1815,8 +1815,8 @@ static int ist30xx_remove(struct i2c_client *client)
 {
 	struct ist30xx_data *data = i2c_get_clientdata(client);
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	unregister_early_suspend(&data->early_suspend);
+#ifdef CONFIG_POWERSUSPEND
+	unregister_power_suspend(&data->power_suspend);
 #endif
 
 	free_irq(client->irq, data);

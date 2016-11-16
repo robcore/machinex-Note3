@@ -13,8 +13,8 @@
 #ifdef CONFIG_OF
 #include <linux/of_gpio.h>
 #endif
-#ifdef CONFIG_HAS_EARLYSUSPEND
-#include <linux/earlysuspend.h>
+#ifdef CONFIG_POWERSUSPEND
+#include <linux/powersuspend.h>
 #endif
 #include <linux/alps_compass_io.h>
 #include <linux/input-polldev.h>
@@ -34,9 +34,9 @@
 #define ON		1
 #define OFF		0
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void alps_early_suspend(struct early_suspend *handler);
-static void alps_early_resume(struct early_suspend *handler);
+#ifdef CONFIG_POWERSUSPEND
+static void alps_power_suspend(struct power_suspend *handler);
+static void alps_early_resume(struct power_suspend *handler);
 #endif
 
 struct alps_data {
@@ -44,8 +44,8 @@ struct alps_data {
 	struct input_polled_dev *alps_idev;
 	struct mutex alps_lock;
 	struct miscdevice alps_device;
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	struct early_suspend alps_early_suspend_handler;
+#ifdef CONFIG_POWERSUSPEND
+	struct power_suspend alps_power_suspend_handler;
 #endif
 	int suspend_flag;
 	int delay;
@@ -329,10 +329,10 @@ static int alps_probe(struct platform_device *dev)
 	if (ret)
 		goto exit_misc_device_register_failed;
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	data->alps_early_suspend_handler.suspend = alps_early_suspend;
-	data->alps_early_suspend_handler.resume = alps_early_resume;
-	register_early_suspend(&data->alps_early_suspend_handler);
+#ifdef CONFIG_POWERSUSPEND
+	data->alps_power_suspend_handler.suspend = alps_power_suspend;
+	data->alps_power_suspend_handler.resume = alps_early_resume;
+	register_power_suspend(&data->alps_power_suspend_handler);
 #endif
 	ret = sensors_create_symlink(&idev->dev.kobj, idev->name);
 	if (ret < 0) {
@@ -373,8 +373,8 @@ exit:
 static int alps_remove(struct platform_device *dev)
 {
 	struct alps_data *data = platform_get_drvdata(dev);
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	unregister_early_suspend(&data->alps_early_suspend_handler);
+#ifdef CONFIG_POWERSUSPEND
+	unregister_power_suspend(&data->alps_power_suspend_handler);
 #endif
 	misc_deregister(&data->alps_device);
 	input_unregister_polled_device(data->alps_idev);
@@ -407,22 +407,22 @@ static int alps_resume(struct device *dev)
 	return 0;
 }
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void alps_early_suspend(struct early_suspend *handler)
+#ifdef CONFIG_POWERSUSPEND
+static void alps_power_suspend(struct power_suspend *handler)
 {
 	struct alps_data *data;
 	data = container_of(handler, struct alps_data,
-		alps_early_suspend_handler);
+		alps_power_suspend_handler);
 	mutex_lock(&data->alps_lock);
 	data->suspend_flag = ON;
 	mutex_unlock(&data->alps_lock);
 }
 
-static void alps_early_resume(struct early_suspend *handler)
+static void alps_early_resume(struct power_suspend *handler)
 {
 	struct alps_data *data;
 	data = container_of(handler, struct alps_data,
-		alps_early_suspend_handler);
+		alps_power_suspend_handler);
 	mutex_lock(&data->alps_lock);
 	data->suspend_flag = OFF;
 	mutex_unlock(&data->alps_lock);
@@ -436,7 +436,7 @@ static const struct dev_pm_ops alps_pm_ops = {
 
 static struct platform_driver alps_driver = {
 	.driver	= {
-#ifndef CONFIG_HAS_EARLYSUSPEND
+#ifndef CONFIG_POWERSUSPEND
 		.pm = &alps_pm_ops,
 #endif
 		.name = "alps-input",

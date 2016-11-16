@@ -2891,7 +2891,7 @@ int synaptics_rmi4_new_function(enum exp_fn fn_type,
  * as an input driver, turns on the power to the sensor, queries the
  * sensor for its supported Functions and characteristics, registers
  * the driver to the input subsystem, sets up the interrupt, handles
- * the registration of the early_suspend and late_resume functions,
+ * the registration of the power_suspend and power_resume functions,
  * and creates a work queue for detection of other expansion Function
  * modules.
  */

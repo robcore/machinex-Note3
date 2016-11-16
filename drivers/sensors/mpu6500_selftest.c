@@ -31,8 +31,8 @@
 #include <linux/irq.h>
 #include <linux/gpio.h>
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-#include <linux/earlysuspend.h>
+#ifdef CONFIG_POWERSUSPEND
+#include <linux/powersuspend.h>
 #endif
 
 #include "./mpu6500_input.h"

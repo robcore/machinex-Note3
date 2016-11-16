@@ -34,7 +34,7 @@ void __iomem *virt_mmss_gp0_base;
 
 #ifdef EXPRESSWIRED
 #include <linux/spinlock.h>
-#include <linux/earlysuspend.h>
+#include <linux/powersuspend.h>
 static DEFINE_SPINLOCK(bl_ctrl_lock);
 #define GPIO_BL_CTRL 33
 #define DATA_START 40

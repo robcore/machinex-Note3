@@ -30,7 +30,7 @@
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/slab.h>
-#include <linux/earlysuspend.h>
+#include <linux/powersuspend.h>
 #include <linux/uaccess.h>
 
 /*

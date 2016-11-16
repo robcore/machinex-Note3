@@ -22,7 +22,7 @@
 #include <linux/i2c.h>
 #include <linux/wacom_i2c.h>
 
-#include <linux/earlysuspend.h>
+#include <linux/powersuspend.h>
 
 #include <linux/uaccess.h>
 #include "wacom_i2c_func.h"
@@ -448,7 +448,7 @@ static ssize_t epen_read_freq_data_store(struct device *dev,
 }
 #endif
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
+#ifdef CONFIG_POWERSUSPEND
 #define wacom_i2c_suspend	NULL
 #define wacom_i2c_resume	NULL
 #endif
@@ -1392,11 +1392,11 @@ static int wacom_i2c_remove(struct i2c_client *client)
 	return 0;
 }
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void wacom_i2c_early_suspend(struct early_suspend *h)
+#ifdef CONFIG_POWERSUSPEND
+static void wacom_i2c_power_suspend(struct power_suspend *h)
 {
 	struct wacom_i2c *wac_i2c =
-	    container_of(h, struct wacom_i2c, early_suspend);
+	    container_of(h, struct wacom_i2c, power_suspend);
 
 	dev_info(&wac_i2c->client->dev,
 			"%s\n", __func__);
@@ -1404,10 +1404,10 @@ static void wacom_i2c_early_suspend(struct early_suspend *h)
 	wacom_i2c_disable(wac_i2c);
 }
 
-static void wacom_i2c_late_resume(struct early_suspend *h)
+static void wacom_i2c_power_resume(struct power_suspend *h)
 {
 	struct wacom_i2c *wac_i2c =
-	    container_of(h, struct wacom_i2c, early_suspend);
+	    container_of(h, struct wacom_i2c, power_suspend);
 
 	dev_info(&wac_i2c->client->dev,
 			"%s\n", __func__);
@@ -1622,11 +1622,11 @@ static int wacom_i2c_probe(struct i2c_client *client,
 		goto err_input_allocate_device;
 	}
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	wac_i2c->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
-	wac_i2c->early_suspend.suspend = wacom_i2c_early_suspend;
-	wac_i2c->early_suspend.resume = wacom_i2c_late_resume;
-	register_early_suspend(&wac_i2c->early_suspend);
+#ifdef CONFIG_POWERSUSPEND
+	wac_i2c->power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
+	wac_i2c->power_suspend.suspend = wacom_i2c_power_suspend;
+	wac_i2c->power_suspend.resume = wacom_i2c_power_resume;
+	register_power_suspend(&wac_i2c->power_suspend);
 #endif
 
 	wac_i2c->dev = device_create(sec_class, NULL, 0, NULL, "sec_epen");

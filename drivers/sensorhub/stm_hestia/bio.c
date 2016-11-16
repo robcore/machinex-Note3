@@ -758,7 +758,7 @@ static const struct dev_pm_ops bio_pm_ops = {
 
 static struct platform_driver bio_driver = {
 	.driver	= {
-#ifndef CONFIG_HAS_EARLYSUSPEND
+#ifndef CONFIG_POWERSUSPEND
 		.pm = &bio_pm_ops,
 #endif
 		.name = "bio_sensor",

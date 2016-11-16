@@ -568,7 +568,7 @@ static const struct dev_pm_ops bgm_pm_ops = {
 
 static struct platform_driver bgm_driver = {
 	.driver	= {
-#ifndef CONFIG_HAS_EARLYSUSPEND
+#ifndef CONFIG_POWERSUSPEND
 		.pm = &bgm_pm_ops,
 #endif
 		.name = "blood_glucose",

@@ -204,8 +204,8 @@ static void cyttsp5_btn_close(struct input_dev *input)
 	pm_runtime_put(dev);
 }
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void cyttsp5_btn_early_suspend(struct early_suspend *h)
+#ifdef CONFIG_POWERSUSPEND
+static void cyttsp5_btn_power_suspend(struct power_suspend *h)
 {
 	struct cyttsp5_btn_data *bd =
 		container_of(h, struct cyttsp5_btn_data, es);
@@ -216,7 +216,7 @@ static void cyttsp5_btn_early_suspend(struct early_suspend *h)
 	bd->is_suspended = true;
 }
 
-static void cyttsp5_btn_late_resume(struct early_suspend *h)
+static void cyttsp5_btn_power_resume(struct power_suspend *h)
 {
 	struct cyttsp5_btn_data *bd =
 		container_of(h, struct cyttsp5_btn_data, es);
@@ -331,11 +331,11 @@ int cyttsp5_btn_probe(struct device *dev)
 			CY_MODULE_BTN, cyttsp5_setup_input_attention, 0);
 	}
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
+#ifdef CONFIG_POWERSUSPEND
 	bd->es.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
-	bd->es.suspend = cyttsp5_btn_early_suspend;
-	bd->es.resume = cyttsp5_btn_late_resume;
-	register_early_suspend(&bd->es);
+	bd->es.suspend = cyttsp5_btn_power_suspend;
+	bd->es.resume = cyttsp5_btn_power_resume;
+	register_power_suspend(&bd->es);
 #endif
 
 	return 0;
@@ -354,7 +354,7 @@ int cyttsp5_btn_release(struct device *dev)
 	struct cyttsp5_core_data *cd = dev_get_drvdata(dev);
 	struct cyttsp5_btn_data *bd = &cd->bd;
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
+#ifdef CONFIG_POWERSUSPEND
 	/*
 	 * This check is to prevent pm_runtime usage_count drop below zero
 	 * because of removing the module while in suspended state
@@ -362,7 +362,7 @@ int cyttsp5_btn_release(struct device *dev)
 	if (bd->is_suspended)
 		pm_runtime_get_noresume(dev);
 
-	unregister_early_suspend(&bd->es);
+	unregister_power_suspend(&bd->es);
 #endif
 
 	if (bd->input_device_registered) {

@@ -32,8 +32,8 @@
 #if defined(CONFIG_FB)
 #include <linux/notifier.h>
 #include <linux/fb.h>
-#elif defined(CONFIG_HAS_EARLYSUSPEND)
-#include <linux/earlysuspend.h>
+#elif defined(CONFIG_POWERSUSPEND)
+#include <linux/powersuspend.h>
 #define GOODIX_SUSPEND_LEVEL 1
 #endif
 
@@ -106,8 +106,8 @@ struct goodix_ts_data {
 	struct regulator *vcc_i2c;
 #if defined(CONFIG_FB)
 	struct notifier_block fb_notif;
-#elif defined(CONFIG_HAS_EARLYSUSPEND)
-	struct early_suspend early_suspend;
+#elif defined(CONFIG_POWERSUSPEND)
+	struct power_suspend power_suspend;
 #endif
 	struct dentry *debug_base;
 };

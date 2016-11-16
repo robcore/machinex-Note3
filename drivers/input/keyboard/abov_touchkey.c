@@ -38,8 +38,8 @@
 #include <linux/of_gpio.h>
 #endif
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-#include <linux/earlysuspend.h>
+#ifdef CONFIG_POWERSUSPEND
+#include <linux/powersuspend.h>
 #endif
 /* registers */
 #define ABOV_BTNSTATUS		0x00
@@ -115,8 +115,8 @@ struct abov_tk_info {
 	struct i2c_client *client;
 	struct input_dev *input_dev;
 	struct abov_touchkey_platform_data *pdata;
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	struct early_suspend early_suspend;
+#ifdef CONFIG_POWERSUSPEND
+	struct power_suspend power_suspend;
 #endif
 	struct mutex lock;
 	const struct firmware *firm_data_bin;
@@ -141,9 +141,9 @@ struct abov_tk_info {
 };
 
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void abov_tk_early_suspend(struct early_suspend *h);
-static void abov_tk_late_resume(struct early_suspend *h);
+#ifdef CONFIG_POWERSUSPEND
+static void abov_tk_power_suspend(struct power_suspend *h);
+static void abov_tk_power_resume(struct power_suspend *h);
 #endif
 
 #ifdef CONFIG_INPUT_ENABLED
@@ -1518,11 +1518,10 @@ static int __devinit abov_tk_probe(struct i2c_client *client,
 	}
 	info->irq = client->irq;
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	info->early_suspend.level = EARLY_SUSPEND_LEVEL_STOP_DRAWING;
-	info->early_suspend.suspend = abov_tk_early_suspend;
-	info->early_suspend.resume = abov_tk_late_resume;
-	register_early_suspend(&info->early_suspend);
+#ifdef CONFIG_POWERSUSPEND
+	info->power_suspend.suspend = abov_tk_power_suspend;
+	info->power_suspend.resume = abov_tk_power_resume;
+	register_power_suspend(&info->power_suspend);
 #endif
 
 	sec_touchkey = device_create(sec_class,
@@ -1568,8 +1567,8 @@ static int __devexit abov_tk_remove(struct i2c_client *client)
 		info->pdata->power(0);
 */
 	info->enabled = false;
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	unregister_early_suspend(&info->early_suspend);
+#ifdef CONFIG_POWERSUSPEND
+	unregister_power_suspend(&info->power_suspend);
 #endif
 	if (info->irq >= 0)
 		free_irq(info->irq, info);
@@ -1679,19 +1678,19 @@ static int abov_tk_resume(struct device *dev)
 }
 #endif
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void abov_tk_early_suspend(struct early_suspend *h)
+#ifdef CONFIG_POWERSUSPEND
+static void abov_tk_power_suspend(struct power_suspend *h)
 {
 	struct abov_tk_info *info;
-	info = container_of(h, struct abov_tk_info, early_suspend);
+	info = container_of(h, struct abov_tk_info, power_suspend);
 	abov_tk_suspend(&info->client->dev);
 
 }
 
-static void abov_tk_late_resume(struct early_suspend *h)
+static void abov_tk_power_resume(struct power_suspend *h)
 {
 	struct abov_tk_info *info;
-	info = container_of(h, struct abov_tk_info, early_suspend);
+	info = container_of(h, struct abov_tk_info, power_suspend);
 	abov_tk_resume(&info->client->dev);
 }
 #endif
@@ -1718,7 +1717,7 @@ static void abov_tk_input_close(struct input_dev *dev)
 }
 #endif
 
-#if defined(CONFIG_PM) && !defined(CONFIG_HAS_EARLYSUSPEND) &&\
+#if defined(CONFIG_PM) && !defined(CONFIG_POWERSUSPEND) &&\
 	!defined(CONFIG_INPUT_ENABLED)
 static const struct dev_pm_ops abov_tk_pm_ops = {
 	.suspend = abov_tk_suspend,
@@ -1749,7 +1748,7 @@ static struct i2c_driver abov_tk_driver = {
 	.driver = {
 		   .name = ABOV_TK_NAME,
 		   .of_match_table = abov_match_table,
-#if defined(CONFIG_PM) && !defined(CONFIG_HAS_EARLYSUSPEND) &&\
+#if defined(CONFIG_PM) && !defined(CONFIG_POWERSUSPEND) &&\
 	!defined(CONFIG_INPUT_ENABLED)
 		   .pm = &abov_tk_pm_ops,
 #endif

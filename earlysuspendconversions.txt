@@ -1,15 +1,5 @@
-arch/arm/mach-msm/board-mahimahi-flashlight.c
-arch/arm/mach-msm/board-mahimahi-microp.c
-arch/arm/mach-msm/cpufreq.c
-arch/arm/mach-msm/htc_pwrsink.c
-arch/arm/mach-msm/include/mach/htc_pwrsink.h
-arch/arm/mach-msm/qdsp6v2/audio_lpa.c
-arch/arm/mach-msm/qdsp6v2/audio_lpa.h
-Documentation/android.txt
-drivers/barcode_emul/barcode_emul_ice4.c
-drivers/barcode_emul/barcode_emul_ice4_hlte.c
-drivers/input/joystick/tdisc_vtd518_shinetsu.c
-drivers/input/keyboard/abov_touchkey.c
+
+
 drivers/input/keyboard/cypress_touchkey_c/coreriver_fw_routines.c
 drivers/input/keyboard/cypress_touchkey_c/cypress-touchkey.c
 drivers/input/keyboard/cypress_touchkey_c/issp_routines.c

@@ -3,8 +3,8 @@
 
 #include <linux/types.h>
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-#include <linux/earlysuspend.h>
+#ifdef CONFIG_POWERSUSPEND
+#include <linux/powersuspend.h>
 #endif
 
 #if	defined(CONFIG_SEC_LOCALE_KOR_FRESCO)

@@ -48,8 +48,8 @@
 #ifdef CONFIG_OF
 #include <linux/of_gpio.h>
 #endif
-#ifdef CONFIG_HAS_EARLYSUSPEND
-#include <linux/earlysuspend.h>
+#ifdef CONFIG_POWERSUSPEND
+#include <linux/powersuspend.h>
 #endif
 #include "linux/stk3x1x.h"
 
@@ -236,8 +236,8 @@ struct stk3x1x_data {
 #endif
 	int		int_pin;
 	uint8_t wait_reg;
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	struct early_suspend stk_early_suspend;
+#ifdef CONFIG_POWERSUSPEND
+	struct power_suspend stk_power_suspend;
 #endif
 	uint16_t ps_thd_h;
 	uint16_t ps_thd_l;
@@ -1993,10 +1993,10 @@ err_request_any_context_irq:
 }
 #endif
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void stk3x1x_early_suspend(struct early_suspend *h)
+#ifdef CONFIG_POWERSUSPEND
+static void stk3x1x_power_suspend(struct power_suspend *h)
 {
-	struct stk3x1x_data *ps_data = container_of(h, struct stk3x1x_data, stk_early_suspend);
+	struct stk3x1x_data *ps_data = container_of(h, struct stk3x1x_data, stk_power_suspend);
 #ifndef STK_POLL_PS
 	int err;
 #endif
@@ -2021,9 +2021,9 @@ static void stk3x1x_early_suspend(struct early_suspend *h)
 	return;
 }
 
-static void stk3x1x_late_resume(struct early_suspend *h)
+static void stk3x1x_power_resume(struct power_suspend *h)
 {
-	struct stk3x1x_data *ps_data = container_of(h, struct stk3x1x_data, stk_early_suspend);
+	struct stk3x1x_data *ps_data = container_of(h, struct stk3x1x_data, stk_power_suspend);
 #ifndef STK_POLL_PS
 	int err;
 #endif
@@ -2045,7 +2045,7 @@ static void stk3x1x_late_resume(struct early_suspend *h)
 	mutex_unlock(&ps_data->io_lock);
 	return;
 }
-#endif	//#ifdef CONFIG_HAS_EARLYSUSPEND
+#endif	//#ifdef CONFIG_POWERSUSPEND
 
 static int stk3x1x_power_ctl(struct stk3x1x_data *data, bool on)
 {
@@ -2438,11 +2438,11 @@ static int stk3x1x_probe(struct i2c_client *client,
 
 	ps_data->als_enabled = false;
 	ps_data->ps_enabled = false;
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	ps_data->stk_early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
-	ps_data->stk_early_suspend.suspend = stk3x1x_early_suspend;
-	ps_data->stk_early_suspend.resume = stk3x1x_late_resume;
-	register_early_suspend(&ps_data->stk_early_suspend);
+#ifdef CONFIG_POWERSUSPEND
+	ps_data->stk_power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
+	ps_data->stk_power_suspend.suspend = stk3x1x_power_suspend;
+	ps_data->stk_power_suspend.resume = stk3x1x_power_resume;
+	register_power_suspend(&ps_data->stk_power_suspend);
 #endif
 	/* make sure everything is ok before registering the class device */
 	ps_data->als_cdev = sensors_light_cdev;

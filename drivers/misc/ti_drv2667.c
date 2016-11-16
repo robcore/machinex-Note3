@@ -21,8 +21,8 @@
 #include <linux/i2c/ti_drv2667.h>
 #include "../staging/android/timed_output.h"
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-#include <linux/earlysuspend.h>
+#ifdef CONFIG_POWERSUSPEND
+#include <linux/powersuspend.h>
 #define DRV2667_SUS_LEVEL	1
 #endif
 
@@ -84,8 +84,8 @@ struct drv2667_data {
 	u8 cntl2_val;
 	enum drv2667_modes mode;
 	u32 time_chunk_ms;
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	struct early_suspend es;
+#ifdef CONFIG_POWERSUSPEND
+	struct power_suspend es;
 #endif
 };
 
@@ -361,15 +361,15 @@ vreg_off:
 	return rc;
 }
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void drv2667_early_suspend(struct early_suspend *es)
+#ifdef CONFIG_POWERSUSPEND
+static void drv2667_power_suspend(struct power_suspend *es)
 {
 	struct drv2667_data *data = container_of(es, struct drv2667_data, es);
 
 	drv2667_suspend(&data->client->dev);
 }
 
-static void drv2667_late_resume(struct early_suspend *es)
+static void drv2667_power_resume(struct power_suspend *es)
 {
 	struct drv2667_data *data = container_of(es, struct drv2667_data, es);
 
@@ -378,7 +378,7 @@ static void drv2667_late_resume(struct early_suspend *es)
 #endif
 
 static const struct dev_pm_ops drv2667_pm_ops = {
-#ifndef CONFIG_HAS_EARLYSUSPEND
+#ifndef CONFIG_POWERSUSPEND
 	.suspend = drv2667_suspend,
 	.resume = drv2667_resume,
 #endif
@@ -619,11 +619,11 @@ static int __devinit drv2667_probe(struct i2c_client *client,
 		goto vreg_off;
 	}
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
+#ifdef CONFIG_POWERSUSPEND
 	data->es.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + DRV2667_SUS_LEVEL;
-	data->es.suspend = drv2667_early_suspend;
-	data->es.resume = drv2667_late_resume;
-	register_early_suspend(&data->es);
+	data->es.suspend = drv2667_power_suspend;
+	data->es.resume = drv2667_power_resume;
+	register_power_suspend(&data->es);
 #endif
 	return 0;
 
@@ -640,8 +640,8 @@ static int __devexit drv2667_remove(struct i2c_client *client)
 {
 	struct drv2667_data *data = i2c_get_clientdata(client);
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	unregister_early_suspend(&data->es);
+#ifdef CONFIG_POWERSUSPEND
+	unregister_power_suspend(&data->es);
 #endif
 	mutex_destroy(&data->lock);
 	timed_output_dev_unregister(&data->dev);

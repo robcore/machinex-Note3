@@ -14,7 +14,7 @@
 
 #include <linux/module.h>
 #include <linux/delay.h>
-#include <linux/earlysuspend.h>
+#include <linux/powersuspend.h>
 #include <linux/hrtimer.h>
 #include <linux/i2c.h>
 #include <linux/input.h>
@@ -266,8 +266,8 @@ struct mms_ts_info {
 
 	const char		*fw_path;
 	const struct firmware	*fw_img;
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	struct early_suspend early_suspend;
+#ifdef CONFIG_POWERSUSPEND
+	struct power_suspend power_suspend;
 #endif
 
 #ifdef TOUCH_BOOSTER
@@ -307,9 +307,9 @@ extern struct class *sec_class;
 static int melfas_ts_start(struct mms_ts_info *info);
 static int melfas_ts_stop(struct mms_ts_info *info);
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void melfas_ts_early_suspend(struct early_suspend *h);
-static void melfas_ts_late_resume(struct early_suspend *h);
+#ifdef CONFIG_POWERSUSPEND
+static void melfas_ts_power_suspend(struct power_suspend *h);
+static void melfas_ts_power_resume(struct power_suspend *h);
 #endif
 
 #ifdef USE_OPEN_CLOSE
@@ -2612,12 +2612,12 @@ static int melfas_ts_probe(struct i2c_client *client, const struct i2c_device_id
 	for (i = 0; i < MELFAS_MAX_TOUCH ; i++)
 		info->finger[i].strength = -1;
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	dev_info(&info->client->dev, "%s: register earlysuspend.\n", __func__);
-	info->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
-	info->early_suspend.suspend = melfas_ts_early_suspend;
-	info->early_suspend.resume = melfas_ts_late_resume;
-	register_early_suspend(&info->early_suspend);
+#ifdef CONFIG_POWERSUSPEND
+	dev_info(&info->client->dev, "%s: register powersuspend.\n", __func__);
+	info->power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
+	info->power_suspend.suspend = melfas_ts_power_suspend;
+	info->power_suspend.resume = melfas_ts_power_resume;
+	register_power_suspend(&info->power_suspend);
 #endif
 
 #ifdef SEC_TSP_FACTORY_TEST
@@ -2683,7 +2683,7 @@ static int melfas_ts_remove(struct i2c_client *client)
 {
 	struct mms_ts_info *info = i2c_get_clientdata(client);
 
-	unregister_early_suspend(&info->early_suspend);
+	unregister_power_suspend(&info->power_suspend);
 	free_irq(client->irq, info);
 	melfas_ts_power_enable(0);
 	input_unregister_device(info->input_dev);
@@ -2746,7 +2746,7 @@ out:
 	return ret;
 }
 
-#if defined(CONFIG_PM) && !defined(CONFIG_HAS_EARLYSUSPEND) && !defined(USE_OPEN_CLOSE)
+#if defined(CONFIG_PM) && !defined(CONFIG_POWERSUSPEND) && !defined(USE_OPEN_CLOSE)
 static int melfas_ts_suspend(struct i2c_client *client, pm_message_t mesg)
 {
 	struct mms_ts_info *info = i2c_get_clientdata(client);
@@ -2762,16 +2762,16 @@ static int melfas_ts_resume(struct i2c_client *client)
 }
 #endif
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void melfas_ts_early_suspend(struct early_suspend *h)
+#ifdef CONFIG_POWERSUSPEND
+static void melfas_ts_power_suspend(struct power_suspend *h)
 {
-	struct mms_ts_info *info = container_of(h, struct mms_ts_info, early_suspend);
+	struct mms_ts_info *info = container_of(h, struct mms_ts_info, power_suspend);
 	melfas_ts_stop(info);
 }
 
-static void melfas_ts_late_resume(struct early_suspend *h)
+static void melfas_ts_power_resume(struct power_suspend *h)
 {
-	struct mms_ts_info *info = container_of(h, struct mms_ts_info, early_suspend);
+	struct mms_ts_info *info = container_of(h, struct mms_ts_info, power_suspend);
 	melfas_ts_start(info);
 }
 #endif
@@ -2821,7 +2821,7 @@ static struct i2c_driver melfas_ts_driver = {
 	.id_table = melfas_ts_id,
 	.probe	= melfas_ts_probe,
 	.remove	= __devexit_p(melfas_ts_remove),
-#if defined(CONFIG_PM) && !defined(CONFIG_HAS_EARLYSUSPEND) && !defined(USE_OPEN_CLOSE)
+#if defined(CONFIG_PM) && !defined(CONFIG_POWERSUSPEND) && !defined(USE_OPEN_CLOSE)
 	.suspend	= melfas_ts_suspend,
 	.resume		= melfas_ts_resume,
 #endif

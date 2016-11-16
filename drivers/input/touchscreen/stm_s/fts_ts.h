@@ -4,8 +4,8 @@
 #include <linux/device.h>
 #include <linux/hrtimer.h>
 #include <linux/i2c/fts.h>
-#ifdef CONFIG_HAS_EARLYSUSPEND
-#include <linux/earlysuspend.h>
+#ifdef CONFIG_POWERSUSPEND
+#include <linux/powersuspend.h>
 #endif
 #ifdef CONFIG_SEC_DEBUG_TSP_LOG
 #include <mach/sec_debug.h>
@@ -231,8 +231,8 @@ struct fts_ts_info {
 #endif
 	struct mutex lock;
 	bool enabled;
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	struct early_suspend early_suspend;
+#ifdef CONFIG_POWERSUSPEND
+	struct power_suspend power_suspend;
 #endif
 #ifdef SEC_TSP_FACTORY_TEST
 	struct device *fac_dev_ts;

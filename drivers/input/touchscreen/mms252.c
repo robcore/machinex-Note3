@@ -27,7 +27,7 @@
 #define TSP_BUF_SIZE 1024
 #define RAW_FAIL -1
 #include <linux/delay.h>
-#include <linux/earlysuspend.h>
+#include <linux/powersuspend.h>
 #include <linux/firmware.h>
 #include <linux/gpio.h>
 #include <linux/i2c.h>
@@ -269,8 +269,8 @@ struct mms_ts_info {
 #if TOUCHKEY
 	int (*keyled) (struct mms_ts_info *info,int on);
 #endif
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	struct early_suspend early_suspend;
+#ifdef CONFIG_POWERSUSPEND
+	struct power_suspend power_suspend;
 #endif
 
 #ifdef TOUCH_BOOSTER_DVFS
@@ -388,9 +388,9 @@ struct mms_fw_image {
 	u8 data[0];
 } __packed;
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void mms_ts_early_suspend(struct early_suspend *h);
-static void mms_ts_late_resume(struct early_suspend *h);
+#ifdef CONFIG_POWERSUSPEND
+static void mms_ts_power_suspend(struct power_suspend *h);
+static void mms_ts_power_resume(struct power_suspend *h);
 #endif
 static int mms_ts_resume(struct device *dev);
 static int mms_ts_suspend(struct device *dev);
@@ -4074,11 +4074,11 @@ static int __devinit mms_ts_probe(struct i2c_client *client,
 	}
 	info->irq = client->irq;
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	info->early_suspend.level = EARLY_SUSPEND_LEVEL_STOP_DRAWING;
-	info->early_suspend.suspend = mms_ts_early_suspend;
-	info->early_suspend.resume = mms_ts_late_resume;
-	register_early_suspend(&info->early_suspend);
+#ifdef CONFIG_POWERSUSPEND
+	info->power_suspend.level = EARLY_SUSPEND_LEVEL_STOP_DRAWING;
+	info->power_suspend.suspend = mms_ts_power_suspend;
+	info->power_suspend.resume = mms_ts_power_resume;
+	register_power_suspend(&info->power_suspend);
 #endif
 
 /* START - Added to support API's for TSP tuning */
@@ -4207,7 +4207,7 @@ static int __devexit mms_ts_remove(struct i2c_client *client)
 		if(info->keyled)
 			info->keyled(info, 0);
 #endif
-	unregister_early_suspend(&info->early_suspend);
+	unregister_power_suspend(&info->power_suspend);
 	if (info->irq >= 0)
 		free_irq(info->irq, info);
 	input_unregister_device(info->input_dev);
@@ -4229,7 +4229,7 @@ static void mms_ts_shutdown(struct i2c_client *client)
 #endif
 }
 
-#if defined(CONFIG_PM) || defined(CONFIG_HAS_EARLYSUSPEND)
+#if defined(CONFIG_PM) || defined(CONFIG_POWERSUSPEND)
 static int mms_ts_suspend(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
@@ -4303,24 +4303,24 @@ static int mms_ts_resume(struct device *dev)
 }
 #endif
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void mms_ts_early_suspend(struct early_suspend *h)
+#ifdef CONFIG_POWERSUSPEND
+static void mms_ts_power_suspend(struct power_suspend *h)
 {
 	struct mms_ts_info *info;
-	info = container_of(h, struct mms_ts_info, early_suspend);
+	info = container_of(h, struct mms_ts_info, power_suspend);
 	mms_ts_suspend(&info->client->dev);
 
 }
 
-static void mms_ts_late_resume(struct early_suspend *h)
+static void mms_ts_power_resume(struct power_suspend *h)
 {
 	struct mms_ts_info *info;
-	info = container_of(h, struct mms_ts_info, early_suspend);
+	info = container_of(h, struct mms_ts_info, power_suspend);
 	mms_ts_resume(&info->client->dev);
 }
 #endif
 
-#if defined(CONFIG_PM) && !defined(CONFIG_HAS_EARLYSUSPEND)
+#if defined(CONFIG_PM) && !defined(CONFIG_POWERSUSPEND)
 static const struct dev_pm_ops mms_ts_pm_ops = {
 	.suspend = mms_ts_suspend,
 	.resume = mms_ts_resume,
@@ -4355,7 +4355,7 @@ static struct i2c_driver mms_ts_driver = {
 		   .name = MELFAS_TS_NAME,
 		   .owner = THIS_MODULE,
 		   .of_match_table = mms_match_table,
-#if defined(CONFIG_PM) && !defined(CONFIG_HAS_EARLYSUSPEND)
+#if defined(CONFIG_PM) && !defined(CONFIG_POWERSUSPEND)
 		   .pm = &mms_ts_pm_ops,
 #endif
 	},

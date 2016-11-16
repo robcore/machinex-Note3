@@ -30,8 +30,8 @@
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <linux/sysfs.h>
-#ifdef CONFIG_HAS_EARLYSUSPEND
-#include <linux/earlysuspend.h>
+#ifdef CONFIG_POWERSUSPEND
+#include <linux/powersuspend.h>
 #endif
 #include <linux/of_gpio.h>
 
@@ -75,8 +75,8 @@ struct yas_state {
 	int16_t sampling_frequency;
 	atomic_t pseudo_irq_enable;
 	int32_t compass_data[3];
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	struct early_suspend sus;
+#ifdef CONFIG_POWERSUSPEND
+	struct power_suspend sus;
 #endif
 	int position;
 };
@@ -690,8 +690,8 @@ static const struct iio_info yas_info = {
 	.driver_module = THIS_MODULE,
 };
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void yas_early_suspend(struct early_suspend *h)
+#ifdef CONFIG_POWERSUSPEND
+static void yas_power_suspend(struct power_suspend *h)
 {
 	struct yas_state *st = container_of(h,
 			struct yas_state, sus);
@@ -702,7 +702,7 @@ static void yas_early_suspend(struct early_suspend *h)
 }
 
 
-static void yas_late_resume(struct early_suspend *h)
+static void yas_power_resume(struct power_suspend *h)
 {
 	struct yas_state *st = container_of(h,
 			struct yas_state, sus);
@@ -769,11 +769,11 @@ static int yas_probe(struct i2c_client *i2c, const struct i2c_device_id *id)
 	st->mag.callback.current_time = yas_current_time;
 	INIT_DELAYED_WORK(&st->work, yas_work_func);
 	mutex_init(&st->lock);
-#ifdef CONFIG_HAS_EARLYSUSPEND
+#ifdef CONFIG_POWERSUSPEND
 	st->sus.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
-	st->sus.suspend = yas_early_suspend;
-	st->sus.resume = yas_late_resume;
-	register_early_suspend(&st->sus);
+	st->sus.suspend = yas_power_suspend;
+	st->sus.resume = yas_power_resume;
+	register_power_suspend(&st->sus);
 #endif
 
 #ifdef CONFIG_SENSORS
@@ -829,8 +829,8 @@ error_free_dev:
         sensors_unregister(st->yas_device, sensor_attrs);
 err_yas_sensor_register_failed:
 #endif
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	unregister_early_suspend(&st->sus);
+#ifdef CONFIG_POWERSUSPEND
+	unregister_power_suspend(&st->sus);
 #endif
 	iio_free_device(indio_dev);
 error_ret:
@@ -845,8 +845,8 @@ static int yas_remove(struct i2c_client *i2c)
 	struct yas_state *st;
 	if (indio_dev) {
 		st = iio_priv(indio_dev);
-#ifdef CONFIG_HAS_EARLYSUSPEND
-		unregister_early_suspend(&st->sus);
+#ifdef CONFIG_POWERSUSPEND
+		unregister_power_suspend(&st->sus);
 #endif
 		yas_pseudo_irq_disable(indio_dev);
 		st->mag.term();

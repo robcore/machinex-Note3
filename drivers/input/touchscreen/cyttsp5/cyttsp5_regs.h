@@ -25,8 +25,8 @@
 #define _CYTTSP5_REGS_H
 
 #include <linux/device.h>
-#ifdef CONFIG_HAS_EARLYSUSPEND
-#include <linux/earlysuspend.h>
+#ifdef CONFIG_POWERSUSPEND
+#include <linux/powersuspend.h>
 #endif
 #include <asm/unaligned.h>
 #include <linux/debugfs.h>
@@ -702,8 +702,8 @@ struct cyttsp5_mt_data {
 	struct input_dev *input;
 	struct cyttsp5_mt_function mt_function;
 	struct mutex mt_lock;
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	struct early_suspend es;
+#ifdef CONFIG_POWERSUSPEND
+	struct power_suspend es;
 	bool is_suspended;
 #endif
 #if defined(TSP_BOOSTER)
@@ -740,8 +740,8 @@ struct cyttsp5_btn_data {
 	struct cyttsp5_sysinfo *si;
 	struct input_dev *input;
 	struct mutex btn_lock;
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	struct early_suspend es;
+#ifdef CONFIG_POWERSUSPEND
+	struct power_suspend es;
 	bool is_suspended;
 #endif
 	bool input_device_registered;

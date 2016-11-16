@@ -3,8 +3,8 @@
 
 #include <linux/types.h>
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-#include <linux/earlysuspend.h>
+#ifdef CONFIG_POWERSUSPEND
+#include <linux/powersuspend.h>
 #endif
 
 /*I2C address for digitizer and its boot loader*/
@@ -82,9 +82,9 @@ struct wacom_g5_platform_data {
 	int (*exit_platform_hw)(void);
 	int (*suspend_platform_hw)(void);
 	int (*resume_platform_hw)(void);
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	int (*early_suspend_platform_hw)(void);
-	int (*late_resume_platform_hw)(void);
+#ifdef CONFIG_POWERSUSPEND
+	int (*power_suspend_platform_hw)(void);
+	int (*power_resume_platform_hw)(void);
 #endif
 	int (*reset_platform_hw)(void);
 	void (*register_cb)(struct wacom_g5_callbacks *);
