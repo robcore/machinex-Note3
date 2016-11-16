@@ -95,6 +95,14 @@ config MDNIE_LITE_TUNING
 	bool "MDNIe lite panel tuning"
 	default n
 
+<<<<<<< HEAD
+=======
+config MDNIE_LITE_CONTROL
+	bool "MDNIe lite control interface"
+	depends on MDNIE_LITE_TUNING
+	default n
+
+>>>>>>> a45e47d... Switch to wootever mDNIE control
 config MDNIE_ENHENCED_LOCAL_CE
 	bool "MDNIe lite panel tuning for enhenced local ce"
 	default n
