@@ -1542,7 +1542,7 @@ void mDNIe_Set_Mode(enum Lcd_mDNIe_UI mode)
 	struct msm_fb_data_type *mfd;
 	mfd = mdnie_msd->mfd;
 
-	DPRINT("mDNIe_Set_Mode start , mode(%d), background(%d)\n",
+	pr_debug("mDNIe_Set_Mode start , mode(%d), background(%d)\n",
 		mode, mdnie_tun_state.background);
 
 	if (!mfd) {
@@ -1894,11 +1894,19 @@ void mDNIe_Set_Mode(enum Lcd_mDNIe_UI mode)
 		break;
 #endif
 
-	case mDNIE_BLINE_MODE:
+	case mDNIe_BLIND_MODE:
 		DPRINT(" = BLIND MODE =\n");
 		INPUT_PAYLOAD1(COLOR_BLIND_1);
 		INPUT_PAYLOAD2(COLOR_BLIND_2);
 		break;
+
+#if defined(CONFIG_MDNIE_LITE_CONTROL)
+	case mDNIe_CONTROL_MODE:
+		DPRINT(" = CONTROL MODE =\n");
+		INPUT_PAYLOAD1(LITE_CONTROL_1);
+		INPUT_PAYLOAD2(LITE_CONTROL_2);
+		break;
+#endif
 
 	default:
 		DPRINT("[%s] no option (%d)\n", __func__, mode);
@@ -2232,7 +2240,7 @@ void mDNIe_Set_Mode(enum Lcd_mDNIe_UI mode)
 	sending_tuning_cmd();
 	free_tun_cmd();
 
-	DPRINT("mDNIe_Set_Mode end , mode(%d), background(%d)\n",
+	pr_debug("mDNIe_Set_Mode end , mode(%d), background(%d)\n",
 		mode, mdnie_tun_state.background);
 }
 #endif
