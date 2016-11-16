@@ -6,9 +6,8 @@
 
 lib-y		:= backtrace.o changebit.o csumipv6.o csumpartial.o   \
 		   csumpartialcopy.o csumpartialcopyuser.o clearbit.o \
-		   delay.o delay-loop.o findbit.o memchr.o memcpy.o   \
-		   delay.o delay-loop.o findbit.o memchr.o             \
-		   strchr.o strrchr.o                                 \
+		   delay.o delay-loop.o findbit.o memchr.o memcmp.o memcpy.o   \
+		   strchr.o strrchr.o strcmp.o                                \
 		   testchangebit.o testclearbit.o testsetbit.o        \
 		   ashldi3.o ashrdi3.o lshrdi3.o muldi3.o             \
 		   ucmpdi2.o lib1funcs.o div64.o                      \
