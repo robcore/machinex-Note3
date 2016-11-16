@@ -294,3 +294,26 @@ config SUSPEND_TIME
 	  Prints the time spent in suspend in the kernel log, and
 	  keeps statistics on the time spent in suspend in
 	  /sys/kernel/debug/suspend_time
+<<<<<<< HEAD
+<<<<<<< HEAD
+=======
+=======
+>>>>>>> a943b66... Add Quickwakeup
+
+config QUICK_WAKEUP
+	bool "Quick wakeup"
+	depends on SUSPEND
+	default y
+	---help---
+	  Allow kernel driver to do periodic jobs without resuming the full system
+<<<<<<< HEAD
+	  This option can increase battery life on android powered smartphone.
+
+config PM_SYNC_BEFORE_SUSPEND
+	bool "Sync file systems before suspend"
+	depends on PM
+	default y
+>>>>>>> e220377... power: make sync on suspend optional
+=======
+	  This option can increase battery life on android powered smartphone.
+>>>>>>> a943b66... Add Quickwakeup
