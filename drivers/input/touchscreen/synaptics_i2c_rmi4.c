@@ -489,7 +489,6 @@ static void configure_sleep(struct synaptics_rmi4_data *rmi4_data)
 #elif defined CONFIG_POWERSUSPEND
 static void configure_sleep(struct synaptics_rmi4_data *rmi4_data)
 {
-	rmi4_data->power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
 	rmi4_data->power_suspend.suspend = synaptics_rmi4_power_suspend;
 	rmi4_data->power_suspend.resume = synaptics_rmi4_power_resume;
 	register_power_suspend(&rmi4_data->power_suspend);

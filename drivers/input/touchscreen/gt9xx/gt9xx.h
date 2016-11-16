@@ -34,7 +34,6 @@
 #include <linux/fb.h>
 #elif defined(CONFIG_POWERSUSPEND)
 #include <linux/powersuspend.h>
-#define GOODIX_SUSPEND_LEVEL 1
 #endif
 
 #define MAX_BUTTONS 4

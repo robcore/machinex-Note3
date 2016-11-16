@@ -4075,7 +4075,6 @@ static int __devinit mms_ts_probe(struct i2c_client *client,
 	info->irq = client->irq;
 
 #ifdef CONFIG_POWERSUSPEND
-	info->power_suspend.level = EARLY_SUSPEND_LEVEL_STOP_DRAWING;
 	info->power_suspend.suspend = mms_ts_power_suspend;
 	info->power_suspend.resume = mms_ts_power_resume;
 	register_power_suspend(&info->power_suspend);

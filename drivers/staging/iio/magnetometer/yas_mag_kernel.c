@@ -770,7 +770,6 @@ static int yas_probe(struct i2c_client *i2c, const struct i2c_device_id *id)
 	INIT_DELAYED_WORK(&st->work, yas_work_func);
 	mutex_init(&st->lock);
 #ifdef CONFIG_POWERSUSPEND
-	st->sus.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
 	st->sus.suspend = yas_power_suspend;
 	st->sus.resume = yas_power_resume;
 	register_power_suspend(&st->sus);

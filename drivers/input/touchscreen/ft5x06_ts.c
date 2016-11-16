@@ -37,8 +37,6 @@
 
 #elif defined(CONFIG_POWERSUSPEND)
 #include <linux/powersuspend.h>
-/* Early-suspend level */
-#define FT_SUSPEND_LEVEL 1
 #endif
 
 #define FT_DRIVER_VERSION	0x02
@@ -1647,8 +1645,6 @@ static int ft5x06_ts_probe(struct i2c_client *client,
 		dev_err(&client->dev, "Unable to register fb_notifier: %d\n",
 			err);
 #elif defined(CONFIG_POWERSUSPEND)
-	data->power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN +
-						    FT_SUSPEND_LEVEL;
 	data->power_suspend.suspend = ft5x06_ts_power_suspend;
 	data->power_suspend.resume = ft5x06_ts_power_resume;
 	register_power_suspend(&data->power_suspend);

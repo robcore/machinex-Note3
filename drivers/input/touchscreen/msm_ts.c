@@ -430,8 +430,6 @@ static int __devinit msm_ts_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, ts);
 
 #ifdef CONFIG_POWERSUSPEND
-	ts->power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN +
-						TSSC_SUSPEND_LEVEL;
 	ts->power_suspend.suspend = msm_ts_power_suspend;
 	ts->power_suspend.resume = msm_ts_power_resume;
 	register_power_suspend(&ts->power_suspend);

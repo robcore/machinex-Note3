@@ -610,8 +610,6 @@ static int __devinit marimba_tsadc_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, tsadc);
 
 #ifdef CONFIG_POWERSUSPEND
-//	tsadc->power_suspend.level = POWER_SUSPEND_LEVEL_BLANK_SCREEN +
-//						 TSADC_SUSPEND_LEVEL;
 	tsadc->power_suspend.suspend = marimba_tsadc_power_suspend;
 	tsadc->power_suspend.resume = marimba_tsadc_power_resume;
 	register_power_suspend(&tsadc->power_suspend);

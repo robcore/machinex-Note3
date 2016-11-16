@@ -658,7 +658,6 @@ __devinit int bmp18x_probe(struct device *dev, struct bmp18x_data_bus *data_bus)
 	data->enable = 0;
 
 #ifdef CONFIG_POWERSUSPEND
-	data->power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
 	data->power_suspend.suspend = bmp18x_power_suspend;
 	data->power_suspend.resume = bmp18x_power_resume;
 	register_power_suspend(&data->power_suspend);

@@ -919,7 +919,6 @@ static void cyttsp5_mt_power_resume(struct power_suspend *h)
 
 static void cyttsp5_setup_power_suspend(struct cyttsp5_mt_data *md)
 {
-	md->es.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
 	md->es.suspend = cyttsp5_mt_power_suspend;
 	md->es.resume = cyttsp5_mt_power_resume;
 

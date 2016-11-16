@@ -320,7 +320,6 @@ static int cy8c_ts_probe(struct i2c_client *client,
 	}
 
 #ifdef CONFIG_POWERSUSPEND
-	ts->power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
 	ts->power_suspend.suspend = cy8c_ts_power_suspend;
 	ts->power_suspend.resume = cy8c_ts_power_resume;
 	register_power_suspend(&ts->power_suspend);

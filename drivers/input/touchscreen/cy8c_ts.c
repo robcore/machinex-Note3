@@ -50,8 +50,6 @@
 #if defined(CONFIG_POWERSUSPEND)
 #include <linux/powersuspend.h>
 
-/* Early-suspend level */
-#define CY8C_TS_SUSPEND_LEVEL 1
 #endif
 
 #define CY8CTMA300	0x0
@@ -709,8 +707,6 @@ config_irq_gpio:
 	device_init_wakeup(&client->dev, ts->pdata->wakeup);
 
 #ifdef CONFIG_POWERSUSPEND
-	ts->power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN +
-						CY8C_TS_SUSPEND_LEVEL;
 	ts->power_suspend.suspend = cy8c_ts_power_suspend;
 	ts->power_suspend.resume = cy8c_ts_power_resume;
 	register_power_suspend(&ts->power_suspend);

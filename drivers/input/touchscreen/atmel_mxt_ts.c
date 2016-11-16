@@ -34,8 +34,6 @@
 
 #elif defined(CONFIG_POWERSUSPEND)
 #include <linux/powersuspend.h>
-/* Early-suspend level */
-#define MXT_SUSPEND_LEVEL 1
 #endif
 
 #if defined(CONFIG_SECURE_TOUCH)
@@ -3088,8 +3086,6 @@ static int __devinit mxt_probe(struct i2c_client *client,
 		dev_err(&client->dev, "Unable to register fb_notifier: %d\n",
 			error);
 #elif defined(CONFIG_POWERSUSPEND)
-	data->power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN +
-						MXT_SUSPEND_LEVEL;
 	data->power_suspend.suspend = mxt_power_suspend;
 	data->power_suspend.resume = mxt_power_resume;
 	register_power_suspend(&data->power_suspend);

@@ -451,13 +451,13 @@ void cypress_power_onoff(struct cypress_touchkey_info *info, int onoff)
 error_reg_en_vcc_en:
 	if (info->pdata->i2c_pull_up) {
 		reg_set_optimum_mode_check(info->vcc_en, 0);
-		if (info->pdata->vdd_led < 0) 
+		if (info->pdata->vdd_led < 0)
 			reg_set_optimum_mode_check(info->vdd_led, 0);
 	}
 error_reg_opt_i2c:
 error_set_vtg_i2c:
 	regulator_put(info->vcc_en);
-	if (info->pdata->vdd_led < 0) 
+	if (info->pdata->vdd_led < 0)
 		regulator_put(info->vdd_led);
 error_get_vtg_i2c:
 	return;
@@ -1756,8 +1756,6 @@ static int __devinit cypress_touchkey_probe(struct i2c_client *client,
 	}
 
 #ifdef CONFIG_POWERSUSPEND
-		info->power_suspend.level =
-				EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
 		info->power_suspend.suspend = cypress_touchkey_power_suspend;
 		info->power_suspend.resume = cypress_touchkey_power_resume;
 		register_power_suspend(&info->power_suspend);

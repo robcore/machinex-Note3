@@ -3236,7 +3236,6 @@ static int mdp_remove(struct platform_device *pdev)
 static int mdp_register_driver(void)
 {
 #ifdef CONFIG_POWERSUSPEND
-	power_suspend.level = EARLY_SUSPEND_LEVEL_DISABLE_FB - 1;
 	power_suspend.suspend = mdp_power_suspend;
 	power_suspend.resume = mdp_early_resume;
 	register_power_suspend(&power_suspend);

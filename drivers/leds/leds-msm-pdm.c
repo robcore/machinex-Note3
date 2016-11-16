@@ -26,8 +26,6 @@
 #ifdef CONFIG_POWERSUSPEND
 #include <linux/powersuspend.h>
 
-/* Early-suspend level */
-#define LED_SUSPEND_LEVEL 1
 #endif
 
 #define PDM_DUTY_MAXVAL BIT(16)
@@ -165,8 +163,6 @@ static int __devinit msm_pdm_led_probe(struct platform_device *pdev)
 	}
 
 #ifdef CONFIG_POWERSUSPEND
-	led->power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN +
-						LED_SUSPEND_LEVEL;
 	led->power_suspend.suspend = msm_led_pdm_power_suspend;
 	register_power_suspend(&led->power_suspend);
 #endif

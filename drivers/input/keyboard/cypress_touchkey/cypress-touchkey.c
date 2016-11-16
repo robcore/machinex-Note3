@@ -422,7 +422,7 @@ void cypress_power_onoff(struct cypress_touchkey_info *info, int onoff)
 
 		if (info->pdata->vdd_led < 0) {
 			if (regulator_is_enabled(info->vdd_led)) {
-				rc = regulator_disable(info->vdd_led); 
+				rc = regulator_disable(info->vdd_led);
 				if (rc) {
 					dev_err(&info->client->dev,
 						"Regulator vdd_led disable failed rc=%d\n", rc);
@@ -537,7 +537,7 @@ static int touchkey_ta_setting(struct cypress_touchkey_info *info)
 			}
 		} else {
 			if (!(data[0] & TK_BIT_TA_ON)) {
-				dev_dbg(&info->client->dev, "%s: TA mode is Disabled\n", __func__);				
+				dev_dbg(&info->client->dev, "%s: TA mode is Disabled\n", __func__);
 				break;
 			} else {
 				dev_err(&info->client->dev, "%s: TA Disabled Error! retry=%d\n",
@@ -1170,7 +1170,7 @@ static ssize_t cypress_touchkey_update_write(struct device *dev,
 {
 	struct cypress_touchkey_info *info = dev_get_drvdata(dev);
 #ifdef TKEY_REQUEST_FW_UPDATE
-	struct i2c_client *client = info->client;	
+	struct i2c_client *client = info->client;
 	int count = 0;
 	u8 fw_path;
 #endif
@@ -1231,7 +1231,7 @@ static ssize_t cypress_touchkey_led_control(struct device *dev,
 {
 	struct cypress_touchkey_info *info = dev_get_drvdata(dev);
 	int data;
-	int ret;	
+	int ret;
 	static const int ledCmd[] = {TK_CMD_LED_OFF, TK_CMD_LED_ON};
 
 	dev_info(&info->client->dev, "called %s\n", __func__);
@@ -1241,7 +1241,7 @@ static ssize_t cypress_touchkey_led_control(struct device *dev,
 					__func__);
 		return size;
 	}
-	
+
 	ret = sscanf(buf, "%d", &data);
 
 	if (ret != 1) {
@@ -2122,7 +2122,7 @@ static struct attribute *touchkey_attributes[] = {
 	&dev_attr_autocal_stat.attr,
 #ifdef LED_LDO_WITH_REGULATOR
 	&dev_attr_touchkey_brightness_level.attr,
-#endif	
+#endif
 #ifdef CONFIG_GLOVE_TOUCH
 	&dev_attr_glove_mode.attr,
 #endif
@@ -2541,7 +2541,6 @@ static int __devinit cypress_touchkey_probe(struct i2c_client *client,
 	}
 
 #ifdef CONFIG_POWERSUSPEND
-	info->power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
 	info->power_suspend.suspend = cypress_touchkey_power_suspend;
 	info->power_suspend.resume = cypress_touchkey_power_resume;
 	register_power_suspend(&info->power_suspend);

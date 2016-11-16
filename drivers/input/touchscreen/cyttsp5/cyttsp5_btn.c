@@ -332,7 +332,6 @@ int cyttsp5_btn_probe(struct device *dev)
 	}
 
 #ifdef CONFIG_POWERSUSPEND
-	bd->es.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
 	bd->es.suspend = cyttsp5_btn_power_suspend;
 	bd->es.resume = cyttsp5_btn_power_resume;
 	register_power_suspend(&bd->es);

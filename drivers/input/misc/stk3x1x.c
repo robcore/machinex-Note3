@@ -2439,7 +2439,6 @@ static int stk3x1x_probe(struct i2c_client *client,
 	ps_data->als_enabled = false;
 	ps_data->ps_enabled = false;
 #ifdef CONFIG_POWERSUSPEND
-	ps_data->stk_power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
 	ps_data->stk_power_suspend.suspend = stk3x1x_power_suspend;
 	ps_data->stk_power_suspend.resume = stk3x1x_power_resume;
 	register_power_suspend(&ps_data->stk_power_suspend);

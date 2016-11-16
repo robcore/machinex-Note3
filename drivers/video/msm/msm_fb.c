@@ -1494,7 +1494,6 @@ static int msm_fb_register(struct msm_fb_data_type *mfd)
 	if (mfd->panel_info.type != DTV_PANEL) {
 		mfd->power_suspend.suspend = msmfb_power_suspend;
 		mfd->power_suspend.resume = msmfb_early_resume;
-		mfd->power_suspend.level = EARLY_SUSPEND_LEVEL_DISABLE_FB - 2;
 		register_power_suspend(&mfd->power_suspend);
 	}
 #endif

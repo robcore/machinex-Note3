@@ -620,7 +620,6 @@ static int __devinit drv2667_probe(struct i2c_client *client,
 	}
 
 #ifdef CONFIG_POWERSUSPEND
-	data->es.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + DRV2667_SUS_LEVEL;
 	data->es.suspend = drv2667_power_suspend;
 	data->es.resume = drv2667_power_resume;
 	register_power_suspend(&data->es);

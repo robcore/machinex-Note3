@@ -4629,7 +4629,6 @@ static int bt532_ts_probe(struct i2c_client *client,
 #endif
 
 #ifdef CONFIG_POWERSUSPEND
-	info->power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
 	info->power_suspend.suspend = bt532_ts_power_suspend;
 	info->power_suspend.resume = bt532_ts_power_resume;
 	register_power_suspend(&info->power_suspend);

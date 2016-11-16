@@ -2797,7 +2797,6 @@ static int __devinit cyttsp_probe(struct i2c_client *client,
 
 #ifdef CONFIG_POWERSUSPEND
 	if (!(retval < CY_OK)) {
-		ts->power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
 		ts->power_suspend.suspend = cyttsp_power_suspend;
 		ts->power_suspend.resume = cyttsp_power_resume;
 		register_power_suspend(&ts->power_suspend);

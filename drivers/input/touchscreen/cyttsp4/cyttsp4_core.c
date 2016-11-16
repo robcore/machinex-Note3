@@ -4675,7 +4675,6 @@ static void cyttsp4_power_resume(struct power_suspend *h)
 
 static void cyttsp4_setup_power_suspend(struct cyttsp4_core_data *cd)
 {
-	cd->es.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
 	cd->es.suspend = cyttsp4_power_suspend;
 	cd->es.resume = cyttsp4_power_resume;
 

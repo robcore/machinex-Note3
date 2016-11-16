@@ -533,7 +533,6 @@ static int synaptics_ts_probe(
 		hrtimer_start(&ts->timer, ktime_set(1, 0), HRTIMER_MODE_REL);
 	}
 #ifdef CONFIG_POWERSUSPEND
-	ts->power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
 	ts->power_suspend.suspend = synaptics_ts_power_suspend;
 	ts->power_suspend.resume = synaptics_ts_power_resume;
 	register_power_suspend(&ts->power_suspend);

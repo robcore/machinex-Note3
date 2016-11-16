@@ -32,7 +32,7 @@ config POWERSUSPEND
 	bool "Power suspend"
 	default y
 	---help---
-	  Call early suspend handlers when the user requested sleep state
+	  Call power suspend handlers when the user requested sleep state
 	  changes.
 
 config HIBERNATE_CALLBACKS

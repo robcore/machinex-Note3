@@ -1623,7 +1623,6 @@ static int wacom_i2c_probe(struct i2c_client *client,
 	}
 
 #ifdef CONFIG_POWERSUSPEND
-	wac_i2c->power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
 	wac_i2c->power_suspend.suspend = wacom_i2c_power_suspend;
 	wac_i2c->power_suspend.resume = wacom_i2c_power_resume;
 	register_power_suspend(&wac_i2c->power_suspend);

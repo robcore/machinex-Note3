@@ -21,7 +21,7 @@
 #include <linux/module.h>
 #include <linux/device.h>
 #include <linux/debugfs.h>
-#include <linux/earlysuspend.h>
+#include <linux/powersuspend.h>
 #include <mach/msm_smd.h>
 #include <mach/htc_pwrsink.h>
 
@@ -197,42 +197,41 @@ int htc_pwrsink_audio_path_set(unsigned path)
 }
 EXPORT_SYMBOL(htc_pwrsink_audio_path_set);
 
-void htc_pwrsink_suspend_early(struct early_suspend *h)
+void htc_pwrsink_suspend_power(struct power_suspend *h)
 {
 	htc_pwrsink_set(PWRSINK_SYSTEM_LOAD, 70);
 }
 
-int htc_pwrsink_suspend_late(struct platform_device *pdev, pm_message_t state)
+int htc_pwrsink_suspend_power(struct platform_device *pdev, pm_message_t state)
 {
 	struct pwr_sink_platform_data *pdata = pdev->dev.platform_data;
 
-	if (pdata && pdata->suspend_late)
-		pdata->suspend_late(pdev, state);
+	if (pdata && pdata->suspend_power)
+		pdata->suspend_power(pdev, state);
 	else
 		htc_pwrsink_set(PWRSINK_SYSTEM_LOAD, 13);
 	return 0;
 }
 
-int htc_pwrsink_resume_early(struct platform_device *pdev)
+int htc_pwrsink_resume_power(struct platform_device *pdev)
 {
 	struct pwr_sink_platform_data *pdata = pdev->dev.platform_data;
 
-	if (pdata && pdata->resume_early)
-		pdata->resume_early(pdev);
+	if (pdata && pdata->resume_power)
+		pdata->resume_power(pdev);
 	else
 		htc_pwrsink_set(PWRSINK_SYSTEM_LOAD, 70);
 	return 0;
 }
 
-void htc_pwrsink_resume_late(struct early_suspend *h)
+void htc_pwrsink_resume_power(struct power_suspend *h)
 {
 	htc_pwrsink_set(PWRSINK_SYSTEM_LOAD, 100);
 }
 
-struct early_suspend htc_pwrsink_early_suspend = {
-	.level = EARLY_SUSPEND_LEVEL_DISABLE_FB + 1,
-	.suspend = htc_pwrsink_suspend_early,
-	.resume = htc_pwrsink_resume_late,
+struct power_suspend htc_pwrsink_power_suspend = {
+	.suspend = htc_pwrsink_suspend_power,
+	.resume = htc_pwrsink_resume_power,
 };
 
 static int __init htc_pwrsink_probe(struct platform_device *pdev)
@@ -252,19 +251,19 @@ static int __init htc_pwrsink_probe(struct platform_device *pdev)
 
 	initialized = 1;
 
-	if (pdata->suspend_early)
-		htc_pwrsink_early_suspend.suspend = pdata->suspend_early;
-	if (pdata->resume_late)
-		htc_pwrsink_early_suspend.resume = pdata->resume_late;
-	register_early_suspend(&htc_pwrsink_early_suspend);
+	if (pdata->suspend_power)
+		htc_pwrsink_power_suspend.suspend = pdata->suspend_power;
+	if (pdata->resume_power)
+		htc_pwrsink_power_suspend.resume = pdata->resume_power;
+	register_power_suspend(&htc_pwrsink_power_suspend);
 
 	return 0;
 }
 
 static struct platform_driver htc_pwrsink_driver = {
 	.probe = htc_pwrsink_probe,
-	.suspend_late = htc_pwrsink_suspend_late,
-	.resume_early = htc_pwrsink_resume_early,
+	.suspend_power = htc_pwrsink_suspend_power,
+	.resume_power = htc_pwrsink_resume_power,
 	.driver = {
 		.name = "htc_pwrsink",
 		.owner = THIS_MODULE,

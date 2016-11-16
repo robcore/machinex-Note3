@@ -2614,7 +2614,6 @@ static int melfas_ts_probe(struct i2c_client *client, const struct i2c_device_id
 
 #ifdef CONFIG_POWERSUSPEND
 	dev_info(&info->client->dev, "%s: register powersuspend.\n", __func__);
-	info->power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
 	info->power_suspend.suspend = melfas_ts_power_suspend;
 	info->power_suspend.resume = melfas_ts_power_resume;
 	register_power_suspend(&info->power_suspend);

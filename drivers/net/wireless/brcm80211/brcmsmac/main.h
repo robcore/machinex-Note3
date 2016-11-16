@@ -359,7 +359,6 @@ struct brcms_hardware {
 
 	u8 suspended_fifos;	/* Which TX fifo to remain awake for */
 	u32 maccontrol;	/* Cached value of maccontrol */
-	uint mac_suspend_depth;	/* current depth of mac_suspend levels */
 	u32 wake_override;	/* bit flags to force MAC to WAKE mode */
 	u32 mute_override;	/* Prevent ucode from sending beacons */
 	u8 etheraddr[ETH_ALEN];	/* currently configured ethernet address */

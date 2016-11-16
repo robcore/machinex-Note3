@@ -6058,7 +6058,6 @@ int mdss_dsi_panel_init(struct device_node *node, struct mdss_dsi_ctrl_pdata *ct
 #if defined(CONFIG_POWERSUSPEND)
 	msd.power_suspend.suspend = mipi_samsung_disp_power_suspend;
 	msd.power_suspend.resume = mipi_samsung_disp_power_resume;
-	msd.power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN-1;
 	register_power_suspend(&msd.power_suspend);
 #endif
 

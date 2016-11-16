@@ -762,7 +762,6 @@ static int __devinit irda_remocon_probe(struct i2c_client *client,
 				dev_attr_check_ir.attr.name);
 
 #ifdef CONFIG_POWERSUSPEND
-	data->power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
 	data->power_suspend.suspend = ir_remocon_power_suspend;
 	data->power_suspend.resume = ir_remocon_power_resume;
 	register_power_suspend(&data->power_suspend);

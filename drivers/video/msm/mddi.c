@@ -433,7 +433,6 @@ static int mddi_probe(struct platform_device *pdev)
 	pdev_list[pdev_list_cnt++] = pdev;
 
 #ifdef CONFIG_POWERSUSPEND
-	mfd->mddi_power_suspend.level = EARLY_SUSPEND_LEVEL_DISABLE_FB;
 	mfd->mddi_power_suspend.suspend = mddi_power_suspend;
 	mfd->mddi_power_suspend.resume = mddi_early_resume;
 	register_power_suspend(&mfd->mddi_power_suspend);

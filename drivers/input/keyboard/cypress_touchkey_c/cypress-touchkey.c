@@ -349,7 +349,7 @@ void cypress_power_onoff(struct cypress_touchkey_info *info, int onoff)
 		}
 		if (info->pdata->vdd_led < 0) {
 			if (regulator_is_enabled(info->vdd_led)) {
-				rc = regulator_disable(info->vdd_led); 
+				rc = regulator_disable(info->vdd_led);
 				if (rc) {
 					dev_err(&info->client->dev,
 						"Regulator vdd_led disable failed rc=%d\n", rc);
@@ -449,7 +449,7 @@ static int touchkey_ta_setting(struct cypress_touchkey_info *info)
 			}
 		} else {
 			if (!(data[5] & TK_BIT_TA_ON)) {
-				dev_dbg(&info->client->dev, "%s: TA mode is Disabled\n", __func__);				
+				dev_dbg(&info->client->dev, "%s: TA mode is Disabled\n", __func__);
 				break;
 			} else {
 				dev_err(&info->client->dev, "%s: TA Disabled Error! retry=%d\n",
@@ -530,7 +530,7 @@ static void cypress_touchkey_glove_work(struct work_struct *work)
 			}
 		} else {
 			if (!(data[5] & TK_BIT_GLOVE)) {
-				dev_dbg(&info->client->dev, "%s: Normal mode from Glove mode\n", __func__);				
+				dev_dbg(&info->client->dev, "%s: Normal mode from Glove mode\n", __func__);
 				break;
 			} else {
 				dev_err(&info->client->dev, "%s: normal_mode Error! retry=%d\n",
@@ -618,7 +618,7 @@ void cypress_touchkey_flip_cover(struct cypress_touchkey_info *info, int value)
 				"data[5]=%x",data[5] & TK_BIT_FLIP);
 
 		if (value == 1) {
-			if (data[5] & TK_BIT_FLIP) {					
+			if (data[5] & TK_BIT_FLIP) {
 				dev_dbg(&info->client->dev, "%s: Flip mode is enabled\n", __func__);
 				info->enabled_flip = true;
 				break;
@@ -628,7 +628,7 @@ void cypress_touchkey_flip_cover(struct cypress_touchkey_info *info, int value)
 			}
 		} else {
 			if (!(data[5] & TK_BIT_FLIP)) {
-				dev_dbg(&info->client->dev, "%s: Normal mode form Flip mode\n", __func__);					
+				dev_dbg(&info->client->dev, "%s: Normal mode form Flip mode\n", __func__);
 				info->enabled_flip = false;
 				break;
 			} else {
@@ -776,7 +776,7 @@ static int tkey_fw_update(struct cypress_touchkey_info *info, bool force)
 		if (ISSP_main(info) == 0) {
 			dev_info(&client->dev, "%s : touchkey_update pass!!\n", __func__);
 			msleep(50);
-			cypress_touchkey_auto_cal(info, false);	
+			cypress_touchkey_auto_cal(info, false);
 			break;
 		}
 		msleep(50);
@@ -846,7 +846,7 @@ static ssize_t cypress_touchkey_update_write(struct device *dev,
 			 const char *buf, size_t size)
 {
 	struct cypress_touchkey_info *info = dev_get_drvdata(dev);
-	struct i2c_client *client = info->client;	
+	struct i2c_client *client = info->client;
 	int count = 0;
 #ifdef TKEY_REQUEST_FW_UPDATE
 	u8 fw_path;
@@ -893,7 +893,7 @@ static ssize_t cypress_touchkey_update_write(struct device *dev,
 		count = coreriver_fw_update(info, false);
 	if (count < 0) {
 		if (info->pdata->gpio_led_en)
-			cypress_touchkey_con_hw(info, false);		
+			cypress_touchkey_con_hw(info, false);
 		cypress_power_onoff(info, 0);
 		info->touchkey_update_status = UPDATE_FAIL;
 		dev_err(&client->dev, "%s: fail to flash fw (%d)\n.", __func__, count);
@@ -915,7 +915,7 @@ static ssize_t cypress_touchkey_led_control(struct device *dev,
 {
 	struct cypress_touchkey_info *info = dev_get_drvdata(dev);
 	int data;
-	int ret;	
+	int ret;
 	static const int ledCmd[] = {TK_CMD_LED_OFF, TK_CMD_LED_ON};
 
 	dev_info(&info->client->dev, "called %s\n", __func__);
@@ -1412,7 +1412,7 @@ static struct attribute *touchkey_attributes[] = {
 	&dev_attr_autocal_stat.attr,
 #ifdef LED_LDO_WITH_REGULATOR
 	&dev_attr_touchkey_brightness_level.attr,
-#endif	
+#endif
 #ifdef CONFIG_GLOVE_TOUCH
 	&dev_attr_glove_mode.attr,
 #endif
@@ -1747,7 +1747,7 @@ static int __devinit cypress_touchkey_probe(struct i2c_client *client,
 	bool bforced = false;
 
 	printk ("cypress_touchkey_probe=====================================\n");
-	
+
 
 	if (!i2c_check_functionality(adapter, I2C_FUNC_I2C))
 		return -EIO;
@@ -1811,7 +1811,7 @@ static int __devinit cypress_touchkey_probe(struct i2c_client *client,
 	cypress_power_onoff(info, 1);
 
 	msleep(40);
-	
+
 	tkey_check_ic(info);
 
 	if (info->touchkeyid == CORERIVER_TOUCHKEY)
@@ -1859,8 +1859,6 @@ static int __devinit cypress_touchkey_probe(struct i2c_client *client,
 	}
 
 #ifdef CONFIG_POWERSUSPEND
-		info->power_suspend.level =
-				EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
 		info->power_suspend.suspend = cypress_touchkey_power_suspend;
 		info->power_suspend.resume = cypress_touchkey_power_resume;
 		register_power_suspend(&info->power_suspend);
@@ -1930,7 +1928,7 @@ err_sysfs:
 err_fw_update:
 #endif
 	if (info->irq >= 0)
-	free_irq(info->irq, info);	
+	free_irq(info->irq, info);
 #if defined(CONFIG_GLOVE_TOUCH)
 	destroy_workqueue(info->glove_wq);
 #endif
@@ -1946,7 +1944,7 @@ err_reg_input_dev:
 err_i2c_check:
 #endif
 	if (info->pdata->gpio_led_en)
-		cypress_touchkey_con_hw(info, false);	
+		cypress_touchkey_con_hw(info, false);
 	cypress_power_onoff(info, 0);
 err_input_dev_alloc:
 	kfree(info);
@@ -1984,7 +1982,7 @@ static int cypress_touchkey_suspend(struct device *dev)
 	disable_irq(info->irq);
 	if (info->pdata->gpio_led_en)
 		cypress_touchkey_con_hw(info, false);
-	cypress_power_onoff(info, 0);	
+	cypress_power_onoff(info, 0);
 	gpio_tlmm_config(GPIO_CFG(info->pdata->gpio_int, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 1);
 	info->enabled = false;
 	return ret;
@@ -2001,11 +1999,11 @@ static int cypress_touchkey_resume(struct device *dev)
 		cypress_touchkey_con_hw(info, true);
 	msleep(50);
 
-	if (info->touchkeyid == CYPRESS_TOUCHKEY) {	
+	if (info->touchkeyid == CYPRESS_TOUCHKEY) {
 		info->enabled = true;
 		cypress_touchkey_auto_cal(info, false);
 	} else {
-		msleep(150);	
+		msleep(150);
 		info->enabled = true;
 	}
 

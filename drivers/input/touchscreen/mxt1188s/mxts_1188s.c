@@ -2967,7 +2967,6 @@ static int __devinit mxt_probe(struct i2c_client *client,
 	}
 
 #ifdef CONFIG_POWERSUSPEND
-	data->power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
 	data->power_suspend.suspend = mxt_power_suspend;
 	data->power_suspend.resume = mxt_power_resume;
 	register_power_suspend(&data->power_suspend);

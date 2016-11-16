@@ -1770,7 +1770,6 @@ static int ist30xx_probe(struct i2c_client *		client,
 
 
 #ifdef CONFIG_POWERSUSPEND
-	data->power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
 	data->power_suspend.suspend = ist30xx_power_suspend;
 	data->power_suspend.resume = ist30xx_power_resume;
 	register_power_suspend(&data->power_suspend);

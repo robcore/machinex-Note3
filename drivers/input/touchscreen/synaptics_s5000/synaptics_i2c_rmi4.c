@@ -2204,7 +2204,6 @@ static int __devinit synaptics_rmi4_probe(struct i2c_client *client,
 	}
 
 #ifdef CONFIG_POWERSUSPEND
-	rmi4_data->power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
 	rmi4_data->power_suspend.suspend = synaptics_rmi4_power_suspend;
 	rmi4_data->power_suspend.resume = synaptics_rmi4_power_resume;
 	register_power_suspend(&rmi4_data->power_suspend);

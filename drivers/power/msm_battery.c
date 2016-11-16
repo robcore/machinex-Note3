@@ -1427,7 +1427,6 @@ static int __devinit msm_batt_probe(struct platform_device *pdev)
 	}
 
 #ifdef CONFIG_POWERSUSPEND
-	msm_batt_info.power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN;
 	msm_batt_info.power_suspend.suspend = msm_batt_power_suspend;
 	msm_batt_info.power_suspend.resume = msm_batt_power_resume;
 	register_power_suspend(&msm_batt_info.power_suspend);

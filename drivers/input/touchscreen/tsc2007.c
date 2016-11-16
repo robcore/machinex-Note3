@@ -30,7 +30,6 @@
 
 #if defined(CONFIG_POWERSUSPEND)
 #include <linux/powersuspend.h>
-#define TSC2007_SUSPEND_LEVEL 1
 #endif
 
 #define TSC2007_MEASURE_TEMP0		(0x0 << 4)
@@ -444,8 +443,6 @@ static int __devinit tsc2007_probe(struct i2c_client *client,
 		goto err_free_irq;
 
 #ifdef CONFIG_POWERSUSPEND
-	ts->power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN +
-						TSC2007_SUSPEND_LEVEL;
 	ts->power_suspend.suspend = tsc2007_power_suspend;
 	ts->power_suspend.resume = tsc2007_power_resume;
 	register_power_suspend(&ts->power_suspend);

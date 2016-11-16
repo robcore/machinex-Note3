@@ -1704,7 +1704,6 @@ static int fts_probe(struct i2c_client *client, const struct i2c_device_id *idp)
 #endif
 
 #ifdef CONFIG_POWERSUSPEND
-	info->power_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
 	info->power_suspend.suspend = fts_power_suspend;
 	info->early_sfts_start_deviceuspend.resume = fts_power_resume;
 	register_power_suspend(&info->power_suspend);
