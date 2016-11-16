@@ -1079,10 +1079,10 @@ struct synaptics_rmi4_device_tree_data {
  * @rmi4_mod_info: device information
  * @regulator: pointer to associated regulator
  * @rmi4_io_ctrl_mutex: mutex for i2c i/o control
- * @power_suspend: instance to support early suspend power management
+ * @power_suspend: instance to support power suspend power management
  * @current_page: current page in sensor to acess
  * @button_0d_enabled: flag for 0d button support
- * @full_pm_cycle: flag for full power management cycle in early suspend stage
+ * @full_pm_cycle: flag for full power management cycle in power suspend stage
  * @num_of_intr_regs: number of interrupt registers
  * @f01_query_base_addr: query base address for f01
  * @f01_cmd_base_addr: command base address for f01

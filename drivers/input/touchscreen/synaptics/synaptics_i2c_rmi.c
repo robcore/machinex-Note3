@@ -164,9 +164,10 @@ static ssize_t synaptics_rmi4_0dbutton_show(struct device *dev,
 
 static ssize_t synaptics_rmi4_0dbutton_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count);
-
+#ifndef CONFIG_POWERSUSPEND
 static ssize_t synaptics_rmi4_suspend_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count);
+#endif
 
 static struct device_attribute attrs[] = {
 	__ATTR(regval, (S_IRUGO | S_IWUSR | S_IWGRP),
@@ -214,9 +215,11 @@ static struct device_attribute attrs[] = {
 	__ATTR(0dbutton, (S_IRUGO | S_IWUSR | S_IWGRP),
 			synaptics_rmi4_0dbutton_show,
 			synaptics_rmi4_0dbutton_store),
+#ifndef CONFIG_POWERSUSPEND
 	__ATTR(suspend, S_IWUSR | S_IWGRP,
 			synaptics_rmi4_show_error,
 			synaptics_rmi4_suspend_store),
+#endif
 };
 
 #ifdef READ_LCD_ID
@@ -643,7 +646,7 @@ int synaptics_rmi4_glove_mode_enables(struct synaptics_rmi4_data *rmi4_data)
 		dev_err(&rmi4_data->i2c_client->dev,
 			"%s: f12 set_feature write fail[%d]\n", __func__, retval);
 	}
-	
+
 #ifdef ENABLE_F12_OBJTYPE
 	retval = synaptics_rmi4_f12_obj_type_enable(rmi4_data);
 	if (retval < 0) {
@@ -1191,7 +1194,7 @@ static ssize_t synaptics_rmi4_0dbutton_store(struct device *dev,
 
 	return count;
 }
-
+#ifndef CONFIG_POWERSUSPEND
 static ssize_t synaptics_rmi4_suspend_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
@@ -1209,6 +1212,7 @@ static ssize_t synaptics_rmi4_suspend_store(struct device *dev,
 
 	return count;
 }
+#endif
 
 /**
  * synaptics_rmi4_set_page()
@@ -2418,11 +2422,11 @@ int synaptics_rmi4_irq_enable(struct synaptics_rmi4_data *rmi4_data,
 
 		if (rmi4_data->dt_data->extra_config[3])
 		retval = request_threaded_irq(rmi4_data->irq, NULL,
-				synaptics_rmi4_irq, TSP_IRQ_TYPE_LEVEL, 
+				synaptics_rmi4_irq, TSP_IRQ_TYPE_LEVEL,
 				DRIVER_NAME, rmi4_data);
 		else
 			retval = request_threaded_irq(rmi4_data->irq, NULL,
-				synaptics_rmi4_irq, TSP_IRQ_TYPE_EDGE, 
+				synaptics_rmi4_irq, TSP_IRQ_TYPE_EDGE,
 				DRIVER_NAME, rmi4_data);
 
 		if (retval < 0) {
@@ -2819,7 +2823,7 @@ static int synaptics_rmi4_f12_init(struct synaptics_rmi4_data *rmi4_data,
 					__func__, __LINE__, retval);
 			return retval;
 		}
-	
+
 		retval = synaptics_rmi4_f12_set_feature(rmi4_data);
 		if (retval < 0) {
 			dev_err(&rmi4_data->i2c_client->dev, "%s: f12_set_feature fail[%d]\n",
@@ -4381,7 +4385,7 @@ static int synaptics_rmi4_reinit_device(struct synaptics_rmi4_data *rmi4_data)
 		list_for_each_entry(fhandler, &rmi->support_fn_list, link) {
 			if (fhandler->fn_number == SYNAPTICS_RMI4_F12) {
 #ifdef GLOVE_MODE
-				retval = synaptics_rmi4_glove_mode_enables(rmi4_data);				
+				retval = synaptics_rmi4_glove_mode_enables(rmi4_data);
 				if (retval < 0) {
 					dev_err(&rmi4_data->i2c_client->dev,
 							"%s: Failed to glove mode enable, error = %d\n",
@@ -5015,14 +5019,14 @@ static void synaptics_get_firmware_name(struct synaptics_rmi4_data *rmi4_data)
 			rmi4_data->firmware_name = FW_IMAGE_NAME_S5707_KLIMT;
 		else if (strncmp(rmi4_data->dt_data->project, "RUBENS", 6) == 0)
 			rmi4_data->firmware_name = FW_IMAGE_NAME_S5707_RUBENS;
-		else 
+		else
 			rmi4_data->firmware_name = FW_IMAGE_NAME_S5707;
 	} else if (rmi4_data->ic_version == SYNAPTICS_PRODUCT_ID_S5708) {
 		rmi4_data->firmware_name = FW_IMAGE_NAME_S5708;
 	} else if (rmi4_data->ic_version == SYNAPTICS_PRODUCT_ID_S5006) {
-		rmi4_data->firmware_name = FW_IMAGE_NAME_S5006;		
+		rmi4_data->firmware_name = FW_IMAGE_NAME_S5006;
 	} else if (rmi4_data->ic_version == SYNAPTICS_PRODUCT_ID_S5710) {
-			rmi4_data->firmware_name = FW_IMAGE_NAME_S5710; 	
+			rmi4_data->firmware_name = FW_IMAGE_NAME_S5710;
 	} else {
 		rmi4_data->firmware_name = FW_IMAGE_NAME_NONE;
 	}
@@ -5753,7 +5757,7 @@ static void synaptics_rmi4_input_close(struct input_dev *dev)
 /**
  * synaptics_rmi4_power_suspend()
  *
- * Called by the kernel during the early suspend phase when the system
+ * Called by the kernel during the power suspend phase when the system
  * enters suspend.
  *
  * This function calls synaptics_rmi4_sensor_sleep() to stop finger
@@ -5788,7 +5792,7 @@ static void synaptics_rmi4_power_suspend(struct power_suspend *h)
  * wakes up from suspend.
  *
  * This function goes through the sensor wake process if the system wakes
- * up from early suspend (without going into suspend).
+ * up from power suspend (without going into suspend).
  */
 static void synaptics_rmi4_power_resume(struct power_suspend *h)
 {
@@ -5821,7 +5825,7 @@ static void synaptics_rmi4_power_resume(struct power_suspend *h)
  * enters suspend.
  *
  * This function stops finger data acquisition and puts the sensor to
- * sleep (if not already done so during the early suspend phase),
+ * sleep (if not already done so during the power suspend phase),
  * disables the interrupt, and turns off the power to the sensor.
  */
 static int synaptics_rmi4_suspend(struct device *dev)
