@@ -499,7 +499,6 @@ static char DYNAMIC_UI_2[] = {
 	0x36,
 };
 
-#if !defined(CONFIG_MDNIE_LITE_CONTROL)
 static char MOVIE_UI_1[] = {
 	0xEB,
 	0x01, //mdnie_en
