@@ -106,6 +106,7 @@ void unlock_policy_rwsem_write(int cpu)
 	BUG_ON(policy_cpu == -1);
 	up_write(&per_cpu(cpu_policy_rwsem, policy_cpu));
 }
+EXPORT_SYMBOL_GPL(have_governor_per_policy);
 
 
 /* internal prototypes */
