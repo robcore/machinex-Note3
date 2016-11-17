@@ -59,8 +59,6 @@ module_param(input_boost_ms, uint, 0644);
 static u64 last_input_time;
 #define MIN_INPUT_INTERVAL (150 * USEC_PER_MSEC)
 
-static unsigned int sync_threshold;
-module_param(sync_threshold, uint, 0644);
 /*
  * The CPUFREQ_ADJUST notifier is used to override the current policy min to
  * make sure policy min >= boost_min. The cpufreq framework then does the job
