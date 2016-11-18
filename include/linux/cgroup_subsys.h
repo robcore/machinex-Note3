@@ -61,6 +61,12 @@ SUBSYS(blkio)
 
 /* */
 
+#ifdef CONFIG_CGROUP_BFQIO
+SUBSYS(bfqio)
+#endif
+
+/* */
+
 #ifdef CONFIG_CGROUP_PERF
 SUBSYS(perf)
 #endif
@@ -69,6 +75,5 @@ SUBSYS(perf)
 
 #ifdef CONFIG_NETPRIO_CGROUP
 SUBSYS(net_prio)
-#endif
 
 /* */
