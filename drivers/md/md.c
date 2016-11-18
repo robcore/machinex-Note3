@@ -802,7 +802,7 @@ static int alloc_disk_sb(struct md_rdev * rdev)
 	return 0;
 }
 
-static void free_disk_sb(struct md_rdev * rdev)
+void md_rdev_clear(struct md_rdev *rdev)
 {
 	if (rdev->sb_page) {
 		put_page(rdev->sb_page);
@@ -815,8 +815,10 @@ static void free_disk_sb(struct md_rdev * rdev)
 		put_page(rdev->bb_page);
 		rdev->bb_page = NULL;
 	}
+	kfree(rdev->badblocks.page);
+	rdev->badblocks.page = NULL;
 }
-
+EXPORT_SYMBOL_GPL(md_rdev_clear);
 
 static void super_written(struct bio *bio, int error)
 {
@@ -1218,9 +1220,12 @@ static int super_90_validate(struct mddev *mddev, struct md_rdev *rdev)
 		mddev->max_disks = MD_SB_DISKS;
 
 		if (sb->state & (1<<MD_SB_BITMAP_PRESENT) &&
-		    mddev->bitmap_info.file == NULL)
+		    mddev->bitmap_info.file == NULL) {
 			mddev->bitmap_info.offset =
 				mddev->bitmap_info.default_offset;
+			mddev->bitmap_info.space =
+				mddev->bitmap_info.space;
+		}
 
 	} else if (mddev->pers == NULL) {
 		/* Insist on good event counter while assembling, except
@@ -1652,9 +1657,23 @@ static int super_1_validate(struct mddev *mddev, struct md_rdev *rdev)
 		mddev->max_disks =  (4096-256)/2;
 
 		if ((le32_to_cpu(sb->feature_map) & MD_FEATURE_BITMAP_OFFSET) &&
-		    mddev->bitmap_info.file == NULL )
+		    mddev->bitmap_info.file == NULL) {
 			mddev->bitmap_info.offset =
 				(__s32)le32_to_cpu(sb->bitmap_offset);
+			/* Metadata doesn't record how much space is available.
+			 * For 1.0, we assume we can use up to the superblock
+			 * if before, else to 4K beyond superblock.
+			 * For others, assume no change is possible.
+			 */
+			if (mddev->minor_version > 0)
+				mddev->bitmap_info.space = 0;
+			else if (mddev->bitmap_info.offset > 0)
+				mddev->bitmap_info.space =
+					8 - mddev->bitmap_info.offset;
+			else
+				mddev->bitmap_info.space =
+					-mddev->bitmap_info.offset;
+		}
 
 		if ((le32_to_cpu(sb->feature_map) & MD_FEATURE_RESHAPE_ACTIVE)) {
 			mddev->reshape_position = le64_to_cpu(sb->reshape_position);
@@ -2105,9 +2124,7 @@ static void unbind_rdev_from_array(struct md_rdev * rdev)
 	sysfs_remove_link(&rdev->kobj, "block");
 	sysfs_put(rdev->sysfs_state);
 	rdev->sysfs_state = NULL;
-	kfree(rdev->badblocks.page);
 	rdev->badblocks.count = 0;
-	rdev->badblocks.page = NULL;
 	/* We need to delay this, otherwise we can deadlock when
 	 * writing to 'remove' to "dev/state".  We also need
 	 * to delay it due to rcu usage.
@@ -2158,7 +2175,7 @@ static void export_rdev(struct md_rdev * rdev)
 		bdevname(rdev->bdev,b));
 	if (rdev->mddev)
 		MD_BUG();
-	free_disk_sb(rdev);
+	md_rdev_clear(rdev);
 #ifndef MODULE
 	if (test_bit(AutoDetected, &rdev->flags))
 		md_autodetect_dev(rdev->bdev->bd_dev);
@@ -3175,8 +3192,7 @@ static struct md_rdev *md_import_device(dev_t newdev, int super_format, int supe
 abort_free:
 	if (rdev->bdev)
 		unlock_rdev(rdev);
-	free_disk_sb(rdev);
-	kfree(rdev->badblocks.page);
+	md_rdev_clear(rdev);
 	kfree(rdev);
 	return ERR_PTR(err);
 }
@@ -5077,6 +5093,7 @@ static void md_clean(struct mddev *mddev)
 	mddev->merge_check_needed = 0;
 	mddev->bitmap_info.offset = 0;
 	mddev->bitmap_info.default_offset = 0;
+	mddev->bitmap_info.default_space = 0;
 	mddev->bitmap_info.chunksize = 0;
 	mddev->bitmap_info.daemon_sleep = 0;
 	mddev->bitmap_info.max_write_behind = 0;
@@ -5887,6 +5904,7 @@ static int set_array_info(struct mddev * mddev, mdu_array_info_t *info)
 	set_bit(MD_CHANGE_DEVS, &mddev->flags);
 
 	mddev->bitmap_info.default_offset = MD_SB_BYTES >> 9;
+	mddev->bitmap_info.default_space = 64*2 - (MD_SB_BYTES >> 9);
 	mddev->bitmap_info.offset = 0;
 
 	mddev->reshape_position = MaxSector;
@@ -6051,6 +6069,8 @@ static int update_array_info(struct mddev *mddev, mdu_array_info_t *info)
 				return -EINVAL;
 			mddev->bitmap_info.offset =
 				mddev->bitmap_info.default_offset;
+			mddev->bitmap_info.space =
+				mddev->bitmap_info.default_space;
 			mddev->pers->quiesce(mddev, 1);
 			rv = bitmap_create(mddev);
 			if (!rv)
