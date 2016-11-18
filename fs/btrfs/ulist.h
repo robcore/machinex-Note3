@@ -28,6 +28,10 @@ struct ulist_iterator {
 	int i;
 };
 
+struct ulist_iterator {
+	int i;
+};
+
 /*
  * element of the list
  */

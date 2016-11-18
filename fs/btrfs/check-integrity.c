@@ -93,6 +93,7 @@
 #include "print-tree.h"
 #include "locking.h"
 #include "check-integrity.h"
+#include "rcu-string.h"
 
 #define BTRFSIC_BLOCK_HASHTABLE_SIZE 0x10000
 #define BTRFSIC_BLOCK_LINK_HASHTABLE_SIZE 0x10000
@@ -843,13 +844,14 @@ static int btrfsic_process_superblock_dev_mirror(
 		superblock_tmp->never_written = 0;
 		superblock_tmp->mirror_num = 1 + superblock_mirror_num;
 		if (state->print_mask & BTRFSIC_PRINT_MASK_SUPERBLOCK_WRITE)
-			printk(KERN_INFO "New initial S-block (bdev %p, %s)"
-			       " @%llu (%s/%llu/%d)\n",
-			       superblock_bdev, device->name,
-			       (unsigned long long)dev_bytenr,
-			       dev_state->name,
-			       (unsigned long long)dev_bytenr,
-			       superblock_mirror_num);
+			printk_in_rcu(KERN_INFO "New initial S-block (bdev %p, %s)"
+				     " @%llu (%s/%llu/%d)\n",
+				     superblock_bdev,
+				     rcu_str_deref(device->name),
+				     (unsigned long long)dev_bytenr,
+				     dev_state->name,
+				     (unsigned long long)dev_bytenr,
+				     superblock_mirror_num);
 		list_add(&superblock_tmp->all_blocks_node,
 			 &state->all_blocks_list);
 		btrfsic_block_hashtable_add(superblock_tmp,
@@ -1428,6 +1430,28 @@ static int btrfsic_handle_extent_data(
 
 	file_extent_item_offset = offsetof(struct btrfs_leaf, items) +
 				  item_offset;
+	if (file_extent_item_offset +
+	    offsetof(struct btrfs_file_extent_item, disk_num_bytes) >
+	    block_ctx->len) {
+		printk(KERN_INFO
+		       "btrfsic: file item out of bounce at logical %llu, dev %s\n",
+		       block_ctx->start, block_ctx->dev->name);
+		return -1;
+	}
+
+	btrfsic_read_from_block_data(block_ctx, &file_extent_item,
+		file_extent_item_offset,
+		offsetof(struct btrfs_file_extent_item, disk_num_bytes));
+	if (BTRFS_FILE_EXTENT_REG != file_extent_item.type ||
+	    ((u64)0) == le64_to_cpu(file_extent_item.disk_bytenr)) {
+		if (state->print_mask & BTRFSIC_PRINT_MASK_VERY_VERBOSE)
+			printk(KERN_INFO "extent_data: type %u, disk_bytenr = %llu\n",
+			       file_extent_item.type,
+			       (unsigned long long)
+			       le64_to_cpu(file_extent_item.disk_bytenr));
+		return 0;
+	}
+
 	if (file_extent_item_offset + sizeof(struct btrfs_file_extent_item) >
 	    block_ctx->len) {
 		printk(KERN_INFO
@@ -1452,9 +1476,6 @@ static int btrfsic_handle_extent_data(
 		       le64_to_cpu(file_extent_item.disk_bytenr),
 		       (unsigned long long)le64_to_cpu(file_extent_item.offset),
 		       (unsigned long long)num_bytes);
-	if (BTRFS_FILE_EXTENT_REG != file_extent_item.type ||
-	    ((u64)0) == le64_to_cpu(file_extent_item.disk_bytenr))
-		return 0;
 	while (num_bytes > 0) {
 		u32 chunk_len;
 		int num_copies;
@@ -3318,7 +3339,7 @@ void btrfsic_unmount(struct btrfs_root *root,
 				btrfsic_block_link_free(l);
 		}
 
-		if (b_all->is_iodone)
+		if (b_all->is_iodone || b_all->never_written)
 			btrfsic_block_free(b_all);
 		else
 			printk(KERN_INFO "btrfs: attempt to free %c-block"
