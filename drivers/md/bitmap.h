@@ -160,14 +160,9 @@ struct bitmap_page {
 	 */
 	unsigned int hijacked:1;
 	/*
-	 * If any counter in this page is '1' or '2' - and so could be
-	 * cleared then that page is marked as 'pending'
-	 */
-	unsigned int pending:1;
-	/*
 	 * count of dirty bits on the page
 	 */
-	unsigned int  count:30;
+	unsigned int  count:31;
 };
 
 /* the main bitmap structure - one per mddev */

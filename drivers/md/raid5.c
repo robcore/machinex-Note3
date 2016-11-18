@@ -518,8 +518,6 @@ static void ops_run_io(struct stripe_head *sh, struct stripe_head_state *s)
 			replace_only = 1;
 		} else
 			continue;
-		if (test_and_clear_bit(R5_SyncIO, &sh->dev[i].flags))
-			rw |= REQ_SYNC;
 
 		bi = &sh->dev[i].req;
 		rbi = &sh->dev[i].rreq; /* For writing to replacement */
@@ -1116,8 +1114,6 @@ ops_run_biodrain(struct stripe_head *sh, struct dma_async_tx_descriptor *tx)
 				dev->sector + STRIPE_SECTORS) {
 				if (wbi->bi_rw & REQ_FUA)
 					set_bit(R5_WantFUA, &dev->flags);
-				if (wbi->bi_rw & REQ_SYNC)
-					set_bit(R5_SyncIO, &dev->flags);
 				tx = async_copy_data(1, wbi, dev->page,
 					dev->sector, tx);
 				wbi = r5_next_bio(wbi, dev->sector);
@@ -1135,15 +1131,13 @@ static void ops_complete_reconstruct(void *stripe_head_ref)
 	int pd_idx = sh->pd_idx;
 	int qd_idx = sh->qd_idx;
 	int i;
-	bool fua = false, sync = false;
+	bool fua = false;
 
 	pr_debug("%s: stripe %llu\n", __func__,
 		(unsigned long long)sh->sector);
 
-	for (i = disks; i--; ) {
+	for (i = disks; i--; )
 		fua |= test_bit(R5_WantFUA, &sh->dev[i].flags);
-		sync |= test_bit(R5_SyncIO, &sh->dev[i].flags);
-	}
 
 	for (i = disks; i--; ) {
 		struct r5dev *dev = &sh->dev[i];
@@ -1152,8 +1146,6 @@ static void ops_complete_reconstruct(void *stripe_head_ref)
 			set_bit(R5_UPTODATE, &dev->flags);
 			if (fua)
 				set_bit(R5_WantFUA, &dev->flags);
-			if (sync)
-				set_bit(R5_SyncIO, &dev->flags);
 		}
 	}
 
@@ -3970,10 +3962,12 @@ static void make_request(struct mddev *mddev, struct bio * bi)
 	plugged = mddev_check_plugged(mddev);
 	for (;logical_sector < last_sector; logical_sector += STRIPE_SECTORS) {
 		DEFINE_WAIT(w);
+		int disks, data_disks;
 		int previous;
 
 	retry:
 		previous = 0;
+		disks = conf->raid_disks;
 		prepare_to_wait(&conf->wait_for_overlap, &w, TASK_UNINTERRUPTIBLE);
 		if (unlikely(conf->reshape_progress != MaxSector)) {
 			/* spinlock is needed as reshape_progress may be
@@ -3988,6 +3982,7 @@ static void make_request(struct mddev *mddev, struct bio * bi)
 			if (mddev->delta_disks < 0
 			    ? logical_sector < conf->reshape_progress
 			    : logical_sector >= conf->reshape_progress) {
+				disks = conf->previous_raid_disks;
 				previous = 1;
 			} else {
 				if (mddev->delta_disks < 0
@@ -4000,6 +3995,7 @@ static void make_request(struct mddev *mddev, struct bio * bi)
 			}
 			spin_unlock_irq(&conf->device_lock);
 		}
+		data_disks = disks - conf->max_degraded;
 
 		new_sector = raid5_compute_sector(conf, logical_sector,
 						  previous,
