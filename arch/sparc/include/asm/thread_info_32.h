@@ -142,8 +142,7 @@ BTFIXUPDEF_CALL(void, free_thread_info, struct thread_info *)
 #define _TIF_POLLING_NRFLAG	(1<<TIF_POLLING_NRFLAG)
 
 #define _TIF_DO_NOTIFY_RESUME_MASK	(_TIF_NOTIFY_RESUME | \
-					 _TIF_SIGPENDING | \
-					 _TIF_RESTORE_SIGMASK)
+					 _TIF_SIGPENDING)
 
 #endif /* __KERNEL__ */
 
