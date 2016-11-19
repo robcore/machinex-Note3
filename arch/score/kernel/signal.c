@@ -33,8 +33,6 @@
 #include <asm/syscalls.h>
 #include <asm/ucontext.h>
 
-#define _BLOCKABLE (~(sigmask(SIGKILL) | sigmask(SIGSTOP)))
-
 struct rt_sigframe {
 	u32 rs_ass[4];		/* argument save space */
 	u32 rs_code[2];		/* signal trampoline */

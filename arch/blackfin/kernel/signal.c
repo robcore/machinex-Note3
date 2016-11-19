@@ -19,8 +19,6 @@
 #include <asm/fixed_code.h>
 #include <asm/syscall.h>
 
-#define _BLOCKABLE (~(sigmask(SIGKILL) | sigmask(SIGSTOP)))
-
 /* Location of the trace bit in SYSCFG. */
 #define TRACE_BITS 0x0001
 

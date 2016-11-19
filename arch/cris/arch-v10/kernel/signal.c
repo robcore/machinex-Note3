@@ -31,8 +31,6 @@
 
 #define DEBUG_SIG 0
 
-#define _BLOCKABLE (~(sigmask(SIGKILL) | sigmask(SIGSTOP)))
-
 /* a syscall in Linux/CRIS is a break 13 instruction which is 2 bytes */
 /* manipulate regs so that upon return, it will be re-executed */
 

@@ -31,8 +31,6 @@
 
 #define DEBUG_SIG 0
 
-#define _BLOCKABLE (~(sigmask(SIGKILL) | sigmask(SIGSTOP)))
-
 /*
  * atomically swap in the new signal mask, and wait for a signal.
  */

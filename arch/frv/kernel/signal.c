@@ -28,8 +28,6 @@
 
 #define DEBUG_SIG 0
 
-#define _BLOCKABLE (~(sigmask(SIGKILL) | sigmask(SIGSTOP)))
-
 struct fdpic_func_descriptor {
 	unsigned long	text;
 	unsigned long	GOT;

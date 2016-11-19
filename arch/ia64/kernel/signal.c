@@ -30,7 +30,6 @@
 
 #define DEBUG_SIG	0
 #define STACK_ALIGN	16		/* minimal alignment for stack pointer */
-#define _BLOCKABLE	(~(sigmask(SIGKILL) | sigmask(SIGSTOP)))
 
 #if _NSIG_WORDS > 1
 # define PUT_SIGSET(k,u)	__copy_to_user((u)->sig, (k)->sig, sizeof(sigset_t))

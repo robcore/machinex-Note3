@@ -22,8 +22,6 @@
 #include <asm/ucontext.h>
 #include <asm/syscalls.h>
 
-#define _BLOCKABLE (~(sigmask(SIGKILL) | sigmask(SIGSTOP)))
-
 asmlinkage int sys_sigaltstack(const stack_t __user *uss, stack_t __user *uoss,
 			       struct pt_regs *regs)
 {

@@ -24,9 +24,6 @@
 
 extern unsigned long cris_signal_return_page;
 
-/* Flag to check if a signal is blockable. */
-#define _BLOCKABLE (~(sigmask(SIGKILL) | sigmask(SIGSTOP)))
-
 /*
  * A syscall in CRIS is really a "break 13" instruction, which is 2
  * bytes. The registers is manipulated so upon return the instruction
