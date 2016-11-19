@@ -270,7 +270,7 @@ static int prev_insn(struct pt_regs *regs)
  * OK, we're invoking a handler
  */
 
-static int
+static void
 handle_signal(unsigned long sig, struct k_sigaction *ka, siginfo_t *info,
 	      struct pt_regs *regs)
 {
@@ -341,8 +341,7 @@ static void do_signal(struct pt_regs *regs)
 		 */
 
 		/* Whee!  Actually deliver the signal.  */
-		if (handle_signal(signr, &ka, &info, regs) == 0)
-			clear_thread_flag(TIF_RESTORE_SIGMASK);
+		handle_signal(signr, &ka, &info, regs);
 
 		return;
 	}

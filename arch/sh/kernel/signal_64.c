@@ -43,7 +43,7 @@
 
 #define _BLOCKABLE (~(sigmask(SIGKILL) | sigmask(SIGSTOP)))
 
-static int
+static void
 handle_signal(unsigned long sig, siginfo_t *info, struct k_sigaction *ka,
 		struct pt_regs * regs);
 
@@ -711,7 +711,7 @@ give_sigsegv:
 /*
  * OK, we're invoking a handler
  */
-static int
+static void
 handle_signal(unsigned long sig, siginfo_t *info, struct k_sigaction *ka,
 		struct pt_regs * regs)
 {
@@ -724,10 +724,12 @@ handle_signal(unsigned long sig, siginfo_t *info, struct k_sigaction *ka,
 	else
 		ret = setup_frame(sig, ka, oldset, regs);
 
-	if (ret == 0)
-		block_sigmask(ka, sig);
+	if (ret)
+		return;
 
-	return ret;
+	block_sigmask(ka, sig);
+	tracehook_signal_handler(sig, info, ka, regs,
+			test_thread_flag(TIF_SINGLESTEP));
 }
 
 asmlinkage void do_notify_resume(struct pt_regs *regs, unsigned long thread_info_flags)

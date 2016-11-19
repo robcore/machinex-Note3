@@ -312,7 +312,7 @@ do_restart:
  * OK, we're invoking a handler
  */
 
-static int
+static void
 handle_signal(unsigned long sig, struct k_sigaction *ka,
 		siginfo_t *info, sigset_t *oldset, struct pt_regs *regs)
 {
