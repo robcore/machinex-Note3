@@ -521,8 +521,9 @@ handle_syscall_restart(unsigned long save_r0, struct pt_regs *regs,
  */
 static int
 handle_signal(unsigned long sig, struct k_sigaction *ka, siginfo_t *info,
-	      sigset_t *oldset, struct pt_regs *regs, unsigned int save_r0)
+	      struct pt_regs *regs, unsigned int save_r0)
 {
+	sigset_t *oldset = sigmask_to_save();
 	int ret;
 
 	/* Set up the stack frame */
@@ -551,7 +552,6 @@ static void do_signal(struct pt_regs *regs, unsigned int save_r0)
 	siginfo_t info;
 	int signr;
 	struct k_sigaction ka;
-	sigset_t *oldset;
 
 	/*
 	 * We want the common case to go fast, which
@@ -562,17 +562,12 @@ static void do_signal(struct pt_regs *regs, unsigned int save_r0)
 	if (!user_mode(regs))
 		return;
 
-	if (current_thread_info()->status & TS_RESTORE_SIGMASK)
-		oldset = &current->saved_sigmask;
-	else
-		oldset = &current->blocked;
-
 	signr = get_signal_to_deliver(&info, &ka, regs, NULL);
 	if (signr > 0) {
 		handle_syscall_restart(save_r0, regs, &ka.sa);
 
 		/* Whee!  Actually deliver the signal.  */
-		if (handle_signal(signr, &ka, &info, oldset,
+		if (handle_signal(signr, &ka, &info,
 				  regs, save_r0) == 0) {
 			/*
 			 * A signal was successfully delivered; the saved
@@ -607,10 +602,7 @@ static void do_signal(struct pt_regs *regs, unsigned int save_r0)
 	 * If there's no signal to deliver, we just put the saved sigmask
 	 * back.
 	 */
-	if (current_thread_info()->status & TS_RESTORE_SIGMASK) {
-		current_thread_info()->status &= ~TS_RESTORE_SIGMASK;
-		sigprocmask(SIG_SETMASK, &current->saved_sigmask, NULL);
-	}
+	restore_saved_sigmask();
 }
 
 asmlinkage void do_notify_resume(struct pt_regs *regs, unsigned int save_r0,

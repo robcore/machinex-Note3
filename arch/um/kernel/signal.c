@@ -23,9 +23,9 @@ EXPORT_SYMBOL(unblock_signals);
  * OK, we're invoking a handler
  */
 static int handle_signal(struct pt_regs *regs, unsigned long signr,
-			 struct k_sigaction *ka, siginfo_t *info,
-			 sigset_t *oldset)
+			 struct k_sigaction *ka, siginfo_t *info)
 {
+	sigset_t *oldset = sigmask_to_save();
 	unsigned long sp;
 	int err;
 
@@ -134,10 +134,8 @@ static int kern_do_signal(struct pt_regs *regs)
 	 * if there's no signal to deliver, we just put the saved sigmask
 	 * back
 	 */
-	if (!handled_sig && test_thread_flag(TIF_RESTORE_SIGMASK)) {
-		clear_thread_flag(TIF_RESTORE_SIGMASK);
-		sigprocmask(SIG_SETMASK, &current->saved_sigmask, NULL);
-	}
+	if (!handled_sig)
+		restore_saved_sigmask();
 	return handled_sig;
 }
 

@@ -515,8 +515,9 @@ struct mips_abi mips_abi = {
 };
 
 static int handle_signal(unsigned long sig, siginfo_t *info,
-	struct k_sigaction *ka, sigset_t *oldset, struct pt_regs *regs)
+	struct k_sigaction *ka, struct pt_regs *regs)
 {
+	sigset_t *oldset = sigmask_to_save();
 	int ret;
 	struct mips_abi *abi = current->thread.abi;
 	void *vdso = current->mm->context.vdso;
@@ -560,7 +561,6 @@ static int handle_signal(unsigned long sig, siginfo_t *info,
 static void do_signal(struct pt_regs *regs)
 {
 	struct k_sigaction ka;
-	sigset_t *oldset;
 	siginfo_t info;
 	int signr;
 
@@ -572,15 +572,10 @@ static void do_signal(struct pt_regs *regs)
 	if (!user_mode(regs))
 		return;
 
-	if (test_thread_flag(TIF_RESTORE_SIGMASK))
-		oldset = &current->saved_sigmask;
-	else
-		oldset = &current->blocked;
-
 	signr = get_signal_to_deliver(&info, &ka, regs, NULL);
 	if (signr > 0) {
 		/* Whee!  Actually deliver the signal.  */
-		if (handle_signal(signr, &info, &ka, oldset, regs) == 0) {
+		if (handle_signal(signr, &info, &ka, regs) == 0) {
 			/*
 			 * A signal was successfully delivered; the saved
 			 * sigmask will have been stored in the signal frame,
@@ -614,10 +609,7 @@ static void do_signal(struct pt_regs *regs)
 	 * If there's no signal to deliver, we just put the saved sigmask
 	 * back
 	 */
-	if (test_thread_flag(TIF_RESTORE_SIGMASK)) {
-		clear_thread_flag(TIF_RESTORE_SIGMASK);
-		sigprocmask(SIG_SETMASK, &current->saved_sigmask, NULL);
-	}
+	restore_saved_sigmask();
 }
 
 /*

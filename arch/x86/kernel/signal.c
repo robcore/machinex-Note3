@@ -646,11 +646,8 @@ setup_rt_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 		struct pt_regs *regs)
 {
 	int usig = signr_convert(sig);
-	sigset_t *set = &current->blocked;
+	sigset_t *set = sigmask_to_save();
 	int ret;
-
-	if (current_thread_info()->status & TS_RESTORE_SIGMASK)
-		set = &current->saved_sigmask;
 
 	/* Set up the stack frame */
 	if (is_ia32) {
@@ -798,10 +795,7 @@ static void do_signal(struct pt_regs *regs)
 	 * If there's no signal to deliver, we just put the saved sigmask
 	 * back.
 	 */
-	if (current_thread_info()->status & TS_RESTORE_SIGMASK) {
-		current_thread_info()->status &= ~TS_RESTORE_SIGMASK;
-		set_current_blocked(&current->saved_sigmask);
-	}
+	restore_saved_sigmask();
 }
 
 /*

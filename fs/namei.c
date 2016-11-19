@@ -2238,6 +2238,10 @@ static struct file *do_last(struct nameidata *nd, struct path *path,
 	int want_write = 0;
 	int acc_mode = op->acc_mode;
 	struct file *filp;
+	struct inode *inode;
+	int symlink_ok = 0;
+	struct path save_parent = { .dentry = NULL, .mnt = NULL };
+	bool retried = false;
 	int error;
 
 	nd->flags &= ~LOOKUP_PARENT;
@@ -2269,30 +2273,23 @@ static struct file *do_last(struct nameidata *nd, struct path *path,
 	}
 
 	if (!(open_flag & O_CREAT)) {
-		int symlink_ok = 0;
 		if (nd->last.name[nd->last.len])
 			nd->flags |= LOOKUP_FOLLOW | LOOKUP_DIRECTORY;
 		if (open_flag & O_PATH && !(nd->flags & LOOKUP_FOLLOW))
 			symlink_ok = 1;
 		/* we _can_ be in RCU mode here */
-		error = walk_component(nd, path, &nd->last, LAST_NORM,
-					!symlink_ok);
-		if (error < 0)
-			return ERR_PTR(error);
-		if (error) /* symlink */
-			return NULL;
-		/* sayonara */
-		error = complete_walk(nd);
-		if (error)
-			return ERR_PTR(error);
-
-		error = -ENOTDIR;
-		if (nd->flags & LOOKUP_DIRECTORY) {
-			if (!nd->inode->i_op->lookup)
+		error = lookup_fast(nd, &nd->last, path, &inode);
+		if (unlikely(error)) {
+			if (error < 0)
 				goto exit;
+
+			error = lookup_slow(nd, &nd->last, path);
+			if (error < 0)
+				goto exit;
+
+			inode = path->dentry->d_inode;
 		}
-		audit_inode(pathname, nd->path.dentry);
-		goto ok;
+		goto finish_lookup;
 	}
 
 	/* create side of things */
@@ -2310,6 +2307,7 @@ static struct file *do_last(struct nameidata *nd, struct path *path,
 	if (nd->last.name[nd->last.len])
 		goto exit;
 
+retry_lookup:
 	mutex_lock(&dir->d_inode->i_mutex);
 
 	dentry = lookup_hash(nd);
@@ -2371,22 +2369,49 @@ static struct file *do_last(struct nameidata *nd, struct path *path,
 	if (error)
 		nd->flags |= LOOKUP_JUMPED;
 
+	BUG_ON(nd->flags & LOOKUP_RCU);
+	inode = path->dentry->d_inode;
+finish_lookup:
+	/* we _can_ be in RCU mode here */
 	error = -ENOENT;
-	if (!path->dentry->d_inode)
-		goto exit_dput;
+	if (!inode) {
+		path_to_nameidata(path, nd);
+		goto exit;
+	}
 
-	if (path->dentry->d_inode->i_op->follow_link)
+	if (should_follow_link(inode, !symlink_ok)) {
+		if (nd->flags & LOOKUP_RCU) {
+			if (unlikely(unlazy_walk(nd, path->dentry))) {
+				error = -ECHILD;
+				goto exit;
+			}
+		}
+		BUG_ON(inode != path->dentry->d_inode);
 		return NULL;
+	}
 
-	path_to_nameidata(path, nd);
-	nd->inode = path->dentry->d_inode;
+	if ((nd->flags & LOOKUP_RCU) || nd->path.mnt != path->mnt) {
+		path_to_nameidata(path, nd);
+	} else {
+		save_parent.dentry = nd->path.dentry;
+		save_parent.mnt = mntget(path->mnt);
+		nd->path.dentry = path->dentry;
+
+	}
+	nd->inode = inode;
 	/* Why this, you ask?  _Now_ we might have grown LOOKUP_JUMPED... */
 	error = complete_walk(nd);
-	if (error)
+	if (error) {
+		path_put(&save_parent);
 		return ERR_PTR(error);
+	}
 	error = -EISDIR;
-	if (S_ISDIR(nd->inode->i_mode))
+	if ((open_flag & O_CREAT) && S_ISDIR(nd->inode->i_mode))
 		goto exit;
+	error = -ENOTDIR;
+	if ((nd->flags & LOOKUP_DIRECTORY) && !nd->inode->i_op->lookup)
+		goto exit;
+	audit_inode(pathname, nd->path.dentry);
 ok:
 	if (!S_ISREG(nd->inode->i_mode))
 		will_truncate = 0;
@@ -2402,6 +2427,20 @@ common:
 	if (error)
 		goto exit;
 	filp = nameidata_to_filp(nd);
+	if (filp == ERR_PTR(-EOPENSTALE) && save_parent.dentry && !retried) {
+		BUG_ON(save_parent.dentry != dir);
+		path_put(&nd->path);
+		nd->path = save_parent;
+		nd->inode = dir->d_inode;
+		save_parent.mnt = NULL;
+		save_parent.dentry = NULL;
+		if (want_write) {
+			mnt_drop_write(nd->path.mnt);
+			want_write = 0;
+		}
+		retried = true;
+		goto retry_lookup;
+	}
 	if (!IS_ERR(filp)) {
 		error = ima_file_check(filp, op->acc_mode);
 		if (error) {
@@ -2421,6 +2460,7 @@ common:
 out:
 	if (want_write)
 		mnt_drop_write(nd->path.mnt);
+	path_put(&save_parent);
 	terminate_walk(nd);
 	return filp;
 
@@ -2484,6 +2524,12 @@ out:
 	if (base)
 		fput(base);
 	release_open_intent(nd);
+	if (filp == ERR_PTR(-EOPENSTALE)) {
+		if (flags & LOOKUP_RCU)
+			filp = ERR_PTR(-ECHILD);
+		else
+			filp = ERR_PTR(-ESTALE);
+	}
 	return filp;
 
 out_filp:

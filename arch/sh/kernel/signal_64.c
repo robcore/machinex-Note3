@@ -45,7 +45,7 @@
 
 static int
 handle_signal(unsigned long sig, siginfo_t *info, struct k_sigaction *ka,
-		sigset_t *oldset, struct pt_regs * regs);
+		struct pt_regs * regs);
 
 static inline void
 handle_syscall_restart(struct pt_regs *regs, struct sigaction *sa)
@@ -713,8 +713,9 @@ give_sigsegv:
  */
 static int
 handle_signal(unsigned long sig, siginfo_t *info, struct k_sigaction *ka,
-		sigset_t *oldset, struct pt_regs * regs)
+		struct pt_regs * regs)
 {
+	sigset_t *oldset = sigmask_to_save();
 	int ret;
 
 	/* Set up the stack frame */
