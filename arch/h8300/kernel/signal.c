@@ -517,9 +517,6 @@ asmlinkage int do_signal(struct pt_regs *regs, sigset_t *oldset)
 	if ((regs->ccr & 0x10))
 		return 1;
 
-	if (try_to_freeze())
-		goto no_signal;
-
 	current->thread.esp0 = (unsigned long) regs;
 
 	if (!oldset)
@@ -531,7 +528,6 @@ asmlinkage int do_signal(struct pt_regs *regs, sigset_t *oldset)
 		handle_signal(signr, &info, &ka, oldset, regs);
 		return 1;
 	}
- no_signal:
 	/* Did we come from a system call? */
 	if (regs->orig_er0 >= 0) {
 		/* Restart the system call - no handlers present */
