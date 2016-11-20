@@ -2344,6 +2344,12 @@ static inline sigset_t *sigmask_to_save(void)
 	return res;
 }
 
+static inline void restore_saved_sigmask(void)
+{
+	if (test_and_clear_restore_sigmask())
+		set_current_blocked(&current->saved_sigmask);
+}
+
 static inline int kill_cad_pid(int sig, int priv)
 {
 	return kill_pid(cad_pid, sig, priv);
