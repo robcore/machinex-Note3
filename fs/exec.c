@@ -1874,14 +1874,14 @@ static int zap_process(struct task_struct *start, int exit_code)
 	start->signal->group_stop_count = 0;
 
 	t = start;
-	do {
+	for_each_thread(start, t) {
 		task_clear_jobctl_pending(t, JOBCTL_PENDING_MASK);
 		if (t != current && t->mm) {
 			sigaddset(&t->pending.signal, SIGKILL);
 			signal_wake_up(t, 1);
 			nr++;
 		}
-	} while_each_thread(start, t);
+	}
 
 	return nr;
 }
@@ -1941,7 +1941,7 @@ static inline int zap_threads(struct task_struct *tsk, struct mm_struct *mm,
 		if (g->flags & PF_KTHREAD)
 			continue;
 		p = g;
-		do {
+		for_each_thread(g, p) {
 			if (p->mm) {
 				if (unlikely(p->mm == mm)) {
 					lock_task_sighand(p, &flags);
@@ -1950,7 +1950,7 @@ static inline int zap_threads(struct task_struct *tsk, struct mm_struct *mm,
 				}
 				break;
 			}
-		} while_each_thread(g, p);
+		}
 	}
 	rcu_read_unlock();
 done:
