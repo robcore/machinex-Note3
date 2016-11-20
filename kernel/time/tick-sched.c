@@ -278,11 +278,11 @@ u64 get_cpu_iowait_time_us(int cpu, u64 *last_update_time)
 }
 EXPORT_SYMBOL_GPL(get_cpu_iowait_time_us);
 
-static void tick_nohz_stop_sched_tick(struct tick_sched *ts)
+static void tick_nohz_stop_sched_tick(struct tick_sched *ts, ktime_t now)
 {
 	unsigned long seq, last_jiffies, next_jiffies, delta_jiffies;
 	unsigned long rcu_delta_jiffies;
-	ktime_t last_update, expires, now;
+	ktime_t last_update, expires;
 	struct clock_event_device *dev = __get_cpu_var(tick_cpu_device).evtdev;
 	u64 time_delta;
 	int cpu;
@@ -522,7 +522,7 @@ void tick_nohz_irq_exit(void)
 
 	local_irq_save(flags);
 
-	tick_nohz_stop_sched_tick(ts);
+	__tick_nohz_idle_enter(ts);
 
 	local_irq_restore(flags);
 }
