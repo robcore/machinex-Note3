@@ -7,6 +7,9 @@
  * vga_switcheroo.h - Support for laptop with dual GPU using one set of outputs
  */
 
+#ifndef _LINUX_VGA_SWITCHEROO_H_
+#define _LINUX_VGA_SWITCHEROO_H_
+
 #include <linux/fb.h>
 
 struct pci_dev;
@@ -59,3 +62,4 @@ static inline void vga_switcheroo_unregister_handler(void) {}
 static inline int vga_switcheroo_process_delayed_switch(void) { return 0; }
 
 #endif
+#endif /* _LINUX_VGA_SWITCHEROO_H_ */
