@@ -611,6 +611,17 @@ static void srcu_torture_synchronize(void)
 	synchronize_srcu(&srcu_ctl);
 }
 
+static void srcu_torture_call(struct rcu_head *head,
+			      void (*func)(struct rcu_head *head))
+{
+	call_srcu(&srcu_ctl, head, func);
+}
+
+static void srcu_torture_barrier(void)
+{
+	srcu_barrier(&srcu_ctl);
+}
+
 static int srcu_torture_stats(char *page)
 {
 	int cnt = 0;
@@ -956,7 +967,11 @@ rcu_torture_fakewriter(void *arg)
 	do {
 		schedule_timeout_uninterruptible(1 + rcu_random(&rand)%10);
 		udelay(rcu_random(&rand) & 0x3ff);
-		cur_ops->sync();
+		if (cur_ops->cb_barrier != NULL &&
+		    rcu_random(&rand) % (nfakewriters * 8) == 0)
+			cur_ops->cb_barrier();
+		else
+			cur_ops->sync();
 		rcu_stutter_wait("rcu_torture_fakewriter");
 	} while (!kthread_should_stop() && fullstop == FULLSTOP_DONTSTOP);
 

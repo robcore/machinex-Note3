@@ -104,6 +104,7 @@ struct rcu_dynticks {
 				    /* # times non-lazy CBs posted to CPU. */
 	unsigned long nonlazy_posted_snap;
 				    /* idle-period nonlazy_posted snapshot. */
+	int tick_nohz_enabled_snap; /* Previously seen value from sysfs. */
 #endif /* #ifdef CONFIG_RCU_FAST_NO_HZ */
 };
 
@@ -318,6 +319,9 @@ struct rcu_data {
 	unsigned long n_rp_need_fqs;
 	unsigned long n_rp_need_nothing;
 
+	/* 6) _rcu_barrier() callback. */
+	struct rcu_head barrier_head;
+
 	int cpu;
 	struct rcu_state *rsp;
 };
@@ -368,6 +372,8 @@ struct rcu_state {
 	u32 levelcnt[MAX_RCU_LVLS + 1];		/* # nodes in each level. */
 	u8 levelspread[RCU_NUM_LVLS];		/* kids/node in each level. */
 	struct rcu_data __percpu *rda;		/* pointer of percu rcu_data. */
+	void (*call)(struct rcu_head *head,	/* call_rcu() flavor. */
+		     void (*func)(struct rcu_head *head));
 
 	/* The following fields are guarded by the root rcu_node's lock. */
 
@@ -399,6 +405,11 @@ struct rcu_state {
 	struct task_struct *rcu_barrier_in_progress;
 						/* Task doing rcu_barrier(), */
 						/*  or NULL if no barrier. */
+	struct mutex barrier_mutex;		/* Guards barrier fields. */
+	atomic_t barrier_cpu_count;		/* # CPUs waiting on. */
+	struct completion barrier_completion;	/* Wake at barrier end. */
+	unsigned long n_barrier_done;		/* ++ at start and end of */
+						/*  _rcu_barrier(). */
 	raw_spinlock_t fqslock;			/* Only one task forcing */
 						/*  quiescent states. */
 	unsigned long jiffies_force_qs;		/* Time at which to invoke */
@@ -416,7 +427,12 @@ struct rcu_state {
 	unsigned long gp_max;			/* Maximum GP duration in */
 						/*  jiffies. */
 	char *name;				/* Name of structure. */
+	struct list_head flavors;		/* List of RCU flavors. */
 };
+
+extern struct list_head rcu_struct_flavors;
+#define for_each_rcu_flavor(rsp) \
+	list_for_each_entry((rsp), &rcu_struct_flavors, flavors)
 
 /* Return values for rcu_preempt_offline_tasks(). */
 
