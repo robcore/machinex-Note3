@@ -21,8 +21,9 @@
 #include <linux/dmaengine.h>
 #include <linux/interrupt.h>
 
-struct pl08x_lli;
 struct pl08x_driver_data;
+struct pl08x_phy_chan;
+struct pl08x_txd;
 
 /* Bitmasks for selecting AHB ports for DMA transfers */
 enum {
@@ -51,22 +52,18 @@ enum {
  * can be the address of a FIFO register for burst requests for example.
  * This can be left undefined if the PrimeCell API is used for configuring
  * this.
- * @circular_buffer: whether the buffer passed in is circular and
- * shall simply be looped round round (like a record baby round
- * round round round)
  * @single: the device connected to this channel will request single DMA
  * transfers, not bursts. (Bursts are default.)
  * @periph_buses: the device connected to this channel is accessible via
  * these buses (use PL08X_AHB1 | PL08X_AHB2).
  */
 struct pl08x_channel_data {
-	char *bus_id;
+	const char *bus_id;
 	int min_signal;
 	int max_signal;
 	u32 muxval;
 	u32 cctl;
 	dma_addr_t addr;
-	bool circular_buffer;
 	bool single;
 	u8 periph_buses;
 };
@@ -226,8 +223,8 @@ struct pl08x_platform_data {
 	const struct pl08x_channel_data *slave_channels;
 	unsigned int num_slave_channels;
 	struct pl08x_channel_data memcpy_channel;
-	int (*get_signal)(struct pl08x_dma_chan *);
-	void (*put_signal)(struct pl08x_dma_chan *);
+	int (*get_signal)(const struct pl08x_channel_data *);
+	void (*put_signal)(const struct pl08x_channel_data *, int);
 	u8 lli_buses;
 	u8 mem_buses;
 };

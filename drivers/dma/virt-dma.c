@@ -39,6 +39,19 @@ dma_cookie_t vchan_tx_submit(struct dma_async_tx_descriptor *tx)
 }
 EXPORT_SYMBOL_GPL(vchan_tx_submit);
 
+struct virt_dma_desc *vchan_find_desc(struct virt_dma_chan *vc,
+	dma_cookie_t cookie)
+{
+	struct virt_dma_desc *vd;
+
+	list_for_each_entry(vd, &vc->desc_issued, node)
+		if (vd->tx.cookie == cookie)
+			return vd;
+
+	return NULL;
+}
+EXPORT_SYMBOL_GPL(vchan_find_desc);
+
 /*
  * This tasklet handles the completion of a DMA descriptor by
  * calling its callback and freeing it.
@@ -46,17 +59,28 @@ EXPORT_SYMBOL_GPL(vchan_tx_submit);
 static void vchan_complete(unsigned long arg)
 {
 	struct virt_dma_chan *vc = (struct virt_dma_chan *)arg;
+	struct virt_dma_desc *vd;
+	dma_async_tx_callback cb = NULL;
+	void *cb_data = NULL;
 	LIST_HEAD(head);
 
 	spin_lock_irq(&vc->lock);
 	list_splice_tail_init(&vc->desc_completed, &head);
+	vd = vc->cyclic;
+	if (vd) {
+		vc->cyclic = NULL;
+		cb = vd->tx.callback;
+		cb_data = vd->tx.callback_param;
+	}
 	spin_unlock_irq(&vc->lock);
 
+	if (cb)
+		cb(cb_data);
+
 	while (!list_empty(&head)) {
-		struct virt_dma_desc *vd = list_first_entry(&head,
-				struct virt_dma_desc, node);
-		dma_async_tx_callback cb = vd->tx.callback;
-		void *cb_data = vd->tx.callback_param;
+		vd = list_first_entry(&head, struct virt_dma_desc, node);
+		cb = vd->tx.callback;
+		cb_data = vd->tx.callback_param;
 
 		list_del(&vd->node);
 

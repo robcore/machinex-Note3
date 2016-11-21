@@ -32,6 +32,8 @@ struct virt_dma_chan {
 	struct list_head desc_submitted;
 	struct list_head desc_issued;
 	struct list_head desc_completed;
+
+	struct virt_dma_desc *cyclic;
 };
 
 static inline struct virt_dma_chan *to_virt_chan(struct dma_chan *chan)
@@ -40,8 +42,8 @@ static inline struct virt_dma_chan *to_virt_chan(struct dma_chan *chan)
 }
 
 void vchan_dma_desc_free_list(struct virt_dma_chan *vc, struct list_head *head);
-
 void vchan_init(struct virt_dma_chan *vc, struct dma_device *dmadev);
+struct virt_dma_desc *vchan_find_desc(struct virt_dma_chan *, dma_cookie_t);
 
 /**
  * vchan_tx_prep - prepare a descriptor
@@ -88,6 +90,18 @@ static inline void vchan_cookie_complete(struct virt_dma_desc *vd)
 		vd, vd->tx.cookie);
 	list_add_tail(&vd->node, &vc->desc_completed);
 
+	tasklet_schedule(&vc->task);
+}
+
+/**
+ * vchan_cyclic_callback - report the completion of a period
+ * vd: virtual descriptor
+ */
+static inline void vchan_cyclic_callback(struct virt_dma_desc *vd)
+{
+	struct virt_dma_chan *vc = to_virt_chan(vd->tx.chan);
+
+	vc->cyclic = vd;
 	tasklet_schedule(&vc->task);
 }
 
