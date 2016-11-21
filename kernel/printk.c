@@ -1140,29 +1140,53 @@ static int syslog_print_line(u32 idx, char *text, size_t size)
 static int syslog_print(char __user *buf, int size)
 {
 	char *text;
-	int len;
+	struct log *msg;
+	int len = 0;
 
 	text = kmalloc(LOG_LINE_MAX, GFP_KERNEL);
 	if (!text)
 		return -ENOMEM;
 
-	raw_spin_lock_irq(&logbuf_lock);
-	if (syslog_seq < log_first_seq) {
-		/* messages are gone, move to first one */
-		syslog_seq = log_first_seq;
-		syslog_idx = log_first_idx;
-	}
-	len = syslog_print_line(syslog_idx, text, LOG_LINE_MAX);
-	syslog_idx = log_next(syslog_idx);
-	syslog_seq++;
-	raw_spin_unlock_irq(&logbuf_lock);
+	while (size > 0) {
+		size_t n;
 
-	if (len > 0 && copy_to_user(buf, text, len))
-		len = -EFAULT;
+		raw_spin_lock_irq(&logbuf_lock);
+		if (syslog_seq < log_first_seq) {
+			/* messages are gone, move to first one */
+			syslog_seq = log_first_seq;
+			syslog_idx = log_first_idx;
+		}
+		if (syslog_seq == log_next_seq) {
+			raw_spin_unlock_irq(&logbuf_lock);
+			break;
+		}
+		msg = log_from_idx(syslog_idx);
+		n = msg_print_text(msg, true, text, LOG_LINE_MAX);
+		if (n <= size) {
+			syslog_idx = log_next(syslog_idx);
+			syslog_seq++;
+		} else
+			n = 0;
+		raw_spin_unlock_irq(&logbuf_lock);
+
+		if (!n)
+			break;
+
+		len += n;
+		size -= n;
+		buf += n;
+		n = copy_to_user(buf - n, text, n);
+
+		if (n) {
+			len -= n;
+			if (!len)
+				len = -EFAULT;
+			break;
+		}
+	}
 
 	kfree(text);
 	return len;
-}
 
 static int syslog_print_all(char __user *buf, int size, bool clear)
 {
